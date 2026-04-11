@@ -21,6 +21,14 @@ const SURFACE_WAVE_AMPLITUDE = 3;   // px, wave height
 const SURFACE_WAVE_SPEED = 1.5;     // animation speed
 const SURFACE_SPARKLE_COUNT = 60;   // number of sparkle particles
 
+// ── Background Wave Constants ──
+const BG_WAVE_COUNT = 5;            // number of background wave lines
+const BG_WAVE_SEGMENTS = 80;        // vertices per wave line
+const BG_WAVE_AMPLITUDE = 6;        // px, wave height
+
+// ── Ambient Bubble Constants ──
+const AMBIENT_BUBBLE_COUNT = 30;    // number of ambient bubbles in water
+
 // ── Background Constants ──
 const BG_LAYER_COUNT = 3;           // parallax background layers
 
@@ -44,8 +52,11 @@ export class VoxelRenderer {
     // New visual elements
     this.godRays = [];
     this.surfaceWaveMesh = null;
+    this.waterFillMesh = null;
     this.surfaceSparkles = [];
     this.bgLayers = [];
+    this.bgWaves = [];
+    this.ambientBubbles = [];
     this._textureCache = {};
   }
 
@@ -823,9 +834,119 @@ export class VoxelRenderer {
     }
   }
 
+  // ── Build background wave lines (subtle horizontal waves behind terrain) ──
+  buildBackgroundWaves() {
+    const THREE = this.THREE;
+    const surfaceY = -WATER_SURFACE_Y;
+
+    for (let i = 0; i < BG_WAVE_COUNT; i++) {
+      const depth = -120 - i * 60;                          // z: -120 to -360
+      const yOffset = -80 - i * 100;                         // spread vertically below surface
+      const opacity = 0.06 - i * 0.008;                      // fainter further back
+      const color = new THREE.Color().setHSL(0.55, 0.5, 0.4 + i * 0.05);
+
+      // Build a line geometry with enough segments for smooth wave
+      const points = [];
+      for (let j = 0; j <= BG_WAVE_SEGMENTS; j++) {
+        const x = (j / BG_WAVE_SEGMENTS) * (WORLD_W + 200) - 100;
+        points.push(new THREE.Vector3(x, surfaceY + yOffset, depth));
+      }
+
+      const geo = new THREE.BufferGeometry().setFromPoints(points);
+      const mat = new THREE.LineBasicMaterial({
+        color,
+        transparent: true,
+        opacity,
+        depthWrite: false,
+      });
+      const line = new THREE.Line(geo, mat);
+      line.renderOrder = -80;
+      this.scene.add(line);
+
+      this.bgWaves.push({
+        line,
+        baseY: surfaceY + yOffset,
+        amplitude: BG_WAVE_AMPLITUDE + i * 2,
+        speed: 0.8 - i * 0.1,
+        frequency: 0.008 + i * 0.002,
+        phase: i * 1.5,
+      });
+    }
+  }
+
+  // ── Spawn ambient bubbles around the player ──
+  // Called once at init — creates the pool. Bubbles respawn around player in syncFrame.
+  buildAmbientBubbles() {
+    // Pool is pre-allocated; actual spawning happens in syncFrame
+    this._ambientBubblePool = [];
+    this._ambientSpawnTimer = 0;
+  }
+
+  _spawnAmbientBubble(playerX, playerY) {
+    const THREE = this.THREE;
+    if (this.ambientBubbles.length >= AMBIENT_BUBBLE_COUNT) return;
+
+    const size = 0.6 + Math.random() * 2.5;
+    const geo = new THREE.SphereGeometry(size, 5, 5);
+    const maxOpacity = 0.1 + Math.random() * 0.15;
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0x88ccff,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+
+    // Spawn in a radius around the player, biased downward
+    const spawnRadius = 250;
+    const ox = (Math.random() - 0.5) * spawnRadius * 2;
+    // Bias Y offset downward so bubbles appear below/around the player
+    const oy = -Math.random() * spawnRadius * 1.2;
+    let spawnY = -playerY + oy;
+    // Clamp: never spawn above water surface
+    const waterSurfaceThreeY = -WATER_SURFACE_Y;
+    if (spawnY > waterSurfaceThreeY - 15) {
+      spawnY = waterSurfaceThreeY - 15 - Math.random() * 100;
+    }
+    mesh.position.set(
+      playerX + ox,
+      spawnY,
+      (Math.random() - 0.5) * 50
+    );
+    this.scene.add(mesh);
+
+    this.ambientBubbles.push({
+      mesh,
+      maxOpacity,
+      life: 3 + Math.random() * 5,               // 3-8 seconds lifetime
+      age: 0,
+      vy: 5 + Math.random() * 12,                // slow rise px/s
+      phase: Math.random() * Math.PI * 2,
+      wobbleSpeed: 0.8 + Math.random() * 2,
+      wobbleAmount: 1.5 + Math.random() * 4,
+      baseX: mesh.position.x,
+    });
+  }
+
   // ── Build god rays (volumetric light beams from above) ──
   buildGodRays() {
     const THREE = this.THREE;
+
+    // Shared gradient texture for soft fade-out at bottom of rays
+    const rayCanvas = document.createElement('canvas');
+    rayCanvas.width = 1;
+    rayCanvas.height = 64;
+    const rCtx = rayCanvas.getContext('2d');
+    const rayGrad = rCtx.createLinearGradient(0, 0, 0, 64);
+    rayGrad.addColorStop(0, 'rgba(110, 200, 245, 0.0)');   // top (canvas): transparent — maps to ray bottom
+    rayGrad.addColorStop(0.3, 'rgba(110, 200, 245, 0.4)'); // fading in
+    rayGrad.addColorStop(0.6, 'rgba(110, 200, 245, 1.0)'); // bright core
+    rayGrad.addColorStop(0.85, 'rgba(110, 200, 245, 0.6)'); // fading toward top of ray
+    rayGrad.addColorStop(1.0, 'rgba(110, 200, 245, 0.0)'); // top (canvas): transparent — maps to ray top
+    rCtx.fillStyle = rayGrad;
+    rCtx.fillRect(0, 0, 1, 64);
+    const rayTexture = new THREE.CanvasTexture(rayCanvas);
 
     for (let i = 0; i < GOD_RAY_COUNT; i++) {
       const x = (i / GOD_RAY_COUNT) * WORLD_W + (Math.sin(i * 7.3) * 200);
@@ -843,8 +964,20 @@ export class VoxelRenderer {
       shape.closePath();
 
       const geo = new THREE.ShapeGeometry(shape);
+
+      // Remap UVs: top of shape (y=h/2) → v=1 (canvas top), bottom (y=-h/2) → v=0 (canvas bottom)
+      // Three.js CanvasTexture: v=0 is canvas bottom, v=1 is canvas top
+      const uvAttr = geo.attributes.uv;
+      const posAttr = geo.attributes.position;
+      for (let j = 0; j < posAttr.count; j++) {
+        const py = posAttr.getY(j);
+        const v = (py + h / 2) / h; // map y: bottom(-h/2)=0, top(h/2)=1
+        uvAttr.setXY(j, 0.5, v);
+      }
+      uvAttr.needsUpdate = true;
+
       const mat = new THREE.MeshBasicMaterial({
-        color: 0x6ec8f5,
+        map: rayTexture,
         transparent: true,
         opacity: GOD_RAY_OPACITY + Math.sin(i * 4.1) * 0.02,
         depthWrite: false,
@@ -894,16 +1027,19 @@ export class VoxelRenderer {
     const indices = [];
     const uvs = [];
 
-    // 3 rows of vertices: top, middle (surface line), bottom — for visible wave height
+    // 3 rows of vertices: top, middle (surface line), bottom
+    // Top is thin (8px), bottom extends further (30px) for a soft fade into water
+    const SURFACE_TOP = 8;    // px above surface line
+    const SURFACE_BOTTOM = 30; // px below surface line — room for gradient fade
     const rowCount = 3;
     for (let i = 0; i <= pixelSegments; i++) {
       const x = -2 * TILE_SIZE + i * segW;
       const u = i / pixelSegments;
-      positions.push(x, surfaceY + 20, 0);  // top
+      positions.push(x, surfaceY + SURFACE_TOP, 0);     // top
       uvs.push(u, 1);
-      positions.push(x, surfaceY, 0);       // middle (surface line)
+      positions.push(x, surfaceY, 0);                    // middle (surface line)
       uvs.push(u, 0.5);
-      positions.push(x, surfaceY - 20, 0);  // bottom
+      positions.push(x, surfaceY - SURFACE_BOTTOM, 0);  // bottom (extended for fade)
       uvs.push(u, 0);
     }
 
@@ -938,18 +1074,19 @@ export class VoxelRenderer {
         const r = Math.sin(seed * 9871) * 43758.5453;
         const rng = r - Math.floor(r);
 
-        // Fade at top and bottom edges, brightest in middle rows (6-9)
+        // Fade: top rows fade in, middle rows bright, bottom rows long gentle fade out
+        // Row 0-3: above surface (top edge), row 7-8: bright core, row 9-15: fade into water
         let alpha = 0;
         if (py < 4) {
           alpha = py / 4 * 0.3;           // gentle fade in from top
         } else if (py < 7) {
           alpha = 0.3 + (py - 4) / 3 * 0.5; // build up to brightest
-        } else if (py < 10) {
+        } else if (py < 9) {
           alpha = 0.8 - rng * 0.1;         // bright core band
-        } else if (py < 13) {
-          alpha = 0.6 - (py - 10) / 3 * 0.3; // fade down
         } else {
-          alpha = 0.3 * (1 - (py - 13) / 3); // gentle fade out
+          // Long smooth fade out into water (rows 9-15)
+          const t = (py - 9) / 7;          // 0..1 over 7 rows
+          alpha = 0.5 * (1 - t * t);       // quadratic ease-out for smooth falloff
         }
 
         const blue = 190 + rng * 50;
@@ -992,6 +1129,36 @@ export class VoxelRenderer {
     this.scene.add(mesh);
     this.surfaceWaveMesh = mesh;
     this._surfacePixelSegments = pixelSegments;
+
+    // ── Water fill plane — covers gap between wave mesh and background ──
+    // Gradient texture: transparent at top (blends into surface), dark at bottom
+    const waterDepth = WORLD_H - WATER_SURFACE_Y + 50;
+    const fillCanvas = document.createElement('canvas');
+    fillCanvas.width = 1;
+    fillCanvas.height = 128;
+    const fCtx = fillCanvas.getContext('2d');
+    const fillGrad = fCtx.createLinearGradient(0, 0, 0, 128);
+    fillGrad.addColorStop(0, 'rgba(8, 42, 74, 0.0)');    // top: transparent at surface
+    fillGrad.addColorStop(0.08, 'rgba(8, 42, 74, 0.15)'); // gentle fade in
+    fillGrad.addColorStop(0.25, 'rgba(8, 42, 74, 0.35)');
+    fillGrad.addColorStop(0.5, 'rgba(8, 42, 74, 0.5)');
+    fillGrad.addColorStop(1.0, 'rgba(6, 30, 53, 0.6)');  // bottom: darkest
+    fCtx.fillStyle = fillGrad;
+    fCtx.fillRect(0, 0, 1, 128);
+    const fillTexture = new THREE.CanvasTexture(fillCanvas);
+
+    const fillGeo = new THREE.PlaneGeometry(worldW + 400, waterDepth);
+    const fillMat = new THREE.MeshBasicMaterial({
+      map: fillTexture,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const fillMesh = new THREE.Mesh(fillGeo, fillMat);
+    fillMesh.position.set(worldW / 2, surfaceY - waterDepth / 2, -50);
+    fillMesh.renderOrder = -60;
+    this.scene.add(fillMesh);
+    this.waterFillMesh = fillMesh;
   }
 
   // ── Sparkle particles floating on water surface ──
@@ -1219,9 +1386,9 @@ export class VoxelRenderer {
         const wave =
           Math.sin(x * 0.015 + this._time * SURFACE_WAVE_SPEED) * SURFACE_WAVE_AMPLITUDE * 1.5 +
           Math.sin(x * 0.04 + this._time * SURFACE_WAVE_SPEED * 1.3) * SURFACE_WAVE_AMPLITUDE;
-        positions.setY(base, surfaceY + 20 + wave);       // top
-        positions.setY(base + 1, surfaceY + wave);         // middle
-        positions.setY(base + 2, surfaceY - 20 + wave * 0.3); // bottom
+        positions.setY(base, surfaceY + 8 + wave);         // top
+        positions.setY(base + 1, surfaceY + wave);          // middle
+        positions.setY(base + 2, surfaceY - 30 + wave * 0.1); // bottom (extended fade)
       }
       positions.needsUpdate = true;
 
@@ -1239,7 +1406,52 @@ export class VoxelRenderer {
       sp.mesh.position.y = -WATER_SURFACE_Y + Math.sin(t * 0.5) * 3;
     }
 
-    // (water is now a static gradient plane — no animation needed)
+    // ── Animate background waves ──
+    for (const bw of this.bgWaves) {
+      const positions = bw.line.geometry.attributes.position;
+      for (let j = 0; j <= BG_WAVE_SEGMENTS; j++) {
+        const x = positions.getX(j);
+        const wave = Math.sin(x * bw.frequency + this._time * bw.speed + bw.phase) * bw.amplitude;
+        positions.setY(j, bw.baseY + wave);
+      }
+      positions.needsUpdate = true;
+    }
+
+    // ── Ambient bubbles around the player ──
+    if (fishBody && fishBody.position.y > WATER_SURFACE_Y) {
+      // Spawn new bubbles periodically
+      this._ambientSpawnTimer = (this._ambientSpawnTimer || 0) + dt;
+      const spawnInterval = 0.15; // spawn a bubble every ~150ms
+      while (this._ambientSpawnTimer >= spawnInterval) {
+        this._ambientSpawnTimer -= spawnInterval;
+        this._spawnAmbientBubble(fishBody.position.x, fishBody.position.y);
+      }
+    }
+
+    const abWaterLimit = -WATER_SURFACE_Y - 10; // stop bubbles below surface
+    for (let i = this.ambientBubbles.length - 1; i >= 0; i--) {
+      const ab = this.ambientBubbles[i];
+      ab.age += dt;
+      ab.mesh.position.y += ab.vy * dt;
+      // Clamp to water surface — never go above
+      if (ab.mesh.position.y > abWaterLimit) {
+        ab.mesh.position.y = abWaterLimit;
+      }
+      ab.mesh.position.x = ab.baseX + Math.sin(this._time * ab.wobbleSpeed + ab.phase) * ab.wobbleAmount;
+
+      // Fade in, hold, fade out over lifetime
+      const fadeIn = Math.min(1, ab.age / 0.5);          // 0.5s fade in
+      const fadeOut = Math.max(0, (ab.life - ab.age) / 1); // 1s fade out
+      ab.mesh.material.opacity = ab.maxOpacity * fadeIn * fadeOut;
+
+      // Remove when expired
+      if (ab.age >= ab.life) {
+        this.scene.remove(ab.mesh);
+        ab.mesh.geometry.dispose();
+        ab.mesh.material.dispose();
+        this.ambientBubbles.splice(i, 1);
+      }
+    }
   }
 
   dispose() {
@@ -1275,6 +1487,21 @@ export class VoxelRenderer {
       this.scene.remove(sp.mesh);
       sp.mesh.geometry.dispose();
       sp.mesh.material.dispose();
+    }
+    if (this.waterFillMesh) {
+      this.scene.remove(this.waterFillMesh);
+      this.waterFillMesh.geometry.dispose();
+      this.waterFillMesh.material.dispose();
+    }
+    for (const bw of this.bgWaves) {
+      this.scene.remove(bw.line);
+      bw.line.geometry.dispose();
+      bw.line.material.dispose();
+    }
+    for (const ab of this.ambientBubbles) {
+      this.scene.remove(ab.mesh);
+      ab.mesh.geometry.dispose();
+      ab.mesh.material.dispose();
     }
     for (const texture of Object.values(this._textureCache)) {
       texture.dispose();

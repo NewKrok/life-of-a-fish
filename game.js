@@ -87,6 +87,8 @@ voxelRenderer.setupLighting();
 voxelRenderer.buildBackground();
 voxelRenderer.buildTerrain();
 voxelRenderer.buildWater(WORLD_W, WORLD_H);
+voxelRenderer.buildBackgroundWaves();
+voxelRenderer.buildAmbientBubbles();
 voxelRenderer.buildGodRays();
 const playerFishMesh = voxelRenderer.buildFish();
 

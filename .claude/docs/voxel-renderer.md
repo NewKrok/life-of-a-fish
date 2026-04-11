@@ -51,24 +51,32 @@ Voxel groups built from hardcoded coordinate arrays:
 - Linear gradient: deep blue → pale blue → golden glow at water line
 - Sun glow: bright circle at upper-right (WORLD_W * 0.7) with additive blending + outer halo
 
+### Background Waves
+- `BG_WAVE_COUNT` (5) horizontal wave lines behind terrain (z: -120 to -360)
+- Built with `LineBasicMaterial`, animated sine-wave vertex displacement in `syncFrame()`
+- Each line has unique amplitude, speed, and frequency; opacity fades with depth (0.06 → 0.02)
+
 ### God Rays (Volumetric Light)
 - `GOD_RAY_COUNT` (12) trapezoid-shaped beams from the water surface downward
 - Narrow at top, wider at bottom; uses `AdditiveBlending`
 - Tilted ~15° (`rotation.z = -0.26`) so light appears to come from the right (matching the sun position)
+- **Soft fade-out at bottom**: uses a shared canvas gradient texture mapped via UV (top=full opacity → bottom=transparent), replacing the old hard-edge cutoff
 - Animated: horizontal sway (`sin`) + opacity pulsing per ray
 - Constants: `GOD_RAY_MAX_WIDTH` 80px, `GOD_RAY_HEIGHT` 600px, `GOD_RAY_OPACITY` 0.07
 
 ## Water
 
-### Water Volume
-- Translucent box with a vertical gradient texture (lighter at top, darker at bottom)
-- 30% opacity, `NormalBlending`
+### Water Fill Plane
+- Double-sided plane (`0x0e5a8a`, 25% opacity) spanning from water surface to world bottom
+- Fills the visual gap between the wave mesh and the background gradient
+- Positioned at z=25 (behind wave mesh at z=30, in front of terrain at z=0)
 
 ### Water Surface (Pixelated)
 - Triangle-strip mesh with one segment per tile (chunky pixel-art look)
+- Surface band is ±8px tall (reduced from ±20px for a thinner, crisper line)
 - Pixelated 32x16 texture with `NearestFilter` — Minecraft-style pixel blocks instead of smooth gradient
-- Wave animation uses quantized (stepped) sine values for a retro pixel feel
-- Texture scroll is also stepped (discrete frames) for consistency
+- Wave animation uses smooth sine values; pixel look comes from tile-width segments + NearestFilter
+- Texture scroll for subtle shimmer
 
 ### Surface Sparkles
 - `SURFACE_SPARKLE_COUNT` (60) small plane particles along the surface
@@ -86,14 +94,19 @@ Built via `buildPearls(pearlBodies)`:
 
 ## Bubbles
 
-Particle-like system using small sphere meshes:
-
+### Player/Enemy Bubbles
 - Spawned when player fish moves fast or enters water; also spawned for enemy fish (at lower frequency)
 - Rise with upward velocity + slight horizontal drift
 - Fade opacity over 1.5–3.5 second lifetime
 - Fade out and are removed when reaching the water surface (no bubbles above water)
 - Use `AdditiveBlending` for a glowing look
 - Removed from scene when expired or surfaced
+
+### Ambient Bubbles
+- `AMBIENT_BUBBLE_COUNT` (30) small spheres scattered throughout the underwater area
+- Slowly rise (8–23 px/s) with horizontal sine-wave wobble
+- Low opacity (0.08–0.18) with `AdditiveBlending` for subtle atmosphere
+- Respawn at the bottom of the water column when reaching the surface
 
 ## Lighting Setup
 
@@ -117,4 +130,5 @@ Called every frame after physics step. Updates:
 6. God ray sway and opacity pulsing
 7. Water surface wave vertex animation + texture scrolling
 8. Surface sparkle flash pattern
-9. Water volume gentle bob
+9. Background wave vertex animation
+10. Ambient bubble rise, wobble, and respawn
