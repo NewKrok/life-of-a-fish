@@ -1,0 +1,101 @@
+# Life of a Fish
+
+Underwater fish platformer — 2D side-scrolling game running in the browser.
+
+## Tech Stack
+
+- **Physics**: nape-js v3.26.0 (CDN) — rigid body, fluid simulation, collision
+- **Rendering**: Three.js v0.170.0 (CDN) — WebGL with orthographic camera, InstancedMesh for terrain
+- **Language**: Vanilla ES6+ modules, no TypeScript
+- **Build**: None — plain ES modules loaded via CDN, no bundler, no npm
+
+## Running
+
+Serve the root directory with any static HTTP server and open `index.html`:
+
+```bash
+python -m http.server 8000
+# or
+npx http-server
+```
+
+## Project Structure
+
+```
+index.html            — Entry point, two canvases (WebGL + HUD overlay)
+game.js               — Main game loop, physics setup, camera, collision listeners
+fish-controller.js    — Player movement: swim/dash/jump states, water detection
+voxel-renderer.js     — Three.js voxel rendering: terrain, fish models, bubbles, water
+level-data.js         — Tile map definition (125×25), entity parsing, body merging
+touch-controls.js     — Mobile virtual joystick + dash button (pointer events)
+example.js            — Nape-js physics reference/demo (not used in game)
+```
+
+## Architecture
+
+### Game Loop (game.js, 60 FPS)
+
+1. Aggregate input (keyboard + touch)
+2. Update enemy patrol AI
+3. `FishController.update()` — movement, dash, water transitions
+4. Clamp player to world bounds
+5. `nape.Space.step()` — physics (dt=1/60, 8 velocity / 3 position iterations)
+6. Camera smooth-follow player
+7. `VoxelRenderer.syncFrame()` — sync 3D meshes to physics bodies
+8. Three.js render
+9. HUD canvas draw (pearl count, state, depth, controls)
+
+### Physics (nape-js)
+
+- Terrain: solid bodies built via greedy rectangle merging from tile map
+- Water: `FluidProperties` zone with density & viscosity for buoyancy
+- Player: dynamic body with `CharacterController` for ground detection
+- Enemies: kinematic bodies with patrol behavior
+- Pearls / hazards: sensor shapes with `InteractionListener` callbacks
+- Each entity class has its own `CbType` for collision filtering
+
+### Rendering (Three.js)
+
+- Terrain uses `InstancedMesh` per tile type (stone, sand, coral, seaweed)
+- Fish models are voxel groups — body, eye, fins, animated tail
+- Water is translucent box with animated surface line
+- Bubbles are sprite particles with velocity and fade
+- Lighting: ambient (blue) + directional (warm) + fill (cool) + fog
+
+### Level Format (level-data.js)
+
+Tile map is a string grid (125 cols × 25 rows, 32px tiles):
+
+| Char | Meaning     | Tile ID |
+|------|-------------|---------|
+| `.`  | Empty       | 0       |
+| `#`  | Stone       | 1       |
+| `s`  | Sand        | 2       |
+| `c`  | Coral       | 3       |
+| `x`  | Hazard      | 4       |
+| `p`  | Pearl       | 5       |
+| `e`  | Enemy       | 6       |
+| `@`  | Player spawn| 7       |
+
+Water surface is at row 4 (128px).
+
+## Detailed Documentation
+
+Deep-dive docs live in `.claude/docs/`. Refer to these when working on the relevant subsystem:
+
+- [fish-controller.md](.claude/docs/fish-controller.md) — Player movement states, tuning constants, dash/jump mechanics, water detection
+- [voxel-renderer.md](.claude/docs/voxel-renderer.md) — Three.js rendering: terrain instancing, fish voxel models, water/bubble animation, lighting
+- [nape-physics-setup.md](.claude/docs/nape-physics-setup.md) — Physics space config, body types, CbType collision system, greedy rectangle merging
+
+**After completing a task**, check whether the changes affect any of these docs and update them to stay in sync with the code.
+
+## Conventions
+
+- **Constants**: `SCREAMING_SNAKE_CASE` with units in comments (`px/s`, `px/s²`, `ms`)
+- **Variables/functions**: `camelCase`
+- **Classes**: `PascalCase` — one class per file
+- **Private methods**: underscore prefix (`_detectInWater`)
+- **Section markers**: `// ── Section Name ──`
+- **Physics units**: pixels for position, px/s for velocity, px/s² for acceleration
+- **All assets are procedural** — no external images, textures, or audio files
+- **No tests** — prototype/demo project
