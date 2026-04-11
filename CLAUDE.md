@@ -79,6 +79,7 @@ Tile map is a string grid (125 cols × 25 rows, 32px tiles):
 | `p`  | Pearl       | 5       |
 | `e`  | Enemy       | 6       |
 | `@`  | Player spawn| 7       |
+| `d`  | Seagrass    | 8       |
 
 Water surface is at row 4 (128px).
 

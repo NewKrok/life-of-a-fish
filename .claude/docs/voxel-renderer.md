@@ -11,7 +11,8 @@ Each tile type gets its own `InstancedMesh` with a single `BoxGeometry(TILE_SIZE
 | Stone   | Bright grays with random patches and darker cracks   |
 | Sand    | Warm brown tones with grain dots and wave lines      |
 | Coral   | Vibrant pinks/reds with polyp bumps and highlights   |
-| Seaweed | Green with leaf veins and spots                      |
+| Hazard  | Red with spike/cross pattern and dark edges           |
+| Seagrass | Green kelp blades with lighter vertical streaks       |
 
 Each pixel in the 16x16 grid is drawn as a 4x4 block on a 64x64 canvas. Block edges have highlight (top/left bright) and shadow (bottom/right dark) for a 3D pixel-art look.
 
@@ -49,7 +50,6 @@ Voxel groups built from hardcoded coordinate arrays:
 ### Sky (Above Water)
 - Sky gradient plane behind everything (z=-380), covering the area above the water surface
 - Linear gradient: deep blue → pale blue → golden glow at water line
-- Sun glow: bright circle at upper-right (WORLD_W * 0.7) with additive blending + outer halo
 
 ### Background Waves
 - `BG_WAVE_COUNT` (5) horizontal wave lines behind terrain (z: -120 to -360)
@@ -87,7 +87,7 @@ Voxel groups built from hardcoded coordinate arrays:
 
 Built via `buildPearls(pearlBodies)`:
 
-- Gold spheres using `SphereGeometry(6, 8, 8)`
+- Gold cubes using `BoxGeometry(10, 10, 10)` for voxel-consistent look
 - `MeshStandardMaterial` with emissive glow (`color: 0xfff0c0`, `emissive: 0xffd93d`, `emissiveIntensity: 0.5`)
 - Animated in `syncFrame()`: vertical bob (sine wave) + Y-axis spin
 - Auto-removed when collected (detected by `body.space === null`)
@@ -96,6 +96,7 @@ Built via `buildPearls(pearlBodies)`:
 
 ### Player/Enemy Bubbles
 - Spawned when player fish moves fast or enters water; also spawned for enemy fish (at lower frequency)
+- `BoxGeometry` cubes for voxel-consistent look
 - Rise with upward velocity + slight horizontal drift
 - Fade opacity over 1.5–3.5 second lifetime
 - Fade out and are removed when reaching the water surface (no bubbles above water)
@@ -103,7 +104,7 @@ Built via `buildPearls(pearlBodies)`:
 - Removed from scene when expired or surfaced
 
 ### Ambient Bubbles
-- `AMBIENT_BUBBLE_COUNT` (30) small spheres scattered throughout the underwater area
+- `AMBIENT_BUBBLE_COUNT` (30) small cubes (`BoxGeometry`) scattered throughout the underwater area
 - Slowly rise (8–23 px/s) with horizontal sine-wave wobble
 - Low opacity (0.08–0.18) with `AdditiveBlending` for subtle atmosphere
 - Respawn at the bottom of the water column when reaching the surface

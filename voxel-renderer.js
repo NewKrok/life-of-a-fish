@@ -184,23 +184,23 @@ export class VoxelRenderer {
       ctx.fillRect(size - px, 0, px, size);
 
     } else if (type === 4) {
-      // ── Seaweed/hazard: bright green Minecraft leaf style ──
-      ctx.fillStyle = '#4aad62';
+      // ── Hazard: red spiky Minecraft-style danger block ──
+      ctx.fillStyle = '#aa2020';
       ctx.fillRect(0, 0, size, size);
 
       for (let py = 0; py < 16; py++) {
         for (let px2 = 0; px2 < 16; px2++) {
           const r = rng(py * 16 + px2 + 3000);
-          const red = 40 + r * 40;
-          const green = 130 + r * 80;   // 130-210 bright green
-          const blue = 50 + r * 40;
-          ctx.fillStyle = `rgb(${red}, ${Math.min(220, green)}, ${blue})`;
+          const red = 140 + r * 90;     // 140-230 bright red
+          const green = 20 + r * 30;    // 20-50 low green
+          const blue = 15 + r * 25;     // 15-40 low blue
+          ctx.fillStyle = `rgb(${Math.min(230, red)}, ${green}, ${blue})`;
           ctx.fillRect(px2 * px, py * px, px, px);
         }
       }
 
-      // Vein pattern — darker pixels in cross
-      ctx.fillStyle = 'rgba(25, 80, 40, 0.5)';
+      // Spike/cross pattern — darker pixels
+      ctx.fillStyle = 'rgba(80, 10, 10, 0.5)';
       for (let i = 0; i < 16; i++) {
         ctx.fillRect(7 * px, i * px, px * 2, px); // vertical center
       }
@@ -213,10 +213,60 @@ export class VoxelRenderer {
       }
 
       // Block edge
-      ctx.fillStyle = 'rgba(120, 200, 130, 0.3)';
+      ctx.fillStyle = 'rgba(255, 100, 100, 0.3)';
       ctx.fillRect(0, 0, size, px);
       ctx.fillRect(0, 0, px, size);
-      ctx.fillStyle = 'rgba(15, 60, 25, 0.4)';
+      ctx.fillStyle = 'rgba(60, 5, 5, 0.4)';
+      ctx.fillRect(0, size - px, size, px);
+      ctx.fillRect(size - px, 0, px, size);
+
+    } else if (type === 8) {
+      // ── Seagrass: green kelp/grass blades, non-solid decoration ──
+      // Transparent background — only the blade pixels are visible
+      ctx.fillStyle = '#1a5c2a';
+      ctx.fillRect(0, 0, size, size);
+
+      for (let py = 0; py < 16; py++) {
+        for (let px2 = 0; px2 < 16; px2++) {
+          const r = rng(py * 16 + px2 + 8000);
+          // Green tones with variation
+          const shade = rng(py * 16 + px2 + 8500);
+          let red, green, blue;
+          if (shade < 0.5) {
+            // Dark green
+            red = 25 + r * 30;
+            green = 100 + r * 60;
+            blue = 30 + r * 30;
+          } else if (shade < 0.8) {
+            // Bright green
+            red = 40 + r * 30;
+            green = 140 + r * 70;
+            blue = 40 + r * 30;
+          } else {
+            // Yellow-green highlight
+            red = 70 + r * 50;
+            green = 160 + r * 60;
+            blue = 30 + r * 25;
+          }
+          ctx.fillStyle = `rgb(${Math.min(255, red)}, ${Math.min(220, green)}, ${Math.min(200, blue)})`;
+          ctx.fillRect(px2 * px, py * px, px, px);
+        }
+      }
+
+      // Vertical blade streaks — lighter green lines
+      for (let i = 0; i < 5; i++) {
+        const bx = Math.floor(rng(i + 800) * 14 + 1) * px;
+        ctx.fillStyle = 'rgba(100, 210, 80, 0.4)';
+        for (let j = 0; j < 16; j++) {
+          ctx.fillRect(bx, j * px, px, px);
+        }
+      }
+
+      // Block edge
+      ctx.fillStyle = 'rgba(80, 180, 90, 0.25)';
+      ctx.fillRect(0, 0, size, px);
+      ctx.fillRect(0, 0, px, size);
+      ctx.fillStyle = 'rgba(10, 40, 15, 0.4)';
       ctx.fillRect(0, size - px, size, px);
       ctx.fillRect(size - px, 0, px, size);
     }
@@ -240,7 +290,7 @@ export class VoxelRenderer {
     for (let row = 0; row < LEVEL_ROWS; row++) {
       for (let col = 0; col < LEVEL_COLS; col++) {
         const t = TILES[row][col];
-        if (t >= 1 && t <= 4) {
+        if ((t >= 1 && t <= 4) || t === 8) {
           tileCounts[t] = (tileCounts[t] || 0) + 1;
         }
       }
@@ -609,7 +659,7 @@ export class VoxelRenderer {
   // ── Build pearl collectible meshes ──
   buildPearls(pearlBodies) {
     const THREE = this.THREE;
-    const pearlGeo = new THREE.SphereGeometry(6, 8, 8);
+    const pearlGeo = new THREE.BoxGeometry(10, 10, 10);
     const pearlMat = new THREE.MeshStandardMaterial({
       color: 0xfff0c0,
       emissive: 0xffd93d,
@@ -784,34 +834,6 @@ export class VoxelRenderer {
     groundFogMesh.renderOrder = -49;
     this.scene.add(groundFogMesh);
 
-    // Sun glow (bright circle in upper-right of sky)
-    const sunGlowGeo = new THREE.CircleGeometry(80, 32);
-    const sunGlowMat = new THREE.MeshBasicMaterial({
-      color: 0xfff4d6,
-      transparent: true,
-      opacity: 0.6,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    });
-    const sunGlow = new THREE.Mesh(sunGlowGeo, sunGlowMat);
-    sunGlow.position.set(WORLD_W * 0.7, -20, -370);
-    sunGlow.renderOrder = -98;
-    this.scene.add(sunGlow);
-
-    // Outer sun halo
-    const haloGeo = new THREE.CircleGeometry(160, 32);
-    const haloMat = new THREE.MeshBasicMaterial({
-      color: 0xffe8a0,
-      transparent: true,
-      opacity: 0.2,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    });
-    const halo = new THREE.Mesh(haloGeo, haloMat);
-    halo.position.set(WORLD_W * 0.7, -20, -375);
-    halo.renderOrder = -98;
-    this.scene.add(halo);
-
     // Parallax background layers with faint terrain silhouettes
     for (let i = 0; i < BG_LAYER_COUNT; i++) {
       const depth = -150 - i * 100;
@@ -887,7 +909,7 @@ export class VoxelRenderer {
     if (this.ambientBubbles.length >= AMBIENT_BUBBLE_COUNT) return;
 
     const size = 0.6 + Math.random() * 2.5;
-    const geo = new THREE.SphereGeometry(size, 5, 5);
+    const geo = new THREE.BoxGeometry(size, size, size);
     const maxOpacity = 0.1 + Math.random() * 0.15;
     const mat = new THREE.MeshBasicMaterial({
       color: 0x88ccff,
@@ -1238,7 +1260,7 @@ export class VoxelRenderer {
     if (this.bubbles.length > 40) return; // limit
 
     const size = 1 + Math.random() * 3;
-    const geo = new THREE.SphereGeometry(size, 6, 6);
+    const geo = new THREE.BoxGeometry(size, size, size);
     const mat = new THREE.MeshBasicMaterial({
       color: 0xaaddff,
       transparent: true,
