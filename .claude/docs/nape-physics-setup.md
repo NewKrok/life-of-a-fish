@@ -40,6 +40,26 @@ The game uses nape-js for all collision detection, rigid body dynamics, and flui
 - Same sensor pattern as pearls
 - Triggers player respawn on contact
 
+### Buoys (dynamic)
+- Floating objects on water surface
+- Low density (0.4) so nape-js fluid physics pushes them up naturally
+- Player can push them around; extra damping applied each frame to prevent endless bouncing
+- Rotation enabled — tilts when pushed
+
+### Boulders (dynamic)
+- Heavy underwater rocks (density 8) that the player can slowly push
+- Rotation enabled — rolls when pushed off a ledge
+- Has `boulderTag` CbType for collision interactions with enemies and player
+- Boulder ↔ Enemy (sensor interaction) → kills enemy (removes from space)
+- Boulder ↔ Player (collision) → kills player only if boulder speed > 80 px/s
+
+### Rafts (dynamic)
+- Floating wooden platforms on water surface
+- Low density (0.3) for strong buoyancy, high friction (0.5) so player can ride them
+- Wider collision shape (64×10 px) — player can jump onto and stand on them
+- Rotation enabled with extra angular damping (0.95/frame) so raft rocks gently
+- Extra velocity damping to feel heavy and stable
+
 ## CbType System
 
 Each entity class has a named `CbType` for collision filtering:
@@ -48,11 +68,16 @@ Each entity class has a named `CbType` for collision filtering:
 - Enemy CbType
 - Pearl CbType
 - Hazard CbType
+- Buoy CbType
+- Boulder CbType
+- Raft CbType
 
 `InteractionListener` callbacks handle:
 - Player ↔ Pearl → collect pearl, destroy body
 - Player ↔ Enemy → respawn player
 - Player ↔ Hazard → respawn player
+- Boulder ↔ Enemy (sensor) → kill enemy, remove from space
+- Boulder ↔ Player (collision) → respawn player if boulder speed > 80 px/s
 
 ## Greedy Rectangle Merging Algorithm (level-data.js)
 

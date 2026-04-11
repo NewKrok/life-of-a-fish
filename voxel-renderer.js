@@ -48,6 +48,9 @@ export class VoxelRenderer {
     this.enemyGroups = [];
     this.enemyTailPivots = [];
     this.pearlMeshes = [];  // { mesh, body } pairs
+    this.buoyMeshes = [];   // { mesh, body } pairs
+    this.boulderMeshes = []; // { mesh, body } pairs
+    this.raftMeshes = [];   // { mesh, body } pairs
     this.waterMesh = null;
     this.bubbles = [];
     this._time = 0;
@@ -803,6 +806,172 @@ export class VoxelRenderer {
     }
   }
 
+  // ── Build buoy meshes ──
+  buildBuoys(buoyBodies) {
+    const THREE = this.THREE;
+    const V = 3; // voxel size
+
+    for (const body of buoyBodies) {
+      const group = new THREE.Group();
+
+      const addVoxel = (x, y, z, color) => {
+        const geo = new THREE.BoxGeometry(V, V, V);
+        const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.7, metalness: 0.1 });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(x * V, y * V, z * V);
+        group.add(mesh);
+      };
+
+      // Buoy colors
+      const RED = 0xcc2222;
+      const RED_DARK = 0x991111;
+      const WHITE = 0xeeeeee;
+      const WHITE_DARK = 0xcccccc;
+      const RING = 0xffcc00;
+
+      // Bottom half (underwater, white)
+      for (let z = -2; z <= 2; z++) {
+        for (let x = -2; x <= 2; x++) {
+          if (Math.abs(x) === 2 && Math.abs(z) === 2) continue; // round corners
+          addVoxel(x, -3, z, WHITE_DARK);
+          addVoxel(x, -2, z, WHITE);
+        }
+      }
+      // Yellow ring at waterline
+      for (let z = -3; z <= 3; z++) {
+        for (let x = -3; x <= 3; x++) {
+          if (Math.abs(x) === 3 && Math.abs(z) === 3) continue;
+          if (Math.abs(x) <= 1 && Math.abs(z) <= 1) continue; // hollow center
+          addVoxel(x, -1, z, RING);
+        }
+      }
+      // Top half (above water, red)
+      for (let z = -2; z <= 2; z++) {
+        for (let x = -2; x <= 2; x++) {
+          if (Math.abs(x) === 2 && Math.abs(z) === 2) continue;
+          addVoxel(x, 0, z, RED);
+          addVoxel(x, 1, z, RED);
+          addVoxel(x, 2, z, RED_DARK);
+        }
+      }
+      // Tip
+      for (let z = -1; z <= 1; z++) {
+        for (let x = -1; x <= 1; x++) {
+          addVoxel(x, 3, z, RED_DARK);
+        }
+      }
+      addVoxel(0, 4, 0, RED_DARK);
+
+      group.position.set(body.position.x, -body.position.y, 0);
+      this.scene.add(group);
+      this.buoyMeshes.push({ mesh: group, body });
+    }
+  }
+
+  // ── Build boulder meshes ──
+  buildBoulders(boulderBodies) {
+    const THREE = this.THREE;
+    const V = 2;
+
+    for (const body of boulderBodies) {
+      const group = new THREE.Group();
+
+      const addVoxel = (x, y, z, color) => {
+        const geo = new THREE.BoxGeometry(V, V, V);
+        const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.95, metalness: 0.0 });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(x * V, y * V, z * V);
+        group.add(mesh);
+      };
+
+      // Rock colors — mossy gray
+      const ROCK = 0x666677;
+      const ROCK_DARK = 0x555566;
+      const ROCK_LIGHT = 0x778888;
+      const MOSS = 0x556644;
+
+      // Seed for this boulder
+      const seed = body.position.x * 7 + body.position.y * 13;
+      const rng = (i) => {
+        const x = Math.sin(seed + i * 9871) * 43758.5453;
+        return x - Math.floor(x);
+      };
+
+      // Roughly spherical boulder shape
+      let idx = 0;
+      for (let y = -3; y <= 3; y++) {
+        const r = y === -3 || y === 3 ? 1.5 : y === -2 || y === 2 ? 3 : 3.5;
+        for (let x = -4; x <= 4; x++) {
+          for (let z = -3; z <= 3; z++) {
+            const dist = Math.sqrt(x * x + z * z);
+            if (dist > r + 0.5) continue;
+            const rv = rng(idx++);
+            let color = rv < 0.15 ? MOSS : rv < 0.4 ? ROCK_DARK : rv < 0.7 ? ROCK : ROCK_LIGHT;
+            addVoxel(x, y, z, color);
+          }
+        }
+      }
+
+      group.position.set(body.position.x, -body.position.y, 0);
+      this.scene.add(group);
+      this.boulderMeshes.push({ mesh: group, body });
+    }
+  }
+
+  // ── Build raft meshes ──
+  buildRafts(raftBodies) {
+    const THREE = this.THREE;
+    const V = 3;
+
+    for (const body of raftBodies) {
+      const group = new THREE.Group();
+
+      const addVoxel = (x, y, z, color) => {
+        const geo = new THREE.BoxGeometry(V, V, V);
+        const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0.0 });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(x * V, y * V, z * V);
+        group.add(mesh);
+      };
+
+      // Wood colors
+      const PLANK = 0x8B6914;
+      const PLANK_DARK = 0x6B4914;
+      const PLANK_LIGHT = 0xA07828;
+      const ROPE = 0x99884C;
+
+      // Flat plank deck: ~64px wide (32 voxels), ~10px tall
+      for (let x = -15; x <= 15; x++) {
+        for (let z = -3; z <= 3; z++) {
+          // Plank pattern — alternate colors per row
+          const color = (x + 20) % 4 < 2 ? PLANK : PLANK_DARK;
+          addVoxel(x, 0, z, color);
+        }
+        // Second layer for thickness
+        for (let z = -2; z <= 2; z++) {
+          addVoxel(x, -1, z, PLANK_DARK);
+        }
+      }
+
+      // Rope binding marks across the raft
+      for (const rx of [-10, -3, 4, 11]) {
+        for (let z = -3; z <= 3; z++) {
+          addVoxel(rx, 1, z, ROPE);
+        }
+      }
+
+      // Raised edges / rails
+      for (let x = -15; x <= 15; x += 2) {
+        addVoxel(x, 1, -3, PLANK_LIGHT);
+        addVoxel(x, 1, 3, PLANK_LIGHT);
+      }
+
+      group.position.set(body.position.x, -body.position.y, 0);
+      this.scene.add(group);
+      this.raftMeshes.push({ mesh: group, body });
+    }
+  }
+
   // ── Generate a Minecraft-style ground texture for the back plane ──
   _generateGroundTexture() {
     const THREE = this.THREE;
@@ -1479,6 +1648,44 @@ export class VoxelRenderer {
     });
   }
 
+  // ── Spawn boulder break particles (rock-colored cubes flying outward) ──
+  spawnBoulderBreak(x, y) {
+    const THREE = this.THREE;
+    const colors = [0x666677, 0x555566, 0x778888, 0x556644, 0x444455];
+    const count = 20;
+
+    for (let i = 0; i < count; i++) {
+      const size = 3 + Math.random() * 5;
+      const geo = new THREE.BoxGeometry(size, size, size);
+      const mat = new THREE.MeshStandardMaterial({
+        color: colors[Math.floor(Math.random() * colors.length)],
+        roughness: 0.9,
+        metalness: 0.0,
+        transparent: true,
+        opacity: 0.9,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(
+        x + (Math.random() - 0.5) * 20,
+        -y + (Math.random() - 0.5) * 20,
+        (Math.random() - 0.5) * 20
+      );
+      mesh.rotation.set(
+        Math.random() * Math.PI,
+        Math.random() * Math.PI,
+        Math.random() * Math.PI
+      );
+      this.scene.add(mesh);
+      this.bubbles.push({
+        mesh,
+        vy: (Math.random() - 0.3) * 80,
+        vx: (Math.random() - 0.5) * 120,
+        life: 0.8 + Math.random() * 0.8,
+        _isRock: true, // flag so bubble update knows not to fade near surface
+      });
+    }
+  }
+
   // ── Per-frame update ──
   syncFrame(fishBody, fishState, enemyBodies, dt) {
     this._time += dt;
@@ -1523,6 +1730,7 @@ export class VoxelRenderer {
     for (let i = 0; i < enemyBodies.length && i < this.enemyGroups.length; i++) {
       const eb = enemyBodies[i];
       const eg = this.enemyGroups[i];
+      if (!eb.space) continue; // dead enemy
       eg.position.set(eb.position.x, -eb.position.y, 0);
       eg.rotation.z = -eb.rotation;
       // 3D flip: lerp Y rotation for smooth turn-around
@@ -1565,22 +1773,63 @@ export class VoxelRenderer {
       p.mesh.rotation.y = this._time * 1.5 + i;
     }
 
+    // ── Sync buoys (position + rotation from physics) ──
+    for (const b of this.buoyMeshes) {
+      b.mesh.position.set(b.body.position.x, -b.body.position.y, 0);
+      b.mesh.rotation.z = -b.body.rotation;
+    }
+
+    // ── Sync boulders (position + rotation, remove destroyed) ──
+    for (let i = this.boulderMeshes.length - 1; i >= 0; i--) {
+      const b = this.boulderMeshes[i];
+      if (!b.body.space) {
+        this.scene.remove(b.mesh);
+        this.boulderMeshes.splice(i, 1);
+        continue;
+      }
+      b.mesh.position.set(b.body.position.x, -b.body.position.y, 0);
+      b.mesh.rotation.z = -b.body.rotation;
+    }
+
+    // ── Sync rafts (position + rotation from physics) ──
+    for (const r of this.raftMeshes) {
+      r.mesh.position.set(r.body.position.x, -r.body.position.y, 0);
+      r.mesh.rotation.z = -r.body.rotation;
+    }
+
+    // ── Hide dead enemies ──
+    for (let i = 0; i < this.enemyGroups.length && i < (enemyBodies?.length ?? 0); i++) {
+      if (enemyBodies[i] && !enemyBodies[i].space && this.enemyGroups[i].visible) {
+        this.enemyGroups[i].visible = false;
+      }
+    }
+
     // ── Update bubbles ──
     const waterSurfaceThreeY = -WATER_SURFACE_Y;
     for (let i = this.bubbles.length - 1; i >= 0; i--) {
       const b = this.bubbles[i];
       b.mesh.position.y += b.vy * dt;
-      b.mesh.position.x += (b.vx || 0) * dt + Math.sin(this._time * 3 + i) * 0.5;
-      if (b.vx) b.vx *= 0.96; // horizontal splash drag
+      b.mesh.position.x += (b.vx || 0) * dt + (b._isRock ? 0 : Math.sin(this._time * 3 + i) * 0.5);
+      if (b.vx) b.vx *= 0.96;
       b.life -= dt;
-      // Fade out and remove when reaching water surface or lifetime ends
-      if (b.mesh.position.y >= waterSurfaceThreeY - 5) {
-        b.life = Math.min(b.life, 0.15); // quick fade near surface
-        b.mesh.material.opacity *= 0.85;
+
+      if (b._isRock) {
+        // Rock debris: fade by lifetime, gravity pulls down, no surface kill
+        b.vy -= 150 * dt;
+        b.mesh.material.opacity = Math.max(0, b.life * 0.9);
+        b.mesh.rotation.x += 3 * dt;
+        b.mesh.rotation.z += 2 * dt;
       } else {
-        b.mesh.material.opacity = Math.max(0, b.life * 0.3);
+        // Normal bubbles: fade near surface
+        if (b.mesh.position.y >= waterSurfaceThreeY - 5) {
+          b.life = Math.min(b.life, 0.15);
+          b.mesh.material.opacity *= 0.85;
+        } else {
+          b.mesh.material.opacity = Math.max(0, b.life * 0.3);
+        }
       }
-      if (b.life <= 0 || b.mesh.position.y > waterSurfaceThreeY) {
+
+      if (b.life <= 0 || (!b._isRock && b.mesh.position.y > waterSurfaceThreeY)) {
         this.scene.remove(b.mesh);
         b.mesh.geometry.dispose();
         b.mesh.material.dispose();

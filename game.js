@@ -4,7 +4,7 @@
 import {
   Space, Body, BodyType, Vec2, Circle, Polygon, Capsule,
   Material, FluidProperties,
-  CbType, CbEvent, InteractionType, InteractionListener,
+  CbType, CbEvent, InteractionType, InteractionListener, PreListener, PreFlag,
   CharacterController,
 } from "https://cdn.jsdelivr.net/npm/@newkrok/nape-js@3.26.0/dist/index.js";
 
@@ -101,6 +101,9 @@ const playerTag = new CbType();
 const enemyTag = new CbType();
 const hazardTag = new CbType();
 const pearlTag = new CbType();
+const boulderTag = new CbType();
+const buoyTag = new CbType();
+const raftTag = new CbType();
 
 // ── Build terrain bodies from merged tiles ──
 const mergedBodies = getMergedSolidBodies();
@@ -170,6 +173,52 @@ for (const en of entities.enemies) {
   voxelRenderer.buildEnemyFish();
 }
 
+// ── Buoys (floating on water surface) ──
+const buoyBodies = [];
+for (const bu of entities.buoys) {
+  const b = new Body(BodyType.DYNAMIC, new Vec2(bu.x, WATER_SURFACE_Y));
+  const shape = new Polygon(Polygon.box(24, 20), undefined, new Material(0.3, 0.4, 0.4, 0.4));
+  shape.cbTypes.add(buoyTag);
+  b.shapes.add(shape);
+  b.allowRotation = true;
+  b.space = space;
+  buoyBodies.push(b);
+}
+
+// ── Boulders (heavy rocks the fish can grab and carry) ──
+const BOULDER_GRAB_DIST = 36;       // px — how close the fish must be to grab
+const BOULDER_CARRY_OFFSET = 26;    // px — distance from fish center when carried
+const BOULDER_SNAP_DIST = 55;       // px — auto-release if boulder stuck behind wall
+const boulderBodies = [];
+let grabbedBoulder = null;           // currently grabbed boulder body (or null)
+let grabSide = 1;                    // 1 = right, -1 = left (locked when grabbed)
+for (const br of entities.boulders) {
+  const b = new Body(BodyType.DYNAMIC, new Vec2(br.x, br.y));
+  const shape = new Polygon(Polygon.box(15, 15), undefined, new Material(0.6, 0.1, 0.1, 2.5));
+  shape.cbTypes.add(boulderTag);
+  b.shapes.add(shape);
+  b.allowRotation = true;
+  b.space = space;
+  boulderBodies.push(b);
+}
+
+// ── Rafts (floating platforms) ──
+const raftBodies = [];
+for (const rf of entities.rafts) {
+  const b = new Body(BodyType.DYNAMIC, new Vec2(rf.x, WATER_SURFACE_Y));
+  const shape = new Polygon(Polygon.box(90, 12), undefined, new Material(0.6, 0.5, 0.5, 0.3));
+  shape.cbTypes.add(raftTag);
+  b.shapes.add(shape);
+  b.allowRotation = true;
+  b.space = space;
+  raftBodies.push(b);
+}
+
+// Build dynamic object meshes
+voxelRenderer.buildBuoys(buoyBodies);
+voxelRenderer.buildBoulders(boulderBodies);
+voxelRenderer.buildRafts(raftBodies);
+
 // ── Player fish ──
 const player = new Body(BodyType.DYNAMIC, new Vec2(entities.playerSpawn.x, entities.playerSpawn.y));
 const playerShape = new Capsule(PLAYER_CAPSULE_W, PLAYER_CAPSULE_H, undefined, new Material(0, 0.1, 0.1, 1));
@@ -223,12 +272,44 @@ const hazardListener = new InteractionListener(
 );
 hazardListener.space = space;
 
+// Boulder hits enemy -> both die, spawn rock break effect
+const boulderEnemyListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, boulderTag, enemyTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const boulderBody = boulderBodies.find(br => br === b1 || br === b2);
+    // Only kill if boulder is thrown (not held by player)
+    if (boulderBody === grabbedBoulder) return;
+    const enemyBody = enemyBodies.find(e => e === b1 || e === b2);
+    if (enemyBody && enemyBody.space) {
+      const cx = enemyBody.position.x;
+      const cy = enemyBody.position.y;
+      enemyBody.space = null;
+      if (boulderBody && boulderBody.space) {
+        if (grabbedBoulder === boulderBody) grabbedBoulder = null;
+        boulderBody.space = null;
+        voxelRenderer.spawnBoulderBreak(cx, cy);
+      }
+    }
+  },
+);
+boulderEnemyListener.space = space;
+
+// Player-boulder collision: ignored only while carrying
+const boulderPlayerPre = new PreListener(
+  InteractionType.COLLISION, playerTag, boulderTag,
+  () => grabbedBoulder ? PreFlag.IGNORE : PreFlag.ACCEPT,
+);
+boulderPlayerPre.space = space;
+
 // ── Touch Controls ──
 const touchControls = new TouchControls();
 
 // ── Keyboard Input ──
 const keys = {};
 let prevSpace = false;
+let prevGrab = false;
 
 window.addEventListener('keydown', (e) => {
   keys[e.code] = true;
@@ -244,7 +325,10 @@ function getKeyboardInput() {
   const spaceDown = keys['Space'] || false;
   const dash = spaceDown && !prevSpace;
   prevSpace = spaceDown;
-  return { dirX, dirY, dash };
+  const grabDown = keys['KeyE'] || false;
+  const grab = grabDown && !prevGrab;
+  prevGrab = grabDown;
+  return { dirX, dirY, dash, grab };
 }
 
 // ── Camera ──
@@ -343,9 +427,14 @@ function renderPhysicsDebug() {
     let fill = null;
     let stroke = 'rgba(0,255,0,0.5)';
 
+    const isDynamic = body.type === BodyType.DYNAMIC && body !== player;
+
     if (body === player) {
       fill = 'rgba(0,200,255,0.25)';
       stroke = 'rgba(0,200,255,0.9)';
+    } else if (isDynamic) {
+      fill = 'rgba(200,100,255,0.25)';
+      stroke = 'rgba(200,100,255,0.9)';
     } else if (body.type === BodyType.KINEMATIC) {
       fill = 'rgba(255,165,0,0.2)';
       stroke = 'rgba(255,165,0,0.8)';
@@ -393,7 +482,7 @@ function renderHUD() {
   // Controls hint
   hudCtx.fillStyle = 'rgba(255,255,255,0.5)';
   hudCtx.font = '12px monospace';
-  hudCtx.fillText('WASD / Arrows = swim, Space = dash', 10, 20);
+  hudCtx.fillText('WASD / Arrows = swim, Space = dash, E = grab/throw rock', 10, 20);
 
   // Pearl counter
   hudCtx.fillStyle = '#ffd93d';
@@ -449,16 +538,83 @@ function gameLoop() {
     dirX: Math.abs(kbInput.dirX) > Math.abs(touchInput.dirX) ? kbInput.dirX : touchInput.dirX,
     dirY: Math.abs(kbInput.dirY) > Math.abs(touchInput.dirY) ? kbInput.dirY : touchInput.dirY,
     dash: kbInput.dash || touchInput.dash,
+    grab: kbInput.grab,
   };
 
   // ── Update enemy patrol ──
   for (const eb of enemyBodies) {
-    if (!eb._patrol) continue;
+    if (!eb._patrol || !eb.space) continue;
     const p = eb._patrol;
     const px = eb.position.x;
     if (px >= p.maxX) p._dir = -1;
     if (px <= p.minX) p._dir = 1;
     eb.velocity = new Vec2(p._dir * p.speed, 0);
+  }
+
+  // ── Update buoys (stabilize at water surface) ──
+  for (const bb of buoyBodies) {
+    // Extra damping so buoys don't bounce forever
+    bb.velocity = new Vec2(bb.velocity.x * 0.98, bb.velocity.y * 0.97);
+    bb.angularVel *= 0.97;
+  }
+
+  // ── Update rafts (stabilize at water surface) ──
+  for (const rb of raftBodies) {
+    // Extra damping — raft should feel heavy and steady
+    rb.velocity = new Vec2(rb.velocity.x * 0.97, rb.velocity.y * 0.96);
+    rb.angularVel *= 0.95;
+  }
+
+  // ── Boulder grab / carry / throw mechanic (E key) ──
+  if (grabbedBoulder && !grabbedBoulder.space) {
+    grabbedBoulder = null;
+  }
+
+  if (input.grab) {
+    if (grabbedBoulder) {
+      // ── Throw: fling boulder in facing direction ──
+      const throwDirX = fishCtrl.facingRight ? 1 : -1;
+      const throwDirY = Math.abs(input.dirY) > 0.1 ? input.dirY * 0.7 : 0;
+      grabbedBoulder.velocity = new Vec2(throwDirX * 350, throwDirY * 350);
+      grabbedBoulder = null;
+    } else {
+      // ── Grab: find nearest boulder within range ──
+      let closest = null;
+      let closestDist = BOULDER_GRAB_DIST;
+      for (const br of boulderBodies) {
+        if (!br.space) continue;
+        const dx = br.position.x - player.position.x;
+        const dy = br.position.y - player.position.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < closestDist) {
+          closestDist = dist;
+          closest = br;
+        }
+      }
+      if (closest) {
+        grabbedBoulder = closest;
+        grabSide = fishCtrl.facingRight ? 1 : -1;
+      }
+    }
+  }
+
+  // ── Carry: pull boulder toward fish via velocity (physics still collides with terrain) ──
+  if (grabbedBoulder) {
+    grabSide = fishCtrl.facingRight ? 1 : -1;
+    const targetX = player.position.x + grabSide * BOULDER_CARRY_OFFSET;
+    const targetY = player.position.y;
+    const dx = targetX - grabbedBoulder.position.x;
+    const dy = targetY - grabbedBoulder.position.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    // If boulder is stuck behind a wall / too far away, release it
+    if (dist > BOULDER_SNAP_DIST) {
+      grabbedBoulder = null;
+    } else {
+      const pull = 12;
+      grabbedBoulder.velocity = new Vec2(dx * pull, dy * pull);
+      grabbedBoulder.angularVel = 0;
+    }
   }
 
   // ── Fish controller update ──

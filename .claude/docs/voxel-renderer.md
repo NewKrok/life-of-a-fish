@@ -102,6 +102,29 @@ Built via `buildPearls(pearlBodies)`:
 - Animated in `syncFrame()`: vertical bob (sine wave) + Y-axis spin
 - Auto-removed when collected (detected by `body.space === null`)
 
+## Interactive Physics Objects
+
+### Buoys
+Built via `buildBuoys(buoyBodies)`:
+- Voxel group: red/white body with yellow ring at waterline
+- Rounded shape (corners clipped), tip at top
+- Colors: `RED` (0xcc2222), `WHITE` (0xeeeeee), `RING` (0xffcc00)
+- Synced from physics body position + rotation each frame
+
+### Boulders
+Built via `buildBoulders(boulderBodies)`:
+- Roughly spherical voxel group with randomized colors
+- Colors: `ROCK` grays (0x555566–0x778888) with `MOSS` patches (0x556644)
+- Per-boulder seeded RNG for unique appearance
+- Synced from physics body position + rotation each frame
+
+### Rafts
+Built via `buildRafts(raftBodies)`:
+- Flat wooden plank deck (~30 voxels wide, 2 layers thick)
+- Rope bindings across the deck, raised edge rails
+- Colors: `PLANK` browns (0x6B4914–0xA07828), `ROPE` (0x99884C)
+- Synced from physics body position + rotation each frame
+
 ## Bubbles
 
 ### Player/Enemy Bubbles
@@ -159,12 +182,13 @@ Built via `buildPearls(pearlBodies)`:
 Called every frame after physics step. Updates:
 1. Player fish group position/rotation from nape body
 2. Tail wag angle (frequency = 8 + speed×0.05, amplitude 0.3–0.7 rad)
-3. Enemy positions from their nape bodies
+3. Enemy positions from their nape bodies; hide dead enemies (body.space === null)
 4. Pearl bob + spin animation; remove collected pearls (body.space === null)
-5. Bubble positions, opacity, and lifetime (including horizontal `vx` drag for splash particles)
-6. Surface disturbance aging, spread growth, and cleanup
-7. God ray sway and opacity pulsing
-8. Water surface wave vertex animation + texture scrolling + disturbance ripples
-9. Surface sparkle flash pattern
-10. Background wave vertex animation
-11. Ambient bubble rise, wobble, and respawn
+5. Buoy, boulder, raft positions + rotations from physics bodies
+6. Bubble positions, opacity, and lifetime (including horizontal `vx` drag for splash particles)
+7. Surface disturbance aging, spread growth, and cleanup
+8. God ray sway and opacity pulsing
+9. Water surface wave vertex animation + texture scrolling + disturbance ripples
+10. Surface sparkle flash pattern
+11. Background wave vertex animation
+12. Ambient bubble rise, wobble, and respawn
