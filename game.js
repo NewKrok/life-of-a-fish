@@ -80,8 +80,10 @@ const scene = new THREE.Scene();
 // ── Voxel Renderer ──
 const voxelRenderer = new VoxelRenderer(THREE, scene);
 voxelRenderer.setupLighting();
+voxelRenderer.buildBackground();
 voxelRenderer.buildTerrain();
 voxelRenderer.buildWater(WORLD_W, WORLD_H);
+voxelRenderer.buildGodRays();
 const playerFishMesh = voxelRenderer.buildFish();
 
 // ── Nape-js Physics setup ──
