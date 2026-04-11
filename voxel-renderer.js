@@ -1257,7 +1257,7 @@ export class VoxelRenderer {
   // ── Spawn a bubble particle ──
   spawnBubble(x, y) {
     const THREE = this.THREE;
-    if (this.bubbles.length > 40) return; // limit
+    if (this.bubbles.length > 60) return; // limit
 
     const size = 1 + Math.random() * 3;
     const geo = new THREE.BoxGeometry(size, size, size);
@@ -1277,8 +1277,43 @@ export class VoxelRenderer {
     this.bubbles.push({
       mesh,
       vy: 20 + Math.random() * 40,
+      vx: 0,
       life: 1.5 + Math.random() * 2,
     });
+  }
+
+  // ── Spawn splash particles at water surface ──
+  spawnSplash(x, speed) {
+    const THREE = this.THREE;
+    const surfaceY = -WATER_SURFACE_Y;
+    const count = Math.min(25, 10 + Math.floor(speed / 20));
+    const spread = 20 + speed * 0.15;
+
+    for (let i = 0; i < count; i++) {
+      if (this.bubbles.length > 80) break;
+
+      const size = 2 + Math.random() * 4;
+      const geo = new THREE.BoxGeometry(size, size, size);
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xcceeff,
+        transparent: true,
+        opacity: 0.5 + Math.random() * 0.3,
+        blending: THREE.AdditiveBlending,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(
+        x + (Math.random() - 0.5) * spread,
+        surfaceY + Math.random() * 8,
+        (Math.random() - 0.5) * 20
+      );
+      this.scene.add(mesh);
+      this.bubbles.push({
+        mesh,
+        vy: 30 + Math.random() * 60,
+        vx: (Math.random() - 0.5) * (40 + speed * 0.4),
+        life: 0.6 + Math.random() * 0.8,
+      });
+    }
   }
 
   // ── Per-frame update ──
@@ -1311,11 +1346,13 @@ export class VoxelRenderer {
       if (fishState && fishState.inWater && fishState.swimSpeed > 30 && Math.random() < 0.15) {
         this.spawnBubble(fishBody.position.x, fishBody.position.y);
       }
-      // Splash bubbles when entering water
+      // Splash when entering water
       if (fishState && fishState.justEnteredWater) {
-        for (let i = 0; i < 8; i++) {
-          this.spawnBubble(fishBody.position.x, fishBody.position.y);
-        }
+        this.spawnSplash(fishBody.position.x, fishState.swimSpeed);
+      }
+      // Splash when leaving water (jump out)
+      if (fishState && fishState.justLeftWater) {
+        this.spawnSplash(fishBody.position.x, fishState.swimSpeed);
       }
     }
 
@@ -1370,7 +1407,8 @@ export class VoxelRenderer {
     for (let i = this.bubbles.length - 1; i >= 0; i--) {
       const b = this.bubbles[i];
       b.mesh.position.y += b.vy * dt;
-      b.mesh.position.x += Math.sin(this._time * 3 + i) * 0.5;
+      b.mesh.position.x += (b.vx || 0) * dt + Math.sin(this._time * 3 + i) * 0.5;
+      if (b.vx) b.vx *= 0.96; // horizontal splash drag
       b.life -= dt;
       // Fade out and remove when reaching water surface or lifetime ends
       if (b.mesh.position.y >= waterSurfaceThreeY - 5) {

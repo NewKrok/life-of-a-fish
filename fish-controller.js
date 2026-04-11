@@ -11,13 +11,16 @@ const SWIM_DRAG = 0.92;          // per-frame velocity damping in water
 const DASH_SPEED = 450;          // burst speed on dash (px/s)
 const DASH_DURATION_MS = 180;    // dash lock time
 const DASH_COOLDOWN_MS = 600;    // time before next dash
-const SURFACE_JUMP_VY = -320;    // upward burst when jumping from surface
+const SURFACE_JUMP_VY = -180;    // upward burst when jumping from surface (px/s)
 const AIR_GRAVITY_MULT = 1.2;    // fish falls slightly faster in air
 const AIR_HORIZONTAL_DRAG = 0.98;
-const WATER_ENTRY_DAMPING = 0.6; // velocity multiplier when entering water
+const WATER_ENTRY_DAMPING = 0.85; // velocity multiplier when entering water (less damping = more momentum)
 const IDLE_FLOAT_UP = -92;       // upward drift when idle in water (px/s²)
 const ROTATION_LERP = 0.12;      // how fast fish rotates toward velocity direction
 const HYSTERESIS = 8;            // px above/below surface to prevent flicker
+const ENTRY_MOMENTUM_FRAMES = 50; // frames to gradually blend from entry momentum to normal swim
+const ENTRY_DRAG_START = 0.998;  // near-zero drag right after entering water
+const ENTRY_SINK_FORCE = 350;    // downward force to counteract buoyancy during entry (px/s²)
 const DT = 1 / 60;
 
 export class FishController {
@@ -43,6 +46,9 @@ export class FishController {
     // For splash detection
     this.justEnteredWater = false;
     this.justLeftWater = false;
+
+    // Water entry momentum: counts down from ENTRY_MOMENTUM_FRAMES to 0
+    this.entryMomentum = 0;
   }
 
   update(input, waterSurfaceY) {
@@ -65,10 +71,14 @@ export class FishController {
     this.justEnteredWater = this.inWater && !this.wasInWater;
     this.justLeftWater = !this.inWater && this.wasInWater;
 
-    // Dampen velocity when entering water (splash)
+    // Dampen velocity when entering water (splash) — keep most momentum
     if (this.justEnteredWater) {
       body.velocity = new Vec2(vx * WATER_ENTRY_DAMPING, vy * WATER_ENTRY_DAMPING);
+      this.entryMomentum = ENTRY_MOMENTUM_FRAMES;
     }
+
+    // Tick down entry momentum
+    if (this.entryMomentum > 0) this.entryMomentum--;
 
     // ── Dash timer ──
     this.dashCooldown = Math.max(0, this.dashCooldown - 1000 * DT);
@@ -103,18 +113,34 @@ export class FishController {
       cvx += input.dirX * SWIM_THRUST * DT;
       cvy += input.dirY * SWIM_THRUST * DT;
 
-      // Extra drag when no input (fish slows down naturally)
-      if (Math.abs(input.dirX) < 0.1) cvx *= SWIM_DRAG;
-      if (Math.abs(input.dirY) < 0.1) {
-        cvy *= SWIM_DRAG;
-        // Gentle upward float when idle (buoyancy)
-        cvy += IDLE_FLOAT_UP * DT;
+      // Drag: reduced right after entering water so the fish carries momentum
+      const t = this.entryMomentum > 0
+        ? this.entryMomentum / ENTRY_MOMENTUM_FRAMES  // 1 → 0 over time
+        : 0;
+      const drag = t * ENTRY_DRAG_START + (1 - t) * SWIM_DRAG;
+
+      // During entry momentum, push downward to counteract fluid buoyancy
+      if (this.entryMomentum > 0) {
+        cvy += ENTRY_SINK_FORCE * t * DT;
       }
 
-      // Clamp to max speed
+      // Extra drag when no input (fish slows down naturally)
+      if (Math.abs(input.dirX) < 0.1) cvx *= drag;
+      if (Math.abs(input.dirY) < 0.1) {
+        cvy *= drag;
+        // Gentle upward float when idle (buoyancy) — suppress during entry momentum
+        if (this.entryMomentum === 0) {
+          cvy += IDLE_FLOAT_UP * DT;
+        }
+      }
+
+      // Clamp to max speed — allow higher speed during entry momentum for natural sinking
+      const maxSpd = this.entryMomentum > 0
+        ? SWIM_MAX_SPEED + (SWIM_MAX_SPEED * 0.6) * (this.entryMomentum / ENTRY_MOMENTUM_FRAMES)
+        : SWIM_MAX_SPEED;
       const speed = Math.sqrt(cvx * cvx + cvy * cvy);
-      if (speed > SWIM_MAX_SPEED) {
-        const scale = SWIM_MAX_SPEED / speed;
+      if (speed > maxSpd) {
+        const scale = maxSpd / speed;
         cvx *= scale;
         cvy *= scale;
       }

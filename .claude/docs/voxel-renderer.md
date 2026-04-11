@@ -95,13 +95,21 @@ Built via `buildPearls(pearlBodies)`:
 ## Bubbles
 
 ### Player/Enemy Bubbles
-- Spawned when player fish moves fast or enters water; also spawned for enemy fish (at lower frequency)
+- Spawned when player fish moves fast; also spawned for enemy fish (at lower frequency)
 - `BoxGeometry` cubes for voxel-consistent look
 - Rise with upward velocity + slight horizontal drift
 - Fade opacity over 1.5–3.5 second lifetime
 - Fade out and are removed when reaching the water surface (no bubbles above water)
 - Use `AdditiveBlending` for a glowing look
 - Removed from scene when expired or surfaced
+
+### Splash Particles
+- `spawnSplash(x, speed)` — spawns 10–25 larger particles at the water surface
+- Triggered on both **entering** and **leaving** water (jump out + dive back in)
+- Particle count and horizontal spread scale with fish speed
+- Larger cubes (2–6px) with higher opacity (0.5–0.8) and brighter color (`0xcceeff`)
+- Horizontal velocity (`vx`) spreads particles outward with 0.96/frame drag
+- Short lifetime (0.6–1.4s) for a quick burst effect
 
 ### Ambient Bubbles
 - `AMBIENT_BUBBLE_COUNT` (30) small cubes (`BoxGeometry`) scattered throughout the underwater area
