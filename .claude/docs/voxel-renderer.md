@@ -17,6 +17,8 @@ Each pixel in the 16x16 grid is drawn as a 4x4 block on a 64x64 canvas. Block ed
 
 Textures are generated once via `_generateTileTexture()` using a canvas, cached per type, and applied with `NearestFilter`. Material is `MeshStandardMaterial` (roughness: 0.9, metalness: 0.0) with no color tint — the texture provides all color. The old `TILE_COLORS` constant and `MeshLambertMaterial` with color tint have been removed. InstancedMesh is used for batched draw calls.
 
+**Depth-based darkening**: Each terrain instance has a per-instance color via `InstancedBufferAttribute`. Tiles deeper underwater are progressively darkened (up to 55% darker at the bottom). This simulates light absorption with depth. Tiles above `WATER_SURFACE_Y` remain at full brightness.
+
 ## Fish Models
 
 Voxel groups built from hardcoded coordinate arrays:
@@ -44,9 +46,15 @@ Voxel groups built from hardcoded coordinate arrays:
 - Extends 600px in Z depth behind the terrain blocks (visible from the angled perspective camera)
 - Uses `MeshStandardMaterial` (roughness: 1.0, metalness: 0.0)
 
+### Sky (Above Water)
+- Sky gradient plane behind everything (z=-380), covering the area above the water surface
+- Linear gradient: deep blue → pale blue → golden glow at water line
+- Sun glow: bright circle at upper-right (WORLD_W * 0.7) with additive blending + outer halo
+
 ### God Rays (Volumetric Light)
 - `GOD_RAY_COUNT` (12) trapezoid-shaped beams from the water surface downward
 - Narrow at top, wider at bottom; uses `AdditiveBlending`
+- Tilted ~15° (`rotation.z = -0.26`) so light appears to come from the right (matching the sun position)
 - Animated: horizontal sway (`sin`) + opacity pulsing per ray
 - Constants: `GOD_RAY_MAX_WIDTH` 80px, `GOD_RAY_HEIGHT` 600px, `GOD_RAY_OPACITY` 0.07
 
@@ -56,10 +64,11 @@ Voxel groups built from hardcoded coordinate arrays:
 - Translucent box with a vertical gradient texture (lighter at top, darker at bottom)
 - 30% opacity, `NormalBlending`
 
-### Water Surface
-- `SURFACE_WAVE_SEGMENTS` (200) triangle-strip mesh along the surface line
-- Multi-layered sine wave animation: 3 frequencies for organic movement
-- Horizontal shimmer texture that scrolls over time (`AdditiveBlending`)
+### Water Surface (Pixelated)
+- Triangle-strip mesh with one segment per tile (chunky pixel-art look)
+- Pixelated 32x16 texture with `NearestFilter` — Minecraft-style pixel blocks instead of smooth gradient
+- Wave animation uses quantized (stepped) sine values for a retro pixel feel
+- Texture scroll is also stepped (discrete frames) for consistency
 
 ### Surface Sparkles
 - `SURFACE_SPARKLE_COUNT` (60) small plane particles along the surface
@@ -79,18 +88,19 @@ Built via `buildPearls(pearlBodies)`:
 
 Particle-like system using small sphere meshes:
 
-- Spawned when fish moves fast or enters water
+- Spawned when player fish moves fast or enters water; also spawned for enemy fish (at lower frequency)
 - Rise with upward velocity + slight horizontal drift
 - Fade opacity over 1.5–3.5 second lifetime
+- Fade out and are removed when reaching the water surface (no bubbles above water)
 - Use `AdditiveBlending` for a glowing look
-- Removed from scene when expired
+- Removed from scene when expired or surfaced
 
 ## Lighting Setup
 
 | Type        | Color      | Intensity | Role                             |
 |-------------|------------|-----------|----------------------------------|
 | Ambient     | `0x88aacc` | 1.2       | Bright blue base fill            |
-| Directional | `0xffeedd` | 1.4       | Warm sun from above-right        |
+| Directional | `0xffeedd` | 1.4       | Warm sun from right, casts shadows (PCFSoft, 2048 shadow map) |
 | Fill        | `0x88bbdd` | 0.6       | Cool side fill from left-front   |
 | Uplight     | `0xccaa77` | 0.3       | Warm bounce from sand floor      |
 | Hemisphere  | `0x88ccff` / `0x886644` | 0.4 | Natural sky/ground coloring |

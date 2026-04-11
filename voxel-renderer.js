@@ -248,10 +248,14 @@ export class VoxelRenderer {
         metalness: 0.0,
       });
       const mesh = new THREE.InstancedMesh(boxGeo, mat, count);
-      mesh.castShadow = false;
+      mesh.castShadow = true;
       mesh.receiveShadow = true;
+      mesh.instanceColor = new THREE.InstancedBufferAttribute(
+        new Float32Array(count * 3), 3
+      );
 
       let idx = 0;
+      const color = new THREE.Color();
       for (let row = 0; row < LEVEL_ROWS; row++) {
         for (let col = 0; col < LEVEL_COLS; col++) {
           if (TILES[row][col] !== type) continue;
@@ -260,10 +264,20 @@ export class VoxelRenderer {
           dummy.position.set(x, y, 0);
           dummy.updateMatrix();
           mesh.setMatrixAt(idx, dummy.matrix);
+
+          // Depth-based darkening: tiles deeper underwater get darker
+          const worldY = row * TILE_SIZE + TILE_SIZE / 2;
+          const depthBelow = Math.max(0, worldY - WATER_SURFACE_Y);
+          const maxDepth = WORLD_H - WATER_SURFACE_Y;
+          const depthFactor = 1.0 - (depthBelow / maxDepth) * 0.55; // darken up to 55%
+          color.setRGB(depthFactor, depthFactor, depthFactor);
+          mesh.setColorAt(idx, color);
+
           idx++;
         }
       }
       mesh.instanceMatrix.needsUpdate = true;
+      mesh.instanceColor.needsUpdate = true;
       this.scene.add(mesh);
       this.terrainMeshes.push(mesh);
     }
@@ -653,36 +667,60 @@ export class VoxelRenderer {
   buildBackground() {
     const THREE = this.THREE;
 
-    // Deep underwater gradient background plane (far behind everything)
+    // ── Sky background (above water) ──
+    const skyCanvas = document.createElement('canvas');
+    skyCanvas.width = 2;
+    skyCanvas.height = 256;
+    const skyCtx = skyCanvas.getContext('2d');
+    const skyGrad = skyCtx.createLinearGradient(0, 0, 0, 256);
+    skyGrad.addColorStop(0, '#3a8fd4');
+    skyGrad.addColorStop(0.3, '#6bb5e8');
+    skyGrad.addColorStop(0.6, '#9dd4f0');
+    skyGrad.addColorStop(0.8, '#d4eef8');
+    skyGrad.addColorStop(0.95, '#ffeebb');
+    skyGrad.addColorStop(1.0, '#ffdd88');
+    skyCtx.fillStyle = skyGrad;
+    skyCtx.fillRect(0, 0, 2, 256);
+    const skyTexture = new THREE.CanvasTexture(skyCanvas);
+
+    const skyH = WATER_SURFACE_Y + 100;
+    const skyGeo = new THREE.PlaneGeometry(WORLD_W + 2000, skyH);
+    const skyMat = new THREE.MeshBasicMaterial({ map: skyTexture, depthWrite: false });
+    const skyMesh = new THREE.Mesh(skyGeo, skyMat);
+    skyMesh.position.set(WORLD_W / 2, -WATER_SURFACE_Y + skyH / 2, -399);
+    skyMesh.renderOrder = -100;
+    this.scene.add(skyMesh);
+
+    // ── Underwater background (water surface to ground level) ──
+    const groundY = WORLD_H - TILE_SIZE; // top of bottom sand/stone row (row 23)
+    const waterBgH = groundY - WATER_SURFACE_Y; // 800-32-128 = 640px
     const bgCanvas = document.createElement('canvas');
     bgCanvas.width = 2;
-    bgCanvas.height = 512;
+    bgCanvas.height = 256;
     const bgCtx = bgCanvas.getContext('2d');
-    const grad = bgCtx.createLinearGradient(0, 0, 0, 512);
-    grad.addColorStop(0, '#1a6aaa');
-    grad.addColorStop(0.15, '#155d90');
-    grad.addColorStop(0.4, '#0f4a75');
-    grad.addColorStop(0.7, '#08304d');
-    grad.addColorStop(1.0, '#041a2a');
+    const grad = bgCtx.createLinearGradient(0, 0, 0, 256);
+    grad.addColorStop(0, '#1a7aaa');       // bright blue at water surface
+    grad.addColorStop(0.15, '#146090');
+    grad.addColorStop(0.3, '#0e4a72');
+    grad.addColorStop(0.5, '#0a3558');
+    grad.addColorStop(0.7, '#072845');
+    grad.addColorStop(1.0, '#061e35');     // dark blue at bottom — matches ground fog
     bgCtx.fillStyle = grad;
-    bgCtx.fillRect(0, 0, 2, 512);
+    bgCtx.fillRect(0, 0, 2, 256);
     const bgTexture = new THREE.CanvasTexture(bgCanvas);
 
-    const bgGeo = new THREE.PlaneGeometry(WORLD_W + 2000, WORLD_H + 600);
-    const bgMat = new THREE.MeshBasicMaterial({
-      map: bgTexture,
-      depthWrite: false,
-    });
+    const bgGeo = new THREE.PlaneGeometry(WORLD_W + 2000, waterBgH);
+    const bgMat = new THREE.MeshBasicMaterial({ map: bgTexture, depthWrite: false });
     const bgMesh = new THREE.Mesh(bgGeo, bgMat);
-    bgMesh.position.set(WORLD_W / 2, -WORLD_H / 2, -400);
+    // Center exactly between water surface and world bottom
+    bgMesh.position.set(WORLD_W / 2, -(WATER_SURFACE_Y + waterBgH / 2), -399);
     bgMesh.renderOrder = -100;
     this.scene.add(bgMesh);
 
-    // ── Ground plane — Minecraft-style textured floor lying flat (XZ plane) ──
-    // Visible from the angled perspective camera as a receding floor
+    // ── Ground plane — textured floor lying flat (XZ plane) ──
     const groundTexture = this._generateGroundTexture();
     const groundRepeatX = WORLD_W / TILE_SIZE;
-    const groundDepthSize = 600; // how far the floor extends in Z behind the blocks
+    const groundDepthSize = 600;
     const groundRepeatZ = groundDepthSize / TILE_SIZE;
     groundTexture.repeat.set(groundRepeatX, groundRepeatZ);
 
@@ -693,9 +731,7 @@ export class VoxelRenderer {
       metalness: 0.0,
     });
     const groundMesh = new THREE.Mesh(groundGeo, groundMat);
-    // Rotate -90° around X so it lies flat in XZ
     groundMesh.rotation.x = -Math.PI / 2;
-    // Y = bottom of blocks minus half tile, Z = centered behind
     groundMesh.position.set(
       WORLD_W / 2,
       -WORLD_H + TILE_SIZE / 2,
@@ -703,6 +739,67 @@ export class VoxelRenderer {
     );
     groundMesh.renderOrder = -50;
     this.scene.add(groundMesh);
+
+    // Dark-blue fog overlay on the ground — fades from transparent (near) to dark blue (far)
+    const groundFogCanvas = document.createElement('canvas');
+    groundFogCanvas.width = 2;
+    groundFogCanvas.height = 128;
+    const gfCtx = groundFogCanvas.getContext('2d');
+    const gfGrad = gfCtx.createLinearGradient(0, 0, 0, 128);
+    gfGrad.addColorStop(0, 'rgba(6, 30, 53, 1.0)');     // back (far): dark blue matching water bg bottom
+    gfGrad.addColorStop(0.25, 'rgba(6, 30, 53, 0.5)'); // starts to clear
+    gfGrad.addColorStop(0.5, 'rgba(6, 30, 53, 0)');    // transparent
+    gfGrad.addColorStop(1.0, 'rgba(6, 30, 53, 0)');    // front (near): fully transparent
+    gfCtx.fillStyle = gfGrad;
+    gfCtx.fillRect(0, 0, 2, 128);
+    const groundFogTexture = new THREE.CanvasTexture(groundFogCanvas);
+
+    const groundFogGeo = new THREE.PlaneGeometry(WORLD_W + 400, groundDepthSize);
+    const groundFogMat = new THREE.MeshBasicMaterial({
+      map: groundFogTexture,
+      transparent: true,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+    });
+    const groundFogMesh = new THREE.Mesh(groundFogGeo, groundFogMat);
+    groundFogMesh.rotation.x = -Math.PI / 2;
+    groundFogMesh.position.set(
+      WORLD_W / 2,
+      -WORLD_H + TILE_SIZE / 2 + 1,  // above ground to overlay
+      -groundDepthSize / 2
+    );
+    groundFogMesh.renderOrder = -49;
+    this.scene.add(groundFogMesh);
+
+    // Sun glow (bright circle in upper-right of sky)
+    const sunGlowGeo = new THREE.CircleGeometry(80, 32);
+    const sunGlowMat = new THREE.MeshBasicMaterial({
+      color: 0xfff4d6,
+      transparent: true,
+      opacity: 0.6,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const sunGlow = new THREE.Mesh(sunGlowGeo, sunGlowMat);
+    sunGlow.position.set(WORLD_W * 0.7, -20, -370);
+    sunGlow.renderOrder = -98;
+    this.scene.add(sunGlow);
+
+    // Outer sun halo
+    const haloGeo = new THREE.CircleGeometry(160, 32);
+    const haloMat = new THREE.MeshBasicMaterial({
+      color: 0xffe8a0,
+      transparent: true,
+      opacity: 0.2,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const halo = new THREE.Mesh(haloGeo, haloMat);
+    halo.position.set(WORLD_W * 0.7, -20, -375);
+    halo.renderOrder = -98;
+    this.scene.add(halo);
 
     // Parallax background layers with faint terrain silhouettes
     for (let i = 0; i < BG_LAYER_COUNT; i++) {
@@ -758,6 +855,8 @@ export class VoxelRenderer {
       const mesh = new THREE.Mesh(geo, mat);
       const waterSurfaceThreeY = -WATER_SURFACE_Y;
       mesh.position.set(x, waterSurfaceThreeY - h / 2 + 10, -50 + i * 2);
+      // Tilt rays so light appears to come from the right (~15° lean)
+      mesh.rotation.z = -0.26;
       mesh.renderOrder = 500;
 
       this.scene.add(mesh);
@@ -772,38 +871,9 @@ export class VoxelRenderer {
     }
   }
 
-  // ── Build water volume ──
-  buildWater(worldW, worldH) {
-    const THREE = this.THREE;
-    const waterTop = WATER_SURFACE_Y;
-    const waterH = worldH - waterTop;
-
-    // Water volume (translucent blue box with depth coloring)
-    const waterCanvas = document.createElement('canvas');
-    waterCanvas.width = 2;
-    waterCanvas.height = 256;
-    const wCtx = waterCanvas.getContext('2d');
-    const wGrad = wCtx.createLinearGradient(0, 0, 0, 256);
-    wGrad.addColorStop(0, 'rgba(30, 120, 180, 0.08)');
-    wGrad.addColorStop(0.5, 'rgba(15, 70, 130, 0.15)');
-    wGrad.addColorStop(1, 'rgba(5, 30, 60, 0.25)');
-    wCtx.fillStyle = wGrad;
-    wCtx.fillRect(0, 0, 2, 256);
-    const waterTexture = new THREE.CanvasTexture(waterCanvas);
-
-    const geo = new THREE.BoxGeometry(worldW + 100, waterH, VOXEL_DEPTH * 3);
-    const mat = new THREE.MeshBasicMaterial({
-      map: waterTexture,
-      transparent: true,
-      opacity: 0.3,
-      depthWrite: false,
-      blending: THREE.NormalBlending,
-    });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(worldW / 2, -(waterTop + waterH / 2), 0);
-    mesh.renderOrder = 999;
-    this.scene.add(mesh);
-    this.waterMesh = mesh;
+  // ── Build water surface and sparkles ──
+  buildWater(worldW) {
+    this.waterMesh = null;
 
     // Build the fancy water surface
     this._buildWaterSurface(worldW);
@@ -812,34 +882,40 @@ export class VoxelRenderer {
     this._buildSurfaceSparkles(worldW);
   }
 
-  // ── Animated wave mesh for water surface ──
+  // ── Animated pixelated wave mesh for water surface ──
   _buildWaterSurface(worldW) {
     const THREE = this.THREE;
     const surfaceY = -WATER_SURFACE_Y;
 
-    // Create a wide strip of triangles for the wavy surface
-    const segW = (worldW + 200) / SURFACE_WAVE_SEGMENTS;
+    // Fewer segments for chunky pixel-art wave look (one segment per tile)
+    const pixelSegments = Math.ceil(worldW / TILE_SIZE) + 4;
+    const segW = TILE_SIZE;
     const positions = [];
     const indices = [];
     const uvs = [];
 
-    for (let i = 0; i <= SURFACE_WAVE_SEGMENTS; i++) {
-      const x = -100 + i * segW;
-      // Top vertex
-      positions.push(x, surfaceY + 8, 0);
-      uvs.push(i / SURFACE_WAVE_SEGMENTS, 1);
-      // Bottom vertex
-      positions.push(x, surfaceY - 15, 0);
-      uvs.push(i / SURFACE_WAVE_SEGMENTS, 0);
+    // 3 rows of vertices: top, middle (surface line), bottom — for visible wave height
+    const rowCount = 3;
+    for (let i = 0; i <= pixelSegments; i++) {
+      const x = -2 * TILE_SIZE + i * segW;
+      const u = i / pixelSegments;
+      positions.push(x, surfaceY + 20, 0);  // top
+      uvs.push(u, 1);
+      positions.push(x, surfaceY, 0);       // middle (surface line)
+      uvs.push(u, 0.5);
+      positions.push(x, surfaceY - 20, 0);  // bottom
+      uvs.push(u, 0);
     }
 
-    for (let i = 0; i < SURFACE_WAVE_SEGMENTS; i++) {
-      const a = i * 2;
-      const b = i * 2 + 1;
-      const c = i * 2 + 2;
-      const d = i * 2 + 3;
-      indices.push(a, b, c);
-      indices.push(b, d, c);
+    for (let i = 0; i < pixelSegments; i++) {
+      const col = i * rowCount;
+      const nextCol = (i + 1) * rowCount;
+      // Top quad (top - middle)
+      indices.push(col, col + 1, nextCol);
+      indices.push(col + 1, nextCol + 1, nextCol);
+      // Bottom quad (middle - bottom)
+      indices.push(col + 1, col + 2, nextCol + 1);
+      indices.push(col + 2, nextCol + 2, nextCol + 1);
     }
 
     const geo = new THREE.BufferGeometry();
@@ -847,34 +923,60 @@ export class VoxelRenderer {
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
     geo.setIndex(indices);
 
-    // Surface gradient texture
+    // Pixelated surface texture — wider with visible wave bands
     const surfCanvas = document.createElement('canvas');
-    surfCanvas.width = 256;
+    surfCanvas.width = 32;
     surfCanvas.height = 32;
     const sCtx = surfCanvas.getContext('2d');
-    const sGrad = sCtx.createLinearGradient(0, 0, 0, 32);
-    sGrad.addColorStop(0, 'rgba(140, 220, 255, 0.0)');
-    sGrad.addColorStop(0.3, 'rgba(140, 220, 255, 0.5)');
-    sGrad.addColorStop(0.5, 'rgba(200, 240, 255, 0.8)');
-    sGrad.addColorStop(0.7, 'rgba(140, 220, 255, 0.5)');
-    sGrad.addColorStop(1, 'rgba(80, 160, 220, 0.0)');
-    sCtx.fillStyle = sGrad;
-    sCtx.fillRect(0, 0, 256, 32);
+    const px = 2; // pixel size
 
-    // Add horizontal shimmer lines
-    sCtx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-    sCtx.lineWidth = 1;
-    for (let x = 0; x < 256; x += 8) {
-      const y = 14 + Math.sin(x * 0.1) * 3;
-      sCtx.beginPath();
-      sCtx.moveTo(x, y);
-      sCtx.lineTo(x + 4, y + Math.sin(x * 0.2) * 2);
-      sCtx.stroke();
+    // 16 rows of pixels covering the full height
+    // Row 0 = top (transparent above water), row 15 = bottom (transparent into water)
+    for (let py = 0; py < 16; py++) {
+      for (let px2 = 0; px2 < 16; px2++) {
+        const seed = py * 16 + px2;
+        const r = Math.sin(seed * 9871) * 43758.5453;
+        const rng = r - Math.floor(r);
+
+        // Fade at top and bottom edges, brightest in middle rows (6-9)
+        let alpha = 0;
+        if (py < 4) {
+          alpha = py / 4 * 0.3;           // gentle fade in from top
+        } else if (py < 7) {
+          alpha = 0.3 + (py - 4) / 3 * 0.5; // build up to brightest
+        } else if (py < 10) {
+          alpha = 0.8 - rng * 0.1;         // bright core band
+        } else if (py < 13) {
+          alpha = 0.6 - (py - 10) / 3 * 0.3; // fade down
+        } else {
+          alpha = 0.3 * (1 - (py - 13) / 3); // gentle fade out
+        }
+
+        const blue = 190 + rng * 50;
+        const green = 210 + rng * 40;
+        const red = 160 + rng * 50;
+        sCtx.fillStyle = `rgba(${red}, ${Math.min(255, green)}, ${Math.min(255, blue)}, ${alpha})`;
+        sCtx.fillRect(px2 * px, py * px, px, px);
+      }
+    }
+    // Bright highlight pixels in the core (rows 7-8)
+    for (let px2 = 0; px2 < 16; px2++) {
+      const rng2 = (Math.sin((px2 + 100) * 9871) * 43758.5453) % 1;
+      if (rng2 > 0.25) {
+        sCtx.fillStyle = 'rgba(230, 248, 255, 0.85)';
+        sCtx.fillRect(px2 * px, 7 * px, px, px);
+      }
+      if (rng2 > 0.4) {
+        sCtx.fillStyle = 'rgba(200, 235, 255, 0.6)';
+        sCtx.fillRect(px2 * px, 8 * px, px, px);
+      }
     }
 
     const surfTexture = new THREE.CanvasTexture(surfCanvas);
+    surfTexture.magFilter = THREE.NearestFilter;
+    surfTexture.minFilter = THREE.NearestFilter;
     surfTexture.wrapS = THREE.RepeatWrapping;
-    surfTexture.repeat.x = 20;
+    surfTexture.repeat.x = Math.ceil(worldW / TILE_SIZE);
 
     const mat = new THREE.MeshBasicMaterial({
       map: surfTexture,
@@ -889,6 +991,7 @@ export class VoxelRenderer {
     mesh.renderOrder = 1000;
     this.scene.add(mesh);
     this.surfaceWaveMesh = mesh;
+    this._surfacePixelSegments = pixelSegments;
   }
 
   // ── Sparkle particles floating on water surface ──
@@ -930,7 +1033,17 @@ export class VoxelRenderer {
 
     // Sun from above-right — strong directional to illuminate block tops & right faces
     const sun = new THREE.DirectionalLight(0xffeedd, 1.4);
-    sun.position.set(300, 400, 500);
+    sun.position.set(600, 400, 500);
+    sun.castShadow = true;
+    sun.shadow.mapSize.width = 2048;
+    sun.shadow.mapSize.height = 2048;
+    sun.shadow.camera.left = -WORLD_W / 2;
+    sun.shadow.camera.right = WORLD_W / 2;
+    sun.shadow.camera.top = WORLD_H / 2;
+    sun.shadow.camera.bottom = -WORLD_H / 2;
+    sun.shadow.camera.near = 1;
+    sun.shadow.camera.far = 2000;
+    sun.shadow.bias = -0.002;
     this.scene.add(sun);
 
     // Fill light from left-front — ensures left faces aren't too dark
@@ -1037,6 +1150,13 @@ export class VoxelRenderer {
         const amp = 0.25 + Math.min(speed / 300, 0.35);
         this.enemyTailPivots[i].rotation.y = Math.sin(this._time * freq + i * 2) * amp;
       }
+
+      // Spawn bubbles for enemies (less frequent than player)
+      const enemySpeed = Math.abs(eb.velocity.x);
+      const enemyInWater = eb.position.y > WATER_SURFACE_Y;
+      if (enemyInWater && enemySpeed > 20 && Math.random() < 0.06) {
+        this.spawnBubble(eb.position.x, eb.position.y);
+      }
     }
 
     // ── Sync pearls (bob + spin, remove collected) ──
@@ -1057,13 +1177,20 @@ export class VoxelRenderer {
     }
 
     // ── Update bubbles ──
+    const waterSurfaceThreeY = -WATER_SURFACE_Y;
     for (let i = this.bubbles.length - 1; i >= 0; i--) {
       const b = this.bubbles[i];
       b.mesh.position.y += b.vy * dt;
       b.mesh.position.x += Math.sin(this._time * 3 + i) * 0.5;
       b.life -= dt;
-      b.mesh.material.opacity = Math.max(0, b.life * 0.3);
-      if (b.life <= 0) {
+      // Fade out and remove when reaching water surface or lifetime ends
+      if (b.mesh.position.y >= waterSurfaceThreeY - 5) {
+        b.life = Math.min(b.life, 0.15); // quick fade near surface
+        b.mesh.material.opacity *= 0.85;
+      } else {
+        b.mesh.material.opacity = Math.max(0, b.life * 0.3);
+      }
+      if (b.life <= 0 || b.mesh.position.y > waterSurfaceThreeY) {
         this.scene.remove(b.mesh);
         b.mesh.geometry.dispose();
         b.mesh.material.dispose();
@@ -1080,25 +1207,26 @@ export class VoxelRenderer {
       ray.mesh.material.opacity = ray.baseOpacity * (0.5 + 0.5 * Math.sin(t * 0.7 + ray.phase * 0.5));
     }
 
-    // ── Animate water surface waves ──
+    // ── Animate water surface waves (pixelated look from tile-sized segments) ──
     if (this.surfaceWaveMesh) {
       const positions = this.surfaceWaveMesh.geometry.attributes.position;
       const surfaceY = -WATER_SURFACE_Y;
-      for (let i = 0; i <= SURFACE_WAVE_SEGMENTS; i++) {
-        const topIdx = i * 2;
-        const x = positions.getX(topIdx);
-        // Multi-layered wave function for organic look
+      const segs = this._surfacePixelSegments || SURFACE_WAVE_SEGMENTS;
+      for (let i = 0; i <= segs; i++) {
+        const base = i * 3; // 3 vertices per column: top, middle, bottom
+        const x = positions.getX(base);
+        // Smooth wave — the pixelated look comes from tile-width segments + NearestFilter texture
         const wave =
-          Math.sin(x * 0.02 + this._time * SURFACE_WAVE_SPEED) * SURFACE_WAVE_AMPLITUDE +
-          Math.sin(x * 0.05 + this._time * SURFACE_WAVE_SPEED * 1.3) * (SURFACE_WAVE_AMPLITUDE * 0.5) +
-          Math.sin(x * 0.01 + this._time * SURFACE_WAVE_SPEED * 0.7) * (SURFACE_WAVE_AMPLITUDE * 0.3);
-        positions.setY(topIdx, surfaceY + 8 + wave);
-        positions.setY(topIdx + 1, surfaceY - 15 + wave * 0.3);
+          Math.sin(x * 0.015 + this._time * SURFACE_WAVE_SPEED) * SURFACE_WAVE_AMPLITUDE * 1.5 +
+          Math.sin(x * 0.04 + this._time * SURFACE_WAVE_SPEED * 1.3) * SURFACE_WAVE_AMPLITUDE;
+        positions.setY(base, surfaceY + 20 + wave);       // top
+        positions.setY(base + 1, surfaceY + wave);         // middle
+        positions.setY(base + 2, surfaceY - 20 + wave * 0.3); // bottom
       }
       positions.needsUpdate = true;
 
-      // Scroll surface texture for shimmer effect
-      this.surfaceWaveMesh.material.map.offset.x = this._time * 0.02;
+      // Slow texture scroll for subtle shimmer
+      this.surfaceWaveMesh.material.map.offset.x = this._time * 0.015;
     }
 
     // ── Animate surface sparkles ──
@@ -1111,10 +1239,7 @@ export class VoxelRenderer {
       sp.mesh.position.y = -WATER_SURFACE_Y + Math.sin(t * 0.5) * 3;
     }
 
-    // ── Animate water volume ──
-    if (this.waterMesh) {
-      this.waterMesh.position.y += Math.sin(this._time * 1.5) * 0.02;
-    }
+    // (water is now a static gradient plane — no animation needed)
   }
 
   dispose() {
