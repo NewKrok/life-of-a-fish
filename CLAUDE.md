@@ -50,7 +50,7 @@ example.js            — Nape-js physics reference/demo (not used in game)
 - Terrain: solid bodies built via greedy rectangle merging from tile map
 - Water: `FluidProperties` zone with density & viscosity for buoyancy
 - Player: dynamic body with `CharacterController` for ground detection
-- Enemies: kinematic bodies with patrol behavior
+- Enemies: kinematic bodies — basic (patrol), shark (patrol+chase), pufferfish (vertical), crab (ground push), toxic fish (ranged)
 - Pearls / hazards: sensor shapes with `InteractionListener` callbacks
 - Each entity class has its own `CbType` for collision filtering
 
@@ -84,6 +84,10 @@ Tile map is a string grid (125 cols × 25 rows, 32px tiles):
 | `B`  | Buoy        | 9       |
 | `R`  | Boulder     | 10      |
 | `T`  | Raft        | 11      |
+| `S`  | Shark       | 12      |
+| `U`  | Pufferfish  | 13      |
+| `C`  | Crab        | 14      |
+| `F`  | Toxic Fish  | 15      |
 
 Water surface is at row 4 (128px).
 

@@ -25,6 +25,18 @@ import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.m
 const GRAVITY = 200;
 const DT = 1 / 60;
 const ENEMY_SPEED = 60;
+const SHARK_PATROL_SPEED = 50;        // px/s — patrol speed
+const SHARK_CHASE_SPEED = 110;        // px/s — chase speed
+const SHARK_DETECT_RADIUS = 150;      // px — detection radius
+const SHARK_LOSE_RADIUS = 220;        // px — stop chasing radius
+const PUFFER_SPEED = 30;              // px/s — vertical movement speed
+const PUFFER_RANGE = 60;              // px — vertical patrol range
+const CRAB_SPEED = 25;                // px/s — ground patrol speed
+const CRAB_PUSH_FORCE = 600;          // px/s — push velocity applied to player
+const TOXIC_SHOOT_RANGE = 180;        // px — range to detect and shoot
+const TOXIC_SHOOT_INTERVAL = 2000;    // ms — cooldown between shots
+const TOXIC_PROJECTILE_SPEED = 150;   // px/s — projectile velocity
+const TOXIC_PROJECTILE_LIFE = 2500;   // ms — projectile lifespan
 const PLAYER_CAPSULE_W = 24;
 const PLAYER_CAPSULE_H = 12;
 
@@ -104,6 +116,11 @@ const pearlTag = new CbType();
 const boulderTag = new CbType();
 const buoyTag = new CbType();
 const raftTag = new CbType();
+const sharkTag = new CbType();
+const pufferfishTag = new CbType();
+const crabTag = new CbType();
+const toxicFishTag = new CbType();
+const projectileTag = new CbType();
 
 // ── Build terrain bodies from merged tiles ──
 const mergedBodies = getMergedSolidBodies();
@@ -171,6 +188,85 @@ for (const en of entities.enemies) {
 
   // Build enemy mesh
   voxelRenderer.buildEnemyFish();
+}
+
+// ── Shark enemies (patrol + chase player) ──
+const sharkBodies = [];
+for (const sh of entities.sharks) {
+  const b = new Body(BodyType.KINEMATIC, new Vec2(sh.x, sh.y));
+  const shape = new Capsule(28, 14);
+  shape.sensorEnabled = true;
+  shape.cbTypes.add(sharkTag);
+  b.shapes.add(shape);
+  b.space = space;
+  b._patrol = {
+    minX: sh.x - 100,
+    maxX: sh.x + 100,
+    speed: SHARK_PATROL_SPEED,
+    _dir: 1,
+  };
+  b._chase = { chasing: false };
+  sharkBodies.push(b);
+  voxelRenderer.buildShark();
+}
+
+// ── Pufferfish enemies (vertical movement) ──
+const pufferfishBodies = [];
+for (const pf of entities.pufferfish) {
+  const b = new Body(BodyType.KINEMATIC, new Vec2(pf.x, pf.y));
+  const shape = new Circle(17);
+  shape.sensorEnabled = true;
+  shape.cbTypes.add(pufferfishTag);
+  b.shapes.add(shape);
+  b.space = space;
+  b._patrol = {
+    minY: pf.y - PUFFER_RANGE,
+    maxY: pf.y + PUFFER_RANGE,
+    speed: PUFFER_SPEED,
+    _dir: 1,
+  };
+  pufferfishBodies.push(b);
+  voxelRenderer.buildPufferfish();
+}
+
+// ── Crab enemies (ground patrol, pushes player) ──
+const crabBodies = [];
+for (const cr of entities.crabs) {
+  const b = new Body(BodyType.KINEMATIC, new Vec2(cr.x, cr.y));
+  const shape = new Polygon(Polygon.box(44, 28));
+  shape.sensorEnabled = true;
+  shape.cbTypes.add(crabTag);
+  b.shapes.add(shape);
+  b.space = space;
+  b._patrol = {
+    minX: cr.x - 50,
+    maxX: cr.x + 50,
+    speed: CRAB_SPEED,
+    _dir: 1,
+  };
+  crabBodies.push(b);
+  voxelRenderer.buildCrab();
+}
+
+// ── Toxic fish enemies (ranged attacker) ──
+const toxicFishBodies = [];
+const projectileBodies = [];  // active poison projectiles
+for (const tf of entities.toxicFish) {
+  const b = new Body(BodyType.KINEMATIC, new Vec2(tf.x, tf.y));
+  const shape = new Capsule(24, 12);
+  shape.sensorEnabled = true;
+  shape.cbTypes.add(toxicFishTag);
+  b.shapes.add(shape);
+  b.space = space;
+  b._patrol = {
+    minX: tf.x - 60,
+    maxX: tf.x + 60,
+    speed: ENEMY_SPEED * 0.6,
+    _dir: 1,
+  };
+  b._shoot = { cooldown: 0 };
+  toxicFishBodies.push(b);
+  voxelRenderer.buildToxicFish();
 }
 
 // ── Buoys (floating on water surface) ──
@@ -302,6 +398,156 @@ const boulderPlayerPre = new PreListener(
   () => grabbedBoulder ? PreFlag.IGNORE : PreFlag.ACCEPT,
 );
 boulderPlayerPre.space = space;
+
+// Shark collision -> respawn (same as regular enemy)
+const sharkListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, playerTag, sharkTag,
+  () => {
+    fishCtrl.respawn(entities.playerSpawn.x, entities.playerSpawn.y);
+  },
+);
+sharkListener.space = space;
+
+// Pufferfish collision -> respawn
+const pufferfishListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, playerTag, pufferfishTag,
+  () => {
+    fishCtrl.respawn(entities.playerSpawn.x, entities.playerSpawn.y);
+  },
+);
+pufferfishListener.space = space;
+
+// Crab collision -> push player away (does NOT kill)
+const crabListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, playerTag, crabTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const crabBody = crabBodies.find(c => c === b1 || c === b2);
+    if (crabBody) {
+      const dx = player.position.x - crabBody.position.x;
+      const pushDirX = dx >= 0 ? 1 : -1;
+      fishCtrl.knockback(pushDirX * CRAB_PUSH_FORCE, -CRAB_PUSH_FORCE * 0.5);
+    }
+  },
+);
+crabListener.space = space;
+
+// Poison projectile collision -> respawn
+const projectileListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, playerTag, projectileTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const projBody = projectileBodies.find(p => p === b1 || p === b2);
+    if (projBody && projBody.space) {
+      projBody.space = null;
+      fishCtrl.respawn(entities.playerSpawn.x, entities.playerSpawn.y);
+    }
+  },
+);
+projectileListener.space = space;
+
+// Toxic fish body collision -> respawn
+const toxicFishListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, playerTag, toxicFishTag,
+  () => {
+    fishCtrl.respawn(entities.playerSpawn.x, entities.playerSpawn.y);
+  },
+);
+toxicFishListener.space = space;
+
+// Boulder hits shark -> both die
+const boulderSharkListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, boulderTag, sharkTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const boulderBody = boulderBodies.find(br => br === b1 || br === b2);
+    if (boulderBody === grabbedBoulder) return;
+    const sharkBody = sharkBodies.find(s => s === b1 || s === b2);
+    if (sharkBody && sharkBody.space) {
+      const cx = sharkBody.position.x;
+      const cy = sharkBody.position.y;
+      sharkBody.space = null;
+      if (boulderBody && boulderBody.space) {
+        if (grabbedBoulder === boulderBody) grabbedBoulder = null;
+        boulderBody.space = null;
+        voxelRenderer.spawnBoulderBreak(cx, cy);
+      }
+    }
+  },
+);
+boulderSharkListener.space = space;
+
+// Boulder hits pufferfish -> both die
+const boulderPufferfishListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, boulderTag, pufferfishTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const boulderBody = boulderBodies.find(br => br === b1 || br === b2);
+    if (boulderBody === grabbedBoulder) return;
+    const pfBody = pufferfishBodies.find(p => p === b1 || p === b2);
+    if (pfBody && pfBody.space) {
+      const cx = pfBody.position.x;
+      const cy = pfBody.position.y;
+      pfBody.space = null;
+      if (boulderBody && boulderBody.space) {
+        if (grabbedBoulder === boulderBody) grabbedBoulder = null;
+        boulderBody.space = null;
+        voxelRenderer.spawnBoulderBreak(cx, cy);
+      }
+    }
+  },
+);
+boulderPufferfishListener.space = space;
+
+// Boulder hits crab -> both die
+const boulderCrabListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, boulderTag, crabTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const boulderBody = boulderBodies.find(br => br === b1 || br === b2);
+    if (boulderBody === grabbedBoulder) return;
+    const crabBody = crabBodies.find(c => c === b1 || c === b2);
+    if (crabBody && crabBody.space) {
+      const cx = crabBody.position.x;
+      const cy = crabBody.position.y;
+      crabBody.space = null;
+      if (boulderBody && boulderBody.space) {
+        if (grabbedBoulder === boulderBody) grabbedBoulder = null;
+        boulderBody.space = null;
+        voxelRenderer.spawnBoulderBreak(cx, cy);
+      }
+    }
+  },
+);
+boulderCrabListener.space = space;
+
+// Boulder hits toxic fish -> both die
+const boulderToxicListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, boulderTag, toxicFishTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const boulderBody = boulderBodies.find(br => br === b1 || br === b2);
+    if (boulderBody === grabbedBoulder) return;
+    const tfBody = toxicFishBodies.find(t => t === b1 || t === b2);
+    if (tfBody && tfBody.space) {
+      const cx = tfBody.position.x;
+      const cy = tfBody.position.y;
+      tfBody.space = null;
+      if (boulderBody && boulderBody.space) {
+        if (grabbedBoulder === boulderBody) grabbedBoulder = null;
+        boulderBody.space = null;
+        voxelRenderer.spawnBoulderBreak(cx, cy);
+      }
+    }
+  },
+);
+boulderToxicListener.space = space;
 
 // ── Touch Controls ──
 const touchControls = new TouchControls();
@@ -551,6 +797,100 @@ function gameLoop() {
     eb.velocity = new Vec2(p._dir * p.speed, 0);
   }
 
+  // ── Update shark AI (patrol + chase) ──
+  for (const sb of sharkBodies) {
+    if (!sb._patrol || !sb.space) continue;
+    const p = sb._patrol;
+    const ch = sb._chase;
+    const dx = player.position.x - sb.position.x;
+    const dy = player.position.y - sb.position.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (!ch.chasing && dist < SHARK_DETECT_RADIUS) {
+      ch.chasing = true;
+    } else if (ch.chasing && dist > SHARK_LOSE_RADIUS) {
+      ch.chasing = false;
+    }
+
+    if (ch.chasing) {
+      const len = dist || 1;
+      sb.velocity = new Vec2(
+        (dx / len) * SHARK_CHASE_SPEED,
+        (dy / len) * SHARK_CHASE_SPEED
+      );
+    } else {
+      const px = sb.position.x;
+      if (px >= p.maxX) p._dir = -1;
+      if (px <= p.minX) p._dir = 1;
+      sb.velocity = new Vec2(p._dir * p.speed, 0);
+    }
+  }
+
+  // ── Update pufferfish AI (vertical patrol) ──
+  for (const pf of pufferfishBodies) {
+    if (!pf._patrol || !pf.space) continue;
+    const p = pf._patrol;
+    const py = pf.position.y;
+    if (py >= p.maxY) p._dir = -1;
+    if (py <= p.minY) p._dir = 1;
+    pf.velocity = new Vec2(0, p._dir * p.speed);
+  }
+
+  // ── Update crab AI (horizontal ground patrol) ──
+  for (const cb of crabBodies) {
+    if (!cb._patrol || !cb.space) continue;
+    const p = cb._patrol;
+    const px = cb.position.x;
+    if (px >= p.maxX) p._dir = -1;
+    if (px <= p.minX) p._dir = 1;
+    cb.velocity = new Vec2(p._dir * p.speed, 0);
+  }
+
+  // ── Update toxic fish AI (patrol + shoot) ──
+  for (const tf of toxicFishBodies) {
+    if (!tf._patrol || !tf.space) continue;
+    const p = tf._patrol;
+    const px = tf.position.x;
+    if (px >= p.maxX) p._dir = -1;
+    if (px <= p.minX) p._dir = 1;
+    tf.velocity = new Vec2(p._dir * p.speed, 0);
+
+    // Shooting logic
+    tf._shoot.cooldown = Math.max(0, tf._shoot.cooldown - DT * 1000);
+    const dx = player.position.x - tf.position.x;
+    const dy = player.position.y - tf.position.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < TOXIC_SHOOT_RANGE && tf._shoot.cooldown <= 0) {
+      tf._shoot.cooldown = TOXIC_SHOOT_INTERVAL;
+      // Spawn projectile
+      const len = dist || 1;
+      const pb = new Body(BodyType.KINEMATIC, new Vec2(tf.position.x, tf.position.y));
+      const ps = new Circle(5);
+      ps.sensorEnabled = true;
+      ps.cbTypes.add(projectileTag);
+      pb.shapes.add(ps);
+      pb.space = space;
+      pb.velocity = new Vec2(
+        (dx / len) * TOXIC_PROJECTILE_SPEED,
+        (dy / len) * TOXIC_PROJECTILE_SPEED
+      );
+      pb._life = TOXIC_PROJECTILE_LIFE;
+      projectileBodies.push(pb);
+      voxelRenderer.buildProjectile(pb);
+    }
+  }
+
+  // ── Update projectiles (lifetime) ──
+  for (let i = projectileBodies.length - 1; i >= 0; i--) {
+    const pb = projectileBodies[i];
+    if (!pb.space) { projectileBodies.splice(i, 1); continue; }
+    pb._life -= DT * 1000;
+    if (pb._life <= 0) {
+      pb.space = null;
+      projectileBodies.splice(i, 1);
+    }
+  }
+
   // ── Update buoys (stabilize at water surface) ──
   for (const bb of buoyBodies) {
     // Extra damping so buoys don't bounce forever
@@ -646,7 +986,9 @@ function gameLoop() {
 
   // Sync voxel renderer
   const fishState = fishCtrl.getState();
-  voxelRenderer.syncFrame(player, fishState, enemyBodies, DT);
+  voxelRenderer.syncFrame(player, fishState, enemyBodies, DT, {
+    sharkBodies, pufferfishBodies, crabBodies, toxicFishBodies, projectileBodies,
+  });
 
   renderer.render(scene, camera);
 

@@ -40,10 +40,33 @@ Voxel groups built from hardcoded coordinate arrays:
 - Mirrored on Y-axis via `scale.z = -1` when facing left
 - Uses `MeshStandardMaterial` (roughness: 0.85, metalness: 0.0)
 
-**Enemy fish** (dark red `0x992222`):
-- Similar structure, spiky fin (`0x661111`)
-- Uses `MeshStandardMaterial` (roughness: 0.85, metalness: 0.0)
-- No animation beyond position sync
+**Enemy fish** (dark purple `0x662244`):
+- Similar structure, spiky fin, red angry eyes
+- Tail is a separate pivot for wag animation
+- 3D flip via Y-rotation lerp based on velocity direction
+
+**Shark** (blue-grey `0x445566`):
+- Longer body with pointed snout and white teeth
+- Tall dorsal fin, dark menacing eyes
+- Tail pivot for wag animation (faster when chasing)
+- Slightly larger than regular enemy (Capsule 28×14)
+
+**Pufferfish** (golden `0xccaa44`):
+- Round/spherical body with protruding spikes in all directions
+- Big white+black eyes, small tail fin
+- Subtle scale-pulse animation (inflate/deflate)
+- Wobble rotation animation
+
+**Crab** (red `0xcc3322`):
+- Wide flat body with claw appendages and eye stalks
+- Legs below body, claws on sides with lighter tips
+- Scuttle animation (vertical bob) when walking
+
+**Toxic fish** (green `0x336644`):
+- Similar to regular enemy but green body with purple toxic spots
+- Glowing purple eyes, purple dorsal fin
+- Tail pivot for wag animation
+- Shoots green glowing poison projectiles (`BoxGeometry 6×6×6`, emissive `0x44cc00`)
 
 ## Background & Atmosphere
 
@@ -183,9 +206,14 @@ Called every frame after physics step. Updates:
 1. Player fish group position/rotation from nape body
 2. Tail wag angle (frequency = 8 + speed×0.05, amplitude 0.3–0.7 rad)
 3. Enemy positions from their nape bodies; hide dead enemies (body.space === null)
-4. Pearl bob + spin animation; remove collected pearls (body.space === null)
-5. Buoy, boulder, raft positions + rotations from physics bodies
-6. Bubble positions, opacity, and lifetime (including horizontal `vx` drag for splash particles)
+4. Shark positions, 3D flip, tail wag (faster when chasing), bubbles
+5. Pufferfish positions, wobble rotation, scale pulse animation
+6. Crab positions, 3D flip, scuttle bob animation
+7. Toxic fish positions, 3D flip, tail wag
+8. Projectile positions, spin rotation, emissive pulse, remove expired
+9. Pearl bob + spin animation; remove collected pearls (body.space === null)
+10. Buoy, boulder, raft positions + rotations from physics bodies
+11. Bubble positions, opacity, and lifetime (including horizontal `vx` drag for splash particles)
 7. Surface disturbance aging, spread growth, and cleanup
 8. God ray sway and opacity pulsing
 9. Water surface wave vertex animation + texture scrolling + disturbance ripples

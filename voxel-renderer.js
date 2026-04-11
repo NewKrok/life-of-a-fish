@@ -57,6 +57,19 @@ export class VoxelRenderer {
     this._fishFlipAngle = 0;       // current Y rotation for 3D flip (0 = right, π = left)
     this._enemyFlipAngles = [];    // per-enemy Y rotation for 3D flip
 
+    // New enemy types
+    this.sharkGroups = [];
+    this.sharkTailPivots = [];
+    this._sharkFlipAngles = [];
+    this.pufferfishGroups = [];
+    this._pufferfishFlipAngles = [];
+    this.crabGroups = [];
+    this._crabFlipAngles = [];
+    this.toxicFishGroups = [];
+    this.toxicFishTailPivots = [];
+    this._toxicFlipAngles = [];
+    this.projectileMeshes = [];    // { mesh, body } pairs for poison projectiles
+
     // New visual elements
     this.godRays = [];
     this.surfaceWaveMesh = null;
@@ -784,6 +797,445 @@ export class VoxelRenderer {
     this.enemyGroups.push(wrapper);
     this.enemyTailPivots.push(tailPivot);
     return wrapper;
+  }
+
+  // ── Build shark enemy (chase fish — similar shape to enemy but blue-grey) ──
+  buildShark() {
+    const THREE = this.THREE;
+    const group = new THREE.Group();
+    const V = 2;
+
+    const addVoxel = (x, y, z, color) => {
+      const geo = new THREE.BoxGeometry(V, V, V);
+      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.8, metalness: 0.1 });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(x * V, y * V, z * V);
+      return mesh;
+    };
+
+    const BODY = 0x445566;
+    const BODY_DARK = 0x334455;
+    const BODY_LIGHT = 0x556677;
+    const BELLY = 0xcccccc;
+    const BELLY_LIGHT = 0xdddddd;
+    const FIN = 0x3a4f5f;
+    const FIN_DARK = 0x2a3f4f;
+    const EYE = 0x111111;
+    const TEETH = 0xffffff;
+
+    const row = (xs, y, z, color) => {
+      for (const x of xs) group.add(addVoxel(x, y, z, color));
+    };
+
+    // Slightly longer body than regular enemy — shark-like
+    const sliceOuter = (z) => {
+      row([3, 4, 5, 6, 7], 3, z, BODY);
+      row([3, 4, 5, 6, 7], 2, z, BODY_LIGHT);
+      row([4, 5, 6], 1, z, BODY_LIGHT);
+      row([5, 6], 0, z, BELLY);
+      row([5, 6], -1, z, BELLY);
+    };
+
+    const sliceMid = (z) => {
+      row([2, 3, 4, 5, 6, 7, 8], 4, z, BODY);
+      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 3, z, BODY);
+      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 2, z, BODY_LIGHT);
+      row([2, 3, 4, 5, 6, 7, 8, 9], 1, z, BODY_LIGHT);
+      row([3, 4, 5, 6, 7, 8, 9], 0, z, BELLY);
+      row([4, 5, 6, 7, 8], -1, z, BELLY);
+      row([5, 6, 7], -2, z, BELLY_LIGHT);
+    };
+
+    const sliceCenter = (z) => {
+      row([3, 4, 5, 6, 7], 5, z, BODY_DARK);
+      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 4, z, BODY);
+      row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 3, z, BODY);
+      row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 2, z, BODY_LIGHT);
+      row([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 1, z, BODY_LIGHT);
+      row([2, 3, 4, 5, 6, 7, 8, 9, 10], 0, z, BELLY);
+      row([3, 4, 5, 6, 7, 8], -1, z, BELLY);
+      row([4, 5, 6, 7], -2, z, BELLY_LIGHT);
+    };
+
+    sliceOuter(0); sliceOuter(5);
+    sliceMid(1); sliceMid(4);
+    sliceCenter(2); sliceCenter(3);
+
+    // Pointed snout — extra voxels at front
+    for (const z of [2, 3]) {
+      group.add(addVoxel(11, 2, z, BODY_LIGHT));
+      group.add(addVoxel(11, 1, z, BELLY));
+    }
+
+    // Teeth at front
+    for (const z of [2, 3]) {
+      group.add(addVoxel(10, -1, z, TEETH));
+      group.add(addVoxel(11, 0, z, TEETH));
+    }
+
+    // Eyes — dark, menacing
+    group.add(addVoxel(9, 3, -0.2, EYE));
+    group.add(addVoxel(9, 2, -0.2, EYE));
+    group.add(addVoxel(9, 3, 5.2, EYE));
+    group.add(addVoxel(9, 2, 5.2, EYE));
+
+    // Tall dorsal fin
+    for (const x of [3, 4, 5, 6]) {
+      for (const z of [2, 3]) {
+        group.add(addVoxel(x, 6, z, FIN));
+        group.add(addVoxel(x, 7, z, FIN_DARK));
+      }
+    }
+    for (const z of [2, 3]) {
+      group.add(addVoxel(4, 8, z, FIN_DARK));
+      group.add(addVoxel(5, 8, z, FIN_DARK));
+    }
+
+    // Tail
+    const tailPivot = new THREE.Group();
+    tailPivot.position.set(0, V * 1.5, V * 2.5);
+    const tailVoxels = [
+      [-1, 2, 0], [-1, 1, 0], [-1, 0, 0], [-1, -1, 0],
+      [-1, 2, 1], [-1, 1, 1], [-1, 0, 1], [-1, -1, 1],
+      [-2, 3, 0], [-2, 2, 0], [-2, 1, 0], [-2, 0, 0], [-2, -1, 0], [-2, -2, 0],
+      [-2, 3, 1], [-2, 2, 1], [-2, 1, 1], [-2, 0, 1], [-2, -1, 1], [-2, -2, 1],
+      [-3, 4, 0], [-3, 3, 0], [-3, -2, 0], [-3, -3, 0],
+      [-3, 4, 1], [-3, 3, 1], [-3, -2, 1], [-3, -3, 1],
+    ];
+    for (const [x, y, z] of tailVoxels) tailPivot.add(addVoxel(x, y, z, FIN));
+    group.add(tailPivot);
+
+    group.position.set(-5 * V, -1.5 * V, -2.5 * V);
+    group.scale.set(1.2, 1.2, 1.2);
+
+    const wrapper = new this.THREE.Group();
+    wrapper.add(group);
+    this.scene.add(wrapper);
+    this.sharkGroups.push(wrapper);
+    this.sharkTailPivots.push(tailPivot);
+    return wrapper;
+  }
+
+  // ── Build pufferfish enemy (round, spiky, moves up-down) ──
+  buildPufferfish() {
+    const THREE = this.THREE;
+    const group = new THREE.Group();
+    const V = 2;
+
+    const addVoxel = (x, y, z, color) => {
+      const geo = new THREE.BoxGeometry(V, V, V);
+      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.9, metalness: 0.0 });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(x * V, y * V, z * V);
+      return mesh;
+    };
+
+    const BODY = 0xccaa44;
+    const BODY_LIGHT = 0xddbb55;
+    const BELLY = 0xeedd88;
+    const SPIKE = 0xddcc66;
+    const EYE = 0x222222;
+    const EYE_WHITE = 0xffffff;
+
+    const row = (xs, y, z, color) => {
+      for (const x of xs) group.add(addVoxel(x, y, z, color));
+    };
+
+    // Round body — 6 slices in Z
+    // Z=0, Z=5 (outer)
+    const sliceOuter = (z) => {
+      row([2, 3, 4], 3, z, BODY);
+      row([1, 2, 3, 4, 5], 2, z, BODY);
+      row([1, 2, 3, 4, 5], 1, z, BODY_LIGHT);
+      row([2, 3, 4], 0, z, BELLY);
+    };
+
+    // Z=1, Z=4 (mid)
+    const sliceMid = (z) => {
+      row([1, 2, 3, 4, 5], 4, z, BODY);
+      row([0, 1, 2, 3, 4, 5, 6], 3, z, BODY);
+      row([0, 1, 2, 3, 4, 5, 6], 2, z, BODY);
+      row([0, 1, 2, 3, 4, 5, 6], 1, z, BODY_LIGHT);
+      row([1, 2, 3, 4, 5], 0, z, BELLY);
+      row([2, 3, 4], -1, z, BELLY);
+    };
+
+    // Z=2, Z=3 (center)
+    const sliceCenter = (z) => {
+      row([2, 3, 4], 5, z, BODY);
+      row([1, 2, 3, 4, 5], 4, z, BODY);
+      row([0, 1, 2, 3, 4, 5, 6], 3, z, BODY);
+      row([0, 1, 2, 3, 4, 5, 6], 2, z, BODY);
+      row([0, 1, 2, 3, 4, 5, 6], 1, z, BODY_LIGHT);
+      row([1, 2, 3, 4, 5], 0, z, BELLY);
+      row([2, 3, 4], -1, z, BELLY);
+    };
+
+    sliceOuter(0); sliceOuter(5);
+    sliceMid(1); sliceMid(4);
+    sliceCenter(2); sliceCenter(3);
+
+    // Spikes protruding outward
+    const spikePositions = [
+      [3, 6, 2], [3, 6, 3],               // top
+      [3, -2, 2], [3, -2, 3],             // bottom
+      [-1, 2, 2], [-1, 2, 3],             // left
+      [7, 2, 2], [7, 2, 3],               // right
+      [5, 5, 1], [1, 5, 4],               // top-side
+      [5, -1, 1], [1, -1, 4],             // bottom-side
+      [-1, 3, 1], [-1, 1, 4],             // left-side
+      [7, 3, 4], [7, 1, 1],               // right-side
+      [3, 5, -1], [3, 5, 6],              // front-back top
+      [3, -1, -1], [3, -1, 6],            // front-back bottom
+    ];
+    for (const [x, y, z] of spikePositions) group.add(addVoxel(x, y, z, SPIKE));
+
+    // Eyes — big round eyes
+    group.add(addVoxel(5, 3, -0.3, EYE_WHITE));
+    group.add(addVoxel(5, 2, -0.3, EYE_WHITE));
+    group.add(addVoxel(5, 3, -0.6, EYE));
+    group.add(addVoxel(5, 3, 5.3, EYE_WHITE));
+    group.add(addVoxel(5, 2, 5.3, EYE_WHITE));
+    group.add(addVoxel(5, 3, 5.6, EYE));
+
+    // Small tail fin
+    group.add(addVoxel(-1, 3, 2, BODY));
+    group.add(addVoxel(-1, 3, 3, BODY));
+    group.add(addVoxel(-1, 2, 2, BODY));
+    group.add(addVoxel(-1, 2, 3, BODY));
+    group.add(addVoxel(-2, 3, 2, BODY));
+    group.add(addVoxel(-2, 2, 3, BODY));
+
+    group.position.set(-3 * V, -2 * V, -2.5 * V);
+    group.scale.set(1.32, 1.32, 1.32);
+
+    const wrapper = new this.THREE.Group();
+    wrapper.add(group);
+    this.scene.add(wrapper);
+    this.pufferfishGroups.push(wrapper);
+    return wrapper;
+  }
+
+  // ── Build crab enemy (walks on ground, pushes player) ──
+  buildCrab() {
+    const THREE = this.THREE;
+    const group = new THREE.Group();
+    const V = 2;
+
+    const addVoxel = (x, y, z, color) => {
+      const geo = new THREE.BoxGeometry(V, V, V);
+      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0.05 });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(x * V, y * V, z * V);
+      return mesh;
+    };
+
+    const SHELL = 0xcc3322;
+    const SHELL_DARK = 0xaa2211;
+    const SHELL_LIGHT = 0xdd4433;
+    const BELLY = 0xeeaa77;
+    const CLAW = 0xdd4433;
+    const CLAW_TIP = 0xffccaa;
+    const EYE = 0x111111;
+    const EYE_STALK = 0xcc4422;
+
+    const row = (xs, y, z, color) => {
+      for (const x of xs) group.add(addVoxel(x, y, z, color));
+    };
+
+    // Wide, flat body — crab shape
+    // Z=0, Z=5 (outer)
+    const sliceOuter = (z) => {
+      row([2, 3, 4, 5], 2, z, SHELL);
+      row([2, 3, 4, 5], 1, z, SHELL_LIGHT);
+      row([3, 4], 0, z, BELLY);
+    };
+
+    // Z=1, Z=4 (mid)
+    const sliceMid = (z) => {
+      row([1, 2, 3, 4, 5, 6], 3, z, SHELL);
+      row([1, 2, 3, 4, 5, 6], 2, z, SHELL);
+      row([1, 2, 3, 4, 5, 6], 1, z, SHELL_LIGHT);
+      row([2, 3, 4, 5], 0, z, BELLY);
+    };
+
+    // Z=2, Z=3 (center)
+    const sliceCenter = (z) => {
+      row([1, 2, 3, 4, 5, 6], 3, z, SHELL_DARK);
+      row([0, 1, 2, 3, 4, 5, 6, 7], 2, z, SHELL);
+      row([0, 1, 2, 3, 4, 5, 6, 7], 1, z, SHELL_LIGHT);
+      row([1, 2, 3, 4, 5, 6], 0, z, BELLY);
+    };
+
+    sliceOuter(0); sliceOuter(5);
+    sliceMid(1); sliceMid(4);
+    sliceCenter(2); sliceCenter(3);
+
+    // Eye stalks
+    group.add(addVoxel(5, 4, 1, EYE_STALK));
+    group.add(addVoxel(5, 5, 1, EYE));
+    group.add(addVoxel(5, 4, 4, EYE_STALK));
+    group.add(addVoxel(5, 5, 4, EYE));
+
+    // Claws — left claw (Z < 0)
+    group.add(addVoxel(6, 2, -1, CLAW));
+    group.add(addVoxel(7, 2, -1, CLAW));
+    group.add(addVoxel(7, 3, -1, CLAW));
+    group.add(addVoxel(8, 2, -1, CLAW_TIP));
+    group.add(addVoxel(8, 3, -1, CLAW_TIP));
+
+    // Claws — right claw (Z > 5)
+    group.add(addVoxel(6, 2, 6, CLAW));
+    group.add(addVoxel(7, 2, 6, CLAW));
+    group.add(addVoxel(7, 3, 6, CLAW));
+    group.add(addVoxel(8, 2, 6, CLAW_TIP));
+    group.add(addVoxel(8, 3, 6, CLAW_TIP));
+
+    // Legs (tiny stubs)
+    for (const z of [1, 2, 3, 4]) {
+      group.add(addVoxel(0, -1, z, SHELL_DARK));
+      group.add(addVoxel(7, -1, z, SHELL_DARK));
+    }
+
+    group.position.set(-3.5 * V, -1 * V, -2.5 * V);
+    group.scale.set(1.1, 1.1, 1.1);
+
+    const wrapper = new this.THREE.Group();
+    wrapper.add(group);
+    this.scene.add(wrapper);
+    this.crabGroups.push(wrapper);
+    return wrapper;
+  }
+
+  // ── Build toxic fish enemy (ranged attacker — green/purple fish) ──
+  buildToxicFish() {
+    const THREE = this.THREE;
+    const group = new THREE.Group();
+    const V = 2;
+
+    const addVoxel = (x, y, z, color) => {
+      const geo = new THREE.BoxGeometry(V, V, V);
+      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0.0 });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(x * V, y * V, z * V);
+      return mesh;
+    };
+
+    const BODY = 0x336644;
+    const BODY_DARK = 0x225533;
+    const BODY_LIGHT = 0x447755;
+    const BELLY = 0x88aa77;
+    const BELLY_LIGHT = 0x99bb88;
+    const FIN = 0x664488;
+    const FIN_DARK = 0x553377;
+    const EYE = 0xcc33ff;
+    const SPOT = 0x9944cc;
+
+    const row = (xs, y, z, color) => {
+      for (const x of xs) group.add(addVoxel(x, y, z, color));
+    };
+
+    // Similar shape to regular enemy fish
+    const sliceOuter = (z) => {
+      row([3, 4, 5, 6], 3, z, BODY);
+      row([3, 4, 5, 6], 2, z, BODY_LIGHT);
+      row([4, 5], 1, z, BODY_LIGHT);
+      row([4, 5], 0, z, BELLY);
+      row([4, 5], -1, z, BELLY);
+    };
+
+    const sliceMid = (z) => {
+      row([2, 3, 4, 5, 6, 7], 4, z, BODY);
+      row([1, 2, 3, 4, 5, 6, 7, 8], 3, z, BODY);
+      row([1, 2, 3, 4, 5, 6, 7, 8], 2, z, BODY_LIGHT);
+      row([2, 3, 4, 5, 6, 7, 8], 1, z, BODY_LIGHT);
+      row([2, 3, 4, 5, 6, 7, 8], 0, z, BELLY);
+      row([3, 4, 5, 6, 7], -1, z, BELLY);
+      row([4, 5, 6], -2, z, BELLY_LIGHT);
+    };
+
+    const sliceCenter = (z) => {
+      row([3, 4, 5, 6], 5, z, BODY_DARK);
+      row([1, 2, 3, 4, 5, 6, 7, 8], 4, z, BODY);
+      row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 3, z, BODY);
+      row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 2, z, BODY_LIGHT);
+      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 1, z, BODY_LIGHT);
+      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 0, z, BELLY);
+      row([2, 3, 4, 5, 6, 7, 8], -1, z, BELLY);
+      row([3, 4, 5, 6, 7], -2, z, BELLY_LIGHT);
+    };
+
+    sliceOuter(0); sliceOuter(5);
+    sliceMid(1); sliceMid(4);
+    sliceCenter(2); sliceCenter(3);
+
+    // Purple toxic spots
+    for (const z of [1, 2, 3, 4]) {
+      row([3, 5, 7], 3, z, SPOT);
+      row([2, 6], 2, z, SPOT);
+    }
+
+    // Glowing purple eyes
+    group.add(addVoxel(8, 3, -0.2, EYE));
+    group.add(addVoxel(8, 2, -0.2, EYE));
+    group.add(addVoxel(8, 3, 5.2, EYE));
+    group.add(addVoxel(8, 2, 5.2, EYE));
+
+    // Spiny dorsal fin (purple)
+    for (const x of [2, 3, 4, 5, 6, 7]) {
+      for (const z of [2, 3]) {
+        group.add(addVoxel(x, 6, z, FIN));
+      }
+    }
+    for (const x of [4, 5]) {
+      for (const z of [2, 3]) {
+        group.add(addVoxel(x, 7, z, FIN_DARK));
+      }
+    }
+
+    // Tail
+    const tailPivot = new THREE.Group();
+    tailPivot.position.set(0, V * 1.5, V * 2.5);
+    const tailVoxels = [
+      [-1, 2, 0], [-1, 1, 0], [-1, 0, 0], [-1, -1, 0],
+      [-1, 2, 1], [-1, 1, 1], [-1, 0, 1], [-1, -1, 1],
+      [-2, 3, 0], [-2, 2, 0], [-2, 1, 0], [-2, 0, 0], [-2, -1, 0], [-2, -2, 0],
+      [-2, 3, 1], [-2, 2, 1], [-2, 1, 1], [-2, 0, 1], [-2, -1, 1], [-2, -2, 1],
+      [-3, 3, 0], [-3, -2, 0], [-3, 4, 0], [-3, -3, 0],
+      [-3, 3, 1], [-3, -2, 1], [-3, 4, 1], [-3, -3, 1],
+    ];
+    for (const [x, y, z] of tailVoxels) tailPivot.add(addVoxel(x, y, z, FIN));
+    group.add(tailPivot);
+
+    group.position.set(-4.5 * V, -1.5 * V, -2.5 * V);
+    group.scale.set(1.15, 1.15, 1.15);
+
+    const wrapper = new this.THREE.Group();
+    wrapper.add(group);
+    this.scene.add(wrapper);
+    this.toxicFishGroups.push(wrapper);
+    this.toxicFishTailPivots.push(tailPivot);
+    return wrapper;
+  }
+
+  // ── Build poison projectile mesh ──
+  buildProjectile(body) {
+    const THREE = this.THREE;
+    const geo = new THREE.BoxGeometry(6, 6, 6);
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x88ff00,
+      emissive: 0x44cc00,
+      emissiveIntensity: 0.6,
+      roughness: 0.4,
+      metalness: 0.0,
+      transparent: true,
+      opacity: 0.85,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(body.position.x, -body.position.y, 0);
+    this.scene.add(mesh);
+    this.projectileMeshes.push({ mesh, body });
+    return mesh;
   }
 
   // ── Build pearl collectible meshes ──
@@ -1687,7 +2139,7 @@ export class VoxelRenderer {
   }
 
   // ── Per-frame update ──
-  syncFrame(fishBody, fishState, enemyBodies, dt) {
+  syncFrame(fishBody, fishState, enemyBodies, dt, extras = {}) {
     this._time += dt;
 
     // ── Sync player fish ──
@@ -1795,6 +2247,112 @@ export class VoxelRenderer {
     for (const r of this.raftMeshes) {
       r.mesh.position.set(r.body.position.x, -r.body.position.y, 0);
       r.mesh.rotation.z = -r.body.rotation;
+    }
+
+    // ── Sync sharks ──
+    const { sharkBodies, pufferfishBodies, crabBodies, toxicFishBodies, projectileBodies } = extras;
+    if (sharkBodies) {
+      for (let i = 0; i < sharkBodies.length && i < this.sharkGroups.length; i++) {
+        const sb = sharkBodies[i];
+        const sg = this.sharkGroups[i];
+        if (!sb.space) { sg.visible = false; continue; }
+        sg.position.set(sb.position.x, -sb.position.y, 0);
+        sg.rotation.z = -sb.rotation;
+        if (this._sharkFlipAngles[i] === undefined) this._sharkFlipAngles[i] = 0;
+        let targetFlip = this._sharkFlipAngles[i];
+        if (sb.velocity.x < -1) targetFlip = Math.PI;
+        else if (sb.velocity.x > 1) targetFlip = 0;
+        this._sharkFlipAngles[i] += (targetFlip - this._sharkFlipAngles[i]) * 0.12;
+        sg.rotation.y = this._sharkFlipAngles[i];
+        // Tail animation
+        if (this.sharkTailPivots[i]) {
+          const speed = Math.sqrt(sb.velocity.x * sb.velocity.x + sb.velocity.y * sb.velocity.y);
+          const freq = 6 + speed * 0.05;
+          const amp = 0.3 + Math.min(speed / 200, 0.5);
+          this.sharkTailPivots[i].rotation.y = Math.sin(this._time * freq + i * 2) * amp;
+        }
+        // Bubbles
+        const sharkSpeed = Math.sqrt(sb.velocity.x * sb.velocity.x + sb.velocity.y * sb.velocity.y);
+        if (sb.position.y > WATER_SURFACE_Y && sharkSpeed > 20 && Math.random() < 0.08) {
+          this.spawnBubble(sb.position.x, sb.position.y);
+        }
+      }
+    }
+
+    // ── Sync pufferfish ──
+    if (pufferfishBodies) {
+      for (let i = 0; i < pufferfishBodies.length && i < this.pufferfishGroups.length; i++) {
+        const pf = pufferfishBodies[i];
+        const pg = this.pufferfishGroups[i];
+        if (!pf.space) { pg.visible = false; continue; }
+        pg.position.set(pf.position.x, -pf.position.y, 0);
+        // Gentle wobble animation
+        pg.rotation.z = Math.sin(this._time * 2 + i * 3) * 0.1;
+        // Puff inflate/deflate animation (subtle scale pulse)
+        const pulse = 1 + Math.sin(this._time * 3 + i) * 0.05;
+        pg.scale.set(pulse, pulse, pulse);
+      }
+    }
+
+    // ── Sync crabs ──
+    if (crabBodies) {
+      for (let i = 0; i < crabBodies.length && i < this.crabGroups.length; i++) {
+        const cb = crabBodies[i];
+        const cg = this.crabGroups[i];
+        if (!cb.space) { cg.visible = false; continue; }
+        cg.position.set(cb.position.x, -cb.position.y, 0);
+        // Flip based on direction
+        if (this._crabFlipAngles[i] === undefined) this._crabFlipAngles[i] = 0;
+        let targetFlip = this._crabFlipAngles[i];
+        if (cb.velocity.x < -0.5) targetFlip = Math.PI;
+        else if (cb.velocity.x > 0.5) targetFlip = 0;
+        this._crabFlipAngles[i] += (targetFlip - this._crabFlipAngles[i]) * 0.1;
+        cg.rotation.y = this._crabFlipAngles[i];
+        // Scuttle animation — slight vertical bob
+        const scuttle = Math.abs(Math.sin(this._time * 12 + i * 4)) * 1.5;
+        cg.position.y += scuttle;
+      }
+    }
+
+    // ── Sync toxic fish ──
+    if (toxicFishBodies) {
+      for (let i = 0; i < toxicFishBodies.length && i < this.toxicFishGroups.length; i++) {
+        const tf = toxicFishBodies[i];
+        const tg = this.toxicFishGroups[i];
+        if (!tf.space) { tg.visible = false; continue; }
+        tg.position.set(tf.position.x, -tf.position.y, 0);
+        tg.rotation.z = -tf.rotation;
+        if (this._toxicFlipAngles[i] === undefined) this._toxicFlipAngles[i] = 0;
+        let targetFlip = this._toxicFlipAngles[i];
+        if (tf.velocity.x < -1) targetFlip = Math.PI;
+        else if (tf.velocity.x > 1) targetFlip = 0;
+        this._toxicFlipAngles[i] += (targetFlip - this._toxicFlipAngles[i]) * 0.12;
+        tg.rotation.y = this._toxicFlipAngles[i];
+        // Tail animation
+        if (this.toxicFishTailPivots[i]) {
+          const speed = Math.abs(tf.velocity.x);
+          const freq = 6 + speed * 0.04;
+          const amp = 0.25 + Math.min(speed / 300, 0.35);
+          this.toxicFishTailPivots[i].rotation.y = Math.sin(this._time * freq + i * 2) * amp;
+        }
+      }
+    }
+
+    // ── Sync projectiles (position, spin, remove dead) ──
+    for (let i = this.projectileMeshes.length - 1; i >= 0; i--) {
+      const p = this.projectileMeshes[i];
+      if (!p.body.space) {
+        this.scene.remove(p.mesh);
+        p.mesh.geometry.dispose();
+        p.mesh.material.dispose();
+        this.projectileMeshes.splice(i, 1);
+        continue;
+      }
+      p.mesh.position.set(p.body.position.x, -p.body.position.y, 0);
+      p.mesh.rotation.x = this._time * 5;
+      p.mesh.rotation.z = this._time * 3;
+      // Pulsing glow
+      p.mesh.material.emissiveIntensity = 0.4 + Math.sin(this._time * 8) * 0.3;
     }
 
     // ── Hide dead enemies ──

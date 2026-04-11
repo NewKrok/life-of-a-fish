@@ -49,6 +49,9 @@ export class FishController {
 
     // Water entry momentum: counts down from ENTRY_MOMENTUM_FRAMES to 0
     this.entryMomentum = 0;
+
+    // Knockback: external force that overrides swim control for a few frames
+    this.knockbackTimer = 0;
   }
 
   update(input, waterSurfaceY) {
@@ -79,6 +82,19 @@ export class FishController {
 
     // Tick down entry momentum
     if (this.entryMomentum > 0) this.entryMomentum--;
+
+    // ── Knockback timer ──
+    if (this.knockbackTimer > 0) {
+      this.knockbackTimer--;
+      // Minimal drag so the fish actually flies away
+      body.velocity = new Vec2(body.velocity.x * 0.97, body.velocity.y * 0.97);
+      this.swimSpeed = Math.sqrt(body.velocity.x ** 2 + body.velocity.y ** 2);
+      // Tilt toward knockback direction
+      const targetAngle = Math.atan2(body.velocity.y, Math.abs(body.velocity.x));
+      this.visualRotation += (targetAngle - this.visualRotation) * ROTATION_LERP;
+      if (Math.abs(body.velocity.x) > 5) this.facingRight = body.velocity.x > 0;
+      return; // skip all swim/dash logic during knockback
+    }
 
     // ── Dash timer ──
     this.dashCooldown = Math.max(0, this.dashCooldown - 1000 * DT);
@@ -227,6 +243,11 @@ export class FishController {
       }
     } catch (_) {}
     return false;
+  }
+
+  knockback(vx, vy, frames = 20) {
+    this.body.velocity = new Vec2(vx, vy);
+    this.knockbackTimer = frames;
   }
 
   respawn(x, y) {

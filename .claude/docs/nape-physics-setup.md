@@ -27,8 +27,12 @@ The game uses nape-js for all collision detection, rigid body dynamics, and flui
 - Has its own `CbType` for collision filtering
 
 ### Enemies (kinematic)
-- Patrol back and forth between defined bounds
-- Position updated directly each frame (kinematic = no physics response)
+- **Basic enemy**: Patrol back and forth between defined bounds (±80px), sensor kills player
+- **Shark** (`sharkTag`): Patrols ±100px, switches to chase mode when player within 150px, stops chasing at 220px. Chase speed 110 px/s vs patrol 50 px/s. Kills player on contact.
+- **Pufferfish** (`pufferfishTag`): Moves vertically up/down (±60px range, 30 px/s). Circle shape (r=14). Kills player on contact.
+- **Crab** (`crabTag`): Walks on ground, patrols ±50px at 25 px/s. Does NOT kill player — pushes them away (840 px/s impulse) from 2x sensor range (44×28 box).
+- **Toxic fish** (`toxicFishTag`): Slow patrol ±60px. Shoots poison projectiles at player within 180px range, 2s cooldown. Projectiles are kinematic circles that kill on contact, expire after 2.5s.
+- All enemies are kinematic = no physics response, position updated directly each frame
 - Have sensor shapes for player contact detection
 
 ### Pearls (static, sensor)
@@ -64,19 +68,23 @@ The game uses nape-js for all collision detection, rigid body dynamics, and flui
 
 Each entity class has a named `CbType` for collision filtering:
 
-- Player CbType
-- Enemy CbType
-- Pearl CbType
-- Hazard CbType
-- Buoy CbType
-- Boulder CbType
-- Raft CbType
+- `playerTag`, `enemyTag`, `pearlTag`, `hazardTag`
+- `buoyTag`, `boulderTag`, `raftTag`
+- `sharkTag`, `pufferfishTag`, `crabTag`, `toxicFishTag`, `projectileTag`
 
 `InteractionListener` callbacks handle:
 - Player ↔ Pearl → collect pearl, destroy body
 - Player ↔ Enemy → respawn player
 - Player ↔ Hazard → respawn player
+- Player ↔ Shark → respawn player
+- Player ↔ Pufferfish → respawn player
+- Player ↔ Crab → push player away (no kill)
+- Player ↔ Projectile → respawn player, destroy projectile
 - Boulder ↔ Enemy (sensor) → kill enemy, remove from space
+- Boulder ↔ Shark (sensor) → kill shark, remove from space
+- Boulder ↔ Pufferfish (sensor) → kill pufferfish, remove from space
+- Boulder ↔ Crab (sensor) → kill crab, remove from space
+- Boulder ↔ Toxic fish (sensor) → kill toxic fish, remove from space
 - Boulder ↔ Player (collision) → respawn player if boulder speed > 80 px/s
 
 ## Greedy Rectangle Merging Algorithm (level-data.js)
