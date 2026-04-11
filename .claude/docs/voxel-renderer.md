@@ -20,6 +20,16 @@ Textures are generated once via `_generateTileTexture()` using a canvas, cached 
 
 **Depth-based darkening**: Each terrain instance has a per-instance color via `InstancedBufferAttribute`. Tiles deeper underwater are progressively darkened (up to 55% darker at the bottom). This simulates light absorption with depth. Tiles above `WATER_SURFACE_Y` remain at full brightness.
 
+### Cave Background Layer
+
+Auto-generated visual layer behind terrain that simulates cave openings. Not a tile type in the level data — computed at build time by `_buildCaveBackgroundMap()`.
+
+**How it works**: Every empty cell within `CAVE_BG_NEIGHBOR_RADIUS` (2) tiles of a solid block (stone/sand/coral) gets a dark background block placed at `CAVE_BG_Z_OFFSET` (-TILE_SIZE) on the Z axis. The fish can swim in front of these blocks, creating the illusion of cave depth.
+
+**Rendering**: Uses its own `InstancedMesh` with a dedicated `'cave_bg'` texture (very dark stone — grays in the 30–65 brightness range with subtle cracks). Base brightness is `CAVE_BG_DARKEN` (0.35) with additional depth-based darkening (up to 0.15 more). Material: `MeshStandardMaterial` (roughness: 1.0, metalness: 0.0).
+
+**Constants**: `CAVE_BG_Z_OFFSET` (-32px), `CAVE_BG_DARKEN` (0.35), `CAVE_BG_NEIGHBOR_RADIUS` (2 tiles).
+
 ## Fish Models
 
 Voxel groups built from hardcoded coordinate arrays:

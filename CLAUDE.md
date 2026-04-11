@@ -58,6 +58,7 @@ example.js            — Nape-js physics reference/demo (not used in game)
 
 - **Camera**: `PerspectiveCamera` with ~22° downward pitch for isometric 3D view (`CAM_FOV`, `CAM_PITCH`, `CAM_DISTANCE`, `CAM_Z_OFFSET`, `CAM_Y_OFFSET`). `getVisibleSize()` calculates visible world area at z=0.
 - Terrain uses `InstancedMesh` per tile type with Minecraft-style 16x16 procedural textures (`MeshStandardMaterial`, no color tint)
+- Cave background: auto-generated dark blocks behind terrain (Z offset) near solid tiles, creating visual cave depth
 - Ground plane lies flat in XZ, extends 600px in Z depth, uses sandy/dirt Minecraft-style texture
 - Fish models are voxel groups — body, eye, fins, animated tail (`MeshStandardMaterial`)
 - Pearls are gold spheres with emissive glow, animated bob + spin, auto-removed on collect

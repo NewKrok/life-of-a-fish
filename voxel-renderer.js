@@ -29,6 +29,11 @@ const BG_WAVE_AMPLITUDE = 6;        // px, wave height
 // ── Ambient Bubble Constants ──
 const AMBIENT_BUBBLE_COUNT = 30;    // number of ambient bubbles in water
 
+// ── Cave Background Constants ──
+const CAVE_BG_Z_OFFSET = -TILE_SIZE;       // how far behind terrain the cave layer sits
+const CAVE_BG_DARKEN = 0.35;               // base brightness multiplier (0 = black, 1 = full)
+const CAVE_BG_NEIGHBOR_RADIUS = 2;         // how many tiles away from solid to generate cave bg
+
 // ── Background Constants ──
 const BG_LAYER_COUNT = 3;           // parallax background layers
 
@@ -74,7 +79,7 @@ export class VoxelRenderer {
     const ctx = canvas.getContext('2d');
 
     // Seeded random for consistent textures
-    const seed = type * 1337;
+    const seed = (typeof type === 'string' ? 99 : type) * 1337;
     const rng = (i) => {
       const x = Math.sin(seed + i * 9871) * 43758.5453;
       return x - Math.floor(x);
@@ -222,6 +227,42 @@ export class VoxelRenderer {
       ctx.fillRect(0, size - px, size, px);
       ctx.fillRect(size - px, 0, px, size);
 
+    } else if (type === 'cave_bg') {
+      // ── Cave background: very dark stone, visible behind terrain ──
+      ctx.fillStyle = '#2a2a35';
+      ctx.fillRect(0, 0, size, size);
+
+      for (let py = 0; py < 16; py++) {
+        for (let px2 = 0; px2 < 16; px2++) {
+          const r = rng(py * 16 + px2 + 9000);
+          const brightness = 30 + r * 35; // 30-65, very dark
+          const blueShift = 3 + r * 8;
+          ctx.fillStyle = `rgb(${brightness}, ${brightness}, ${brightness + blueShift})`;
+          ctx.fillRect(px2 * px, py * px, px, px);
+        }
+      }
+
+      // Subtle crack lines
+      ctx.fillStyle = 'rgba(15, 15, 20, 0.6)';
+      for (let i = 0; i < 6; i++) {
+        const x = Math.floor(rng(i + 900) * 16) * px;
+        const y = Math.floor(rng(i + 950) * 16) * px;
+        const horizontal = rng(i + 960) > 0.5;
+        if (horizontal) {
+          ctx.fillRect(x, y, px * 3, px);
+        } else {
+          ctx.fillRect(x, y, px, px * 3);
+        }
+      }
+
+      // Block edge — very subtle
+      ctx.fillStyle = 'rgba(60, 60, 75, 0.2)';
+      ctx.fillRect(0, 0, size, px);
+      ctx.fillRect(0, 0, px, size);
+      ctx.fillStyle = 'rgba(10, 10, 15, 0.3)';
+      ctx.fillRect(0, size - px, size, px);
+      ctx.fillRect(size - px, 0, px, size);
+
     } else if (type === 8) {
       // ── Seagrass: green kelp/grass blades, non-solid decoration ──
       // Transparent background — only the blade pixels are visible
@@ -344,6 +385,90 @@ export class VoxelRenderer {
       this.scene.add(mesh);
       this.terrainMeshes.push(mesh);
     }
+
+    // ── Cave background layer: darker blocks behind terrain ──
+    const caveBg = this._buildCaveBackgroundMap();
+    let caveCount = 0;
+    for (let row = 0; row < LEVEL_ROWS; row++) {
+      for (let col = 0; col < LEVEL_COLS; col++) {
+        if (caveBg[row][col]) caveCount++;
+      }
+    }
+
+    if (caveCount > 0) {
+      const caveTexture = this._generateTileTexture('cave_bg');
+      const caveMat = new THREE.MeshStandardMaterial({
+        map: caveTexture,
+        roughness: 1.0,
+        metalness: 0.0,
+      });
+      const caveMesh = new THREE.InstancedMesh(boxGeo, caveMat, caveCount);
+      caveMesh.receiveShadow = true;
+      caveMesh.instanceColor = new THREE.InstancedBufferAttribute(
+        new Float32Array(caveCount * 3), 3
+      );
+
+      let caveIdx = 0;
+      const caveColor = new THREE.Color();
+      for (let row = 0; row < LEVEL_ROWS; row++) {
+        for (let col = 0; col < LEVEL_COLS; col++) {
+          if (!caveBg[row][col]) continue;
+          const x = col * TILE_SIZE + TILE_SIZE / 2;
+          const y = -(row * TILE_SIZE + TILE_SIZE / 2);
+          dummy.position.set(x, y, CAVE_BG_Z_OFFSET);
+          dummy.updateMatrix();
+          caveMesh.setMatrixAt(caveIdx, dummy.matrix);
+
+          // Depth-based darkening on top of already dark base
+          const worldY = row * TILE_SIZE + TILE_SIZE / 2;
+          const depthBelow = Math.max(0, worldY - WATER_SURFACE_Y);
+          const maxDepth = WORLD_H - WATER_SURFACE_Y;
+          const depthFactor = CAVE_BG_DARKEN - (depthBelow / maxDepth) * 0.15;
+          caveColor.setRGB(depthFactor, depthFactor, depthFactor);
+          caveMesh.setColorAt(caveIdx, caveColor);
+
+          caveIdx++;
+        }
+      }
+      caveMesh.instanceMatrix.needsUpdate = true;
+      caveMesh.instanceColor.needsUpdate = true;
+      this.scene.add(caveMesh);
+      this.terrainMeshes.push(caveMesh);
+    }
+  }
+
+  // ── Generate cave background map ──
+  // Returns a 2D boolean array: true where a cave background block should appear.
+  // An empty cell gets a cave bg if it's within CAVE_BG_NEIGHBOR_RADIUS of a solid tile.
+  _buildCaveBackgroundMap() {
+    const SOLID_TYPES = new Set([1, 2, 3]); // stone, sand, coral
+    const NON_EMPTY_TYPES = new Set([1, 2, 3, 4, 8]); // all rendered tile types
+    const caveBg = Array.from({ length: LEVEL_ROWS }, () => new Array(LEVEL_COLS).fill(false));
+    const radius = CAVE_BG_NEIGHBOR_RADIUS;
+
+    for (let row = 0; row < LEVEL_ROWS; row++) {
+      for (let col = 0; col < LEVEL_COLS; col++) {
+        // Skip cells that already have a visible tile
+        if (NON_EMPTY_TYPES.has(TILES[row][col])) continue;
+
+        // Check if any solid tile is within radius
+        let nearSolid = false;
+        for (let dr = -radius; dr <= radius && !nearSolid; dr++) {
+          for (let dc = -radius; dc <= radius && !nearSolid; dc++) {
+            if (dr === 0 && dc === 0) continue;
+            const nr = row + dr;
+            const nc = col + dc;
+            if (nr >= 0 && nr < LEVEL_ROWS && nc >= 0 && nc < LEVEL_COLS) {
+              if (SOLID_TYPES.has(TILES[nr][nc])) {
+                nearSolid = true;
+              }
+            }
+          }
+        }
+        caveBg[row][col] = nearSolid;
+      }
+    }
+    return caveBg;
   }
 
   // ── Build the player fish model (voxel style, Magikarp-inspired) ──
