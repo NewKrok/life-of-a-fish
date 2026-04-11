@@ -1,0 +1,172 @@
+// ── Level Data ──────────────────────────────────────────────────────────────
+// 2D tile map for the demo cave level.
+// Each cell is a tile type:
+//   0 = empty (air or water depending on Y)
+//   1 = stone
+//   2 = sand
+//   3 = coral
+//   4 = seaweed / spiky plant (hazard)
+//   5 = pearl (collectible, placed in empty space)
+//   6 = enemy spawn point
+//   7 = player spawn point
+
+export const TILE_SIZE = 32;
+export const LEVEL_COLS = 125;  // 4000px / 32
+export const LEVEL_ROWS = 25;   // 800px / 32
+export const WORLD_W = LEVEL_COLS * TILE_SIZE;
+export const WORLD_H = LEVEL_ROWS * TILE_SIZE;
+
+// Water surface Y (in pixels) — everything below this is underwater
+export const WATER_SURFACE_Y = 4 * TILE_SIZE; // row 4 = 128px
+
+// The level is stored as an array of strings for readability.
+// Each character maps to a tile type.
+const KEY = {
+  '.': 0,  // empty
+  '#': 1,  // stone
+  's': 2,  // sand
+  'c': 3,  // coral
+  'x': 4,  // seaweed/hazard
+  'p': 5,  // pearl
+  'e': 6,  // enemy spawn
+  '@': 7,  // player spawn
+};
+
+// 125 columns x 25 rows
+// Row 0 = top (sky/air), Row 24 = bottom
+// Each string is exactly 125 characters (LEVEL_COLS).
+// Legend: . = empty, # = stone, s = sand, c = coral, x = hazard, p = pearl, e = enemy, @ = player
+const LEVEL_STRINGS = [
+  '#############################################################################################################################',  // 0
+  '#.................................................p.........................................................................#',  // 1
+  '#................................................####.......................................................................#',  // 2
+  '##############################################..........#####################################################################',  // 3
+  '#####################........................##........######..............................#####........................#####',  // 4
+  '####........................##......##.....####........##...####......###.....###..###.......####.....###...###....####..####',  // 5
+  '####..........p.............##......##.....####........##...####......###.....###..###.......####.....###...###..........####',  // 6
+  '####..@.....................##.............####........##...####......###.....###..###.......####.....###................####',  // 7
+  '####............................p..........####........##...####......###....x.....###.......####........................####',  // 8
+  '####...........###...........................##........##....p..x.....###..........###.p..x..............................####',  // 9
+  '####........######.................e.........##........##............##..x.....p........##....e........................p.####',  // 10
+  '####.........................................##........##.....##.....##p................##......##.......................####',  // 11
+  '####.........................................##........##.....##.e...##.....##..........##......##..p.................#######',  // 12
+  '####.........................................##........##.....##.....x......##..........##......##....................#######',  // 13
+  '####.............................c......p....##........##...x...............##..........##......##..e...............#########',  // 14
+  '####..............................c.c........##........##........####.....x.............##.....x....................#########',  // 15
+  '####.............................###.........##........##........####................x...####....................############',  // 16
+  '####........................c.c.c###.........##........#####.....####....................####....................############',  // 17
+  '####......................##.....###.........##........#####.....####....####.....###....####.....x...........###############',  // 18
+  '####......................##.....###....###..##........#####.....####....####.....###....####.....####........###############',  // 19
+  '####......................##.....###....###..###############.....####....####.....###....####.....####...####################',  // 20
+  '####......................##.....###....###..###############.....####....####.....###....####.....####...####################',  // 21
+  '####......................##.....###....###..###############.....####....####.....###....####.....####...####################',  // 22
+  '#sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss#',  // 23
+  '#############################################################################################################################',  // 24
+];
+
+// Parse the string map into a 2D number array
+export const TILES = [];
+for (let row = 0; row < LEVEL_ROWS; row++) {
+  TILES[row] = [];
+  const str = LEVEL_STRINGS[row] || '';
+  for (let col = 0; col < LEVEL_COLS; col++) {
+    const ch = str[col] || '.';
+    TILES[row][col] = KEY[ch] ?? 0;
+  }
+}
+
+// Extract spawn points and special positions
+export function getLevelEntities() {
+  const entities = {
+    playerSpawn: { x: 3 * TILE_SIZE + TILE_SIZE / 2, y: 7 * TILE_SIZE + TILE_SIZE / 2 },
+    enemies: [],
+    pearls: [],
+    hazards: [],
+  };
+  for (let row = 0; row < LEVEL_ROWS; row++) {
+    for (let col = 0; col < LEVEL_COLS; col++) {
+      const cx = col * TILE_SIZE + TILE_SIZE / 2;
+      const cy = row * TILE_SIZE + TILE_SIZE / 2;
+      const t = TILES[row][col];
+      if (t === 7) {
+        entities.playerSpawn = { x: cx, y: cy };
+        TILES[row][col] = 0; // clear spawn marker from tile data
+      } else if (t === 6) {
+        entities.enemies.push({ x: cx, y: cy });
+        TILES[row][col] = 0;
+      } else if (t === 5) {
+        entities.pearls.push({ x: cx, y: cy });
+        TILES[row][col] = 0;
+      } else if (t === 4) {
+        entities.hazards.push({ x: cx, y: cy });
+        // keep tile type 4 so terrain renderer can draw it
+      }
+    }
+  }
+  return entities;
+}
+
+// Merge adjacent solid tiles (same row) into larger rectangles for physics optimization.
+// Returns array of { x, y, w, h, type } where x,y is center.
+export function getMergedSolidBodies() {
+  const SOLID_TYPES = new Set([1, 2, 3]); // stone, sand, coral
+  const bodies = [];
+  const visited = Array.from({ length: LEVEL_ROWS }, () => new Array(LEVEL_COLS).fill(false));
+
+  for (let row = 0; row < LEVEL_ROWS; row++) {
+    let col = 0;
+    while (col < LEVEL_COLS) {
+      const t = TILES[row][col];
+      if (!SOLID_TYPES.has(t) || visited[row][col]) {
+        col++;
+        continue;
+      }
+      // Find horizontal run of same type
+      let endCol = col;
+      while (endCol < LEVEL_COLS && TILES[row][endCol] === t && !visited[row][endCol]) {
+        endCol++;
+      }
+      // Try to extend downward (greedy rectangle)
+      let endRow = row + 1;
+      outer:
+      while (endRow < LEVEL_ROWS) {
+        for (let c = col; c < endCol; c++) {
+          if (TILES[endRow][c] !== t || visited[endRow][c]) break outer;
+        }
+        endRow++;
+      }
+      // Mark visited
+      for (let r = row; r < endRow; r++) {
+        for (let c = col; c < endCol; c++) {
+          visited[r][c] = true;
+        }
+      }
+      const w = (endCol - col) * TILE_SIZE;
+      const h = (endRow - row) * TILE_SIZE;
+      const cx = col * TILE_SIZE + w / 2;
+      const cy = row * TILE_SIZE + h / 2;
+      bodies.push({ x: cx, y: cy, w, h, type: t });
+      col = endCol;
+    }
+  }
+  return bodies;
+}
+
+// Get water zones — contiguous empty regions below water surface.
+// Returns simplified large rectangles covering underwater empty space.
+export function getWaterZones() {
+  // Simple approach: one large water body covering the entire underwater area,
+  // then the solid tiles naturally block it via collision.
+  // Nape-js fluid shapes overlap with the entire area; solid bodies displace water.
+  const zones = [];
+  // Main water body from surface to bottom
+  const waterTop = WATER_SURFACE_Y;
+  const waterH = WORLD_H - waterTop;
+  zones.push({
+    x: WORLD_W / 2,
+    y: waterTop + waterH / 2,
+    w: WORLD_W,
+    h: waterH,
+  });
+  return zones;
+}

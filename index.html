@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Life of a Fish</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: #040a14;
+      touch-action: none;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    #gameCanvas {
+      display: block;
+      width: 100%; height: 100%;
+    }
+    /* HUD overlay canvas for text/icons */
+    #hudCanvas {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+    }
+
+    /* ── Touch Controls ── */
+    .touch-controls {
+      display: none;
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 200px;
+      pointer-events: none;
+    }
+    @media (hover: none) and (pointer: coarse) {
+      .touch-controls { display: block; }
+    }
+    .joystick-zone {
+      position: absolute;
+      left: 20px; bottom: 20px;
+      width: 140px; height: 140px;
+      pointer-events: auto;
+    }
+    .joystick-outer {
+      width: 140px; height: 140px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.08);
+      border: 2px solid rgba(255,255,255,0.15);
+      position: relative;
+    }
+    .joystick-inner {
+      width: 50px; height: 50px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.25);
+      border: 2px solid rgba(255,255,255,0.4);
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      transition: none;
+    }
+    .dash-btn {
+      position: absolute;
+      right: 30px; bottom: 40px;
+      width: 70px; height: 70px;
+      border-radius: 50%;
+      background: rgba(255,140,66,0.2);
+      border: 2px solid rgba(255,140,66,0.5);
+      pointer-events: auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: rgba(255,255,255,0.6);
+      font: bold 12px monospace;
+    }
+    .dash-btn:active, .dash-btn.active {
+      background: rgba(255,140,66,0.5);
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+  <canvas id="hudCanvas"></canvas>
+
+  <!-- Touch controls (shown only on mobile via CSS) -->
+  <div class="touch-controls">
+    <div class="joystick-zone" id="joystickZone">
+      <div class="joystick-outer">
+        <div class="joystick-inner" id="joystickInner"></div>
+      </div>
+    </div>
+    <div class="dash-btn" id="dashBtn">DASH</div>
+  </div>
+
+  <script type="module" src="game.js"></script>
+</body>
+</html>
