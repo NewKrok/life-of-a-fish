@@ -110,6 +110,22 @@ Built via `buildPearls(pearlBodies)`:
 - Larger cubes (2–6px) with higher opacity (0.5–0.8) and brighter color (`0xcceeff`)
 - Horizontal velocity (`vx`) spreads particles outward with 0.96/frame drag
 - Short lifetime (0.6–1.4s) for a quick burst effect
+- Also spawns airborne splash droplets and a surface disturbance (see below)
+
+### Splash Droplets (Airborne)
+- 6–18 small cubes (`BoxGeometry`, 1.5–4px) launched **above** the water surface
+- Fly upward with initial velocity (60–140+ px/s) and spread horizontally
+- Subject to gravity (220 px/s²) — arc up then fall back down
+- Higher opacity (0.6–0.9) and brighter color (`0xddeeff`) for visible spray
+- Removed when they fall back below the water surface or lifetime expires (0.8–1.4s)
+- Stored in `splashDroplets[]`, separate from the underwater `bubbles[]`
+
+### Surface Disturbances
+- `_surfaceDisturbances[]` — ripple effects on the water surface mesh triggered by splash events
+- Each disturbance stores: `x` (impact position), `amplitude` (6 + speed×0.04 px), `age`, `decay` (1.8–2.0s), `spread` (starts 40px, grows at 120px/s)
+- Ripple math: outward-traveling sine wave (`sin(dist×0.12 - age×8)`) with exponential distance falloff and quadratic lifetime fade
+- Composited additively onto the base wave animation in the vertex loop
+- Auto-removed when `age ≥ decay`
 
 ### Ambient Bubbles
 - `AMBIENT_BUBBLE_COUNT` (30) small cubes (`BoxGeometry`) scattered throughout the underwater area
@@ -135,9 +151,10 @@ Called every frame after physics step. Updates:
 2. Tail wag angle (frequency = 8 + speed×0.05, amplitude 0.3–0.7 rad)
 3. Enemy positions from their nape bodies
 4. Pearl bob + spin animation; remove collected pearls (body.space === null)
-5. Bubble positions, opacity, and lifetime
-6. God ray sway and opacity pulsing
-7. Water surface wave vertex animation + texture scrolling
-8. Surface sparkle flash pattern
-9. Background wave vertex animation
-10. Ambient bubble rise, wobble, and respawn
+5. Bubble positions, opacity, and lifetime (including horizontal `vx` drag for splash particles)
+6. Surface disturbance aging, spread growth, and cleanup
+7. God ray sway and opacity pulsing
+8. Water surface wave vertex animation + texture scrolling + disturbance ripples
+9. Surface sparkle flash pattern
+10. Background wave vertex animation
+11. Ambient bubble rise, wobble, and respawn

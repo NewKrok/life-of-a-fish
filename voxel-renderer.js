@@ -58,6 +58,8 @@ export class VoxelRenderer {
     this.bgWaves = [];
     this.ambientBubbles = [];
     this._textureCache = {};
+    this._surfaceDisturbances = []; // { x, amplitude, age, decay, spread }
+    this.splashDroplets = [];        // { mesh, vx, vy, life } — airborne water droplets
   }
 
   // ── Generate procedural Minecraft-style texture for a tile type ──
@@ -1314,6 +1316,42 @@ export class VoxelRenderer {
         life: 0.6 + Math.random() * 0.8,
       });
     }
+
+    // Spawn airborne splash droplets above the surface
+    const dropCount = Math.min(18, 6 + Math.floor(speed / 25));
+    for (let i = 0; i < dropCount; i++) {
+      if (this.splashDroplets.length > 50) break;
+
+      const size = 1.5 + Math.random() * 2.5;
+      const geo = new THREE.BoxGeometry(size, size, size);
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xddeeff,
+        transparent: true,
+        opacity: 0.6 + Math.random() * 0.3,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(
+        x + (Math.random() - 0.5) * 16,
+        surfaceY,
+        (Math.random() - 0.5) * 14
+      );
+      this.scene.add(mesh);
+      this.splashDroplets.push({
+        mesh,
+        vx: (Math.random() - 0.5) * (60 + speed * 0.5),
+        vy: 60 + Math.random() * (80 + speed * 0.6),
+        life: 0.8 + Math.random() * 0.6,
+      });
+    }
+
+    // Add surface wave disturbance
+    this._surfaceDisturbances.push({
+      x,                                    // world x where the fish hit
+      amplitude: 6 + speed * 0.04,          // initial wave height (px)
+      age: 0,                               // seconds since impact
+      decay: 1.8 + speed * 0.005,           // seconds until fully faded
+      spread: 40,                           // initial radius (px), grows over time
+    });
   }
 
   // ── Per-frame update ──
@@ -1425,6 +1463,26 @@ export class VoxelRenderer {
       }
     }
 
+    // ── Update splash droplets (airborne water drops above surface) ──
+    const DROPLET_GRAVITY = 220; // px/s²
+    for (let i = this.splashDroplets.length - 1; i >= 0; i--) {
+      const d = this.splashDroplets[i];
+      d.vy -= DROPLET_GRAVITY * dt; // gravity pulls down
+      d.mesh.position.y += d.vy * dt;
+      d.mesh.position.x += d.vx * dt;
+      d.vx *= 0.99;
+      d.life -= dt;
+      // Fade as life runs out
+      d.mesh.material.opacity = Math.max(0, d.life * 0.9);
+      // Remove when fallen back below surface or expired
+      if (d.life <= 0 || d.mesh.position.y <= waterSurfaceThreeY) {
+        this.scene.remove(d.mesh);
+        d.mesh.geometry.dispose();
+        d.mesh.material.dispose();
+        this.splashDroplets.splice(i, 1);
+      }
+    }
+
     // ── Animate god rays ──
     for (const ray of this.godRays) {
       const t = this._time * ray.speed + ray.phase;
@@ -1432,6 +1490,16 @@ export class VoxelRenderer {
       ray.mesh.position.x = ray.baseX + Math.sin(t) * ray.swayAmount;
       // Pulsing opacity
       ray.mesh.material.opacity = ray.baseOpacity * (0.5 + 0.5 * Math.sin(t * 0.7 + ray.phase * 0.5));
+    }
+
+    // ── Update surface disturbances ──
+    for (let i = this._surfaceDisturbances.length - 1; i >= 0; i--) {
+      const d = this._surfaceDisturbances[i];
+      d.age += dt;
+      d.spread += 120 * dt; // ripple expands outward
+      if (d.age >= d.decay) {
+        this._surfaceDisturbances.splice(i, 1);
+      }
     }
 
     // ── Animate water surface waves (pixelated look from tile-sized segments) ──
@@ -1443,9 +1511,23 @@ export class VoxelRenderer {
         const base = i * 3; // 3 vertices per column: top, middle, bottom
         const x = positions.getX(base);
         // Smooth wave — the pixelated look comes from tile-width segments + NearestFilter texture
-        const wave =
+        let wave =
           Math.sin(x * 0.015 + this._time * SURFACE_WAVE_SPEED) * SURFACE_WAVE_AMPLITUDE * 1.5 +
           Math.sin(x * 0.04 + this._time * SURFACE_WAVE_SPEED * 1.3) * SURFACE_WAVE_AMPLITUDE;
+
+        // Add disturbance ripples from splash impacts
+        for (const d of this._surfaceDisturbances) {
+          const dist = Math.abs(x - d.x);
+          if (dist > d.spread) continue;
+          const life = 1 - d.age / d.decay;          // 1 → 0 over lifetime
+          const envelope = life * life;               // quadratic fade
+          // Ripple: outward-traveling sine wave that decays with distance
+          const ripple = Math.sin(dist * 0.12 - d.age * 8) *
+            Math.exp(-dist / (d.spread * 0.6)) *
+            d.amplitude * envelope;
+          wave += ripple;
+        }
+
         positions.setY(base, surfaceY + 8 + wave);         // top
         positions.setY(base + 1, surfaceY + wave);          // middle
         positions.setY(base + 2, surfaceY - 30 + wave * 0.1); // bottom (extended fade)
@@ -1562,6 +1644,11 @@ export class VoxelRenderer {
       this.scene.remove(ab.mesh);
       ab.mesh.geometry.dispose();
       ab.mesh.material.dispose();
+    }
+    for (const d of this.splashDroplets) {
+      this.scene.remove(d.mesh);
+      d.mesh.geometry.dispose();
+      d.mesh.material.dispose();
     }
     for (const texture of Object.values(this._textureCache)) {
       texture.dispose();
