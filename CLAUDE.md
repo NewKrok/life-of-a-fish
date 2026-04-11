@@ -5,7 +5,7 @@ Underwater fish platformer — 2D side-scrolling game running in the browser.
 ## Tech Stack
 
 - **Physics**: nape-js v3.26.0 (CDN) — rigid body, fluid simulation, collision
-- **Rendering**: Three.js v0.170.0 (CDN) — WebGL with orthographic camera, InstancedMesh for terrain
+- **Rendering**: Three.js v0.170.0 (CDN) — WebGL with perspective camera (~22° pitch), InstancedMesh for terrain
 - **Language**: Vanilla ES6+ modules, no TypeScript
 - **Build**: None — plain ES modules loaded via CDN, no bundler, no npm
 
@@ -56,11 +56,14 @@ example.js            — Nape-js physics reference/demo (not used in game)
 
 ### Rendering (Three.js)
 
-- Terrain uses `InstancedMesh` per tile type (stone, sand, coral, seaweed)
-- Fish models are voxel groups — body, eye, fins, animated tail
+- **Camera**: `PerspectiveCamera` with ~22° downward pitch for isometric 3D view (`CAM_FOV`, `CAM_PITCH`, `CAM_DISTANCE`, `CAM_Z_OFFSET`, `CAM_Y_OFFSET`). `getVisibleSize()` calculates visible world area at z=0.
+- Terrain uses `InstancedMesh` per tile type with Minecraft-style 16x16 procedural textures (`MeshStandardMaterial`, no color tint)
+- Ground plane lies flat in XZ, extends 600px in Z depth, uses sandy/dirt Minecraft-style texture
+- Fish models are voxel groups — body, eye, fins, animated tail (`MeshStandardMaterial`)
+- Pearls are gold spheres with emissive glow, animated bob + spin, auto-removed on collect
 - Water is translucent box with animated surface line
 - Bubbles are sprite particles with velocity and fade
-- Lighting: ambient (blue) + directional (warm) + fill (cool) + fog
+- Lighting: ambient + directional + fill + uplight + hemisphere + fog
 
 ### Level Format (level-data.js)
 

@@ -58,20 +58,22 @@ window.addEventListener('resize', () => {
   updateCamera(w, h);
 });
 
-// Orthographic camera for 2D side-scrolling
-const viewW = window.innerWidth;
-const viewH = window.innerHeight;
-const camera = new THREE.OrthographicCamera(
-  0, viewW,    // left, right
-  0, -viewH,   // top, bottom
-  -500, 500     // near, far
+// Perspective camera for 3D isometric view
+const CAM_FOV = 45;                    // field of view in degrees
+const CAM_PITCH = -0.38;               // downward tilt in radians (~22°)
+const CAM_DISTANCE = 550;              // distance from the look-at plane
+const camera = new THREE.PerspectiveCamera(
+  CAM_FOV,
+  window.innerWidth / window.innerHeight,
+  1, 3000
 );
-camera.position.set(0, 0, 100);
-camera.lookAt(0, 0, 0);
+
+// Calculate camera offset from pitch angle
+const CAM_Z_OFFSET = Math.cos(CAM_PITCH) * CAM_DISTANCE;  // ~510
+const CAM_Y_OFFSET = Math.sin(CAM_PITCH) * CAM_DISTANCE;  // ~-204 (looking down)
 
 function updateCamera(w, h) {
-  camera.right = w;
-  camera.bottom = -h;
+  camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
 
@@ -141,6 +143,7 @@ for (const p of entities.pearls) {
   b.space = space;
   pearlBodies.push(b);
 }
+voxelRenderer.buildPearls(pearlBodies);
 
 // ── Enemy fish ──
 const enemyBodies = [];
@@ -244,26 +247,36 @@ function getKeyboardInput() {
 let camX = 0;
 let camY = 0;
 
+// Calculate visible world size at z=0 for perspective camera
+function getVisibleSize() {
+  const vFov = CAM_FOV * Math.PI / 180;
+  const visH = 2 * Math.tan(vFov / 2) * CAM_Z_OFFSET;
+  const visW = visH * camera.aspect;
+  return { visW, visH };
+}
+
 function updateGameCamera() {
-  const W = canvas.width;
-  const H = canvas.height;
-  const targetX = player.position.x - W / 2;
-  const targetY = player.position.y - H / 2 - 30;
+  const { visW, visH } = getVisibleSize();
+  const targetX = player.position.x - visW / 2;
+  const targetY = player.position.y - visH / 2 - 30;
 
   // Clamp to world bounds
-  const goalX = Math.max(0, Math.min(targetX, WORLD_W - W));
-  const goalY = Math.max(0, Math.min(targetY, WORLD_H - H));
+  const goalX = Math.max(0, Math.min(targetX, WORLD_W - visW));
+  const goalY = Math.max(0, Math.min(targetY, WORLD_H - visH));
 
   // Smooth lerp
   camX += (goalX - camX) * 0.1;
   camY += (goalY - camY) * 0.1;
-  camX = Math.max(0, Math.min(camX, WORLD_W - W));
-  camY = Math.max(0, Math.min(camY, WORLD_H - H));
+  camX = Math.max(0, Math.min(camX, WORLD_W - visW));
+  camY = Math.max(0, Math.min(camY, WORLD_H - visH));
 }
 
 // Snap camera on first frame
-camX = Math.max(0, Math.min(player.position.x - canvas.width / 2, WORLD_W - canvas.width));
-camY = Math.max(0, Math.min(player.position.y - canvas.height / 2 - 30, WORLD_H - canvas.height));
+{
+  const { visW, visH } = getVisibleSize();
+  camX = Math.max(0, Math.min(player.position.x - visW / 2, WORLD_W - visW));
+  camY = Math.max(0, Math.min(player.position.y - visH / 2 - 30, WORLD_H - visH));
+}
 
 // ── HUD Rendering ──
 function renderHUD() {
@@ -302,6 +315,7 @@ function renderHUD() {
   }
 
   // Pearl popup animations (world space -> screen space)
+  const { visW: popVisW, visH: popVisH } = getVisibleSize();
   for (let i = pearlPopups.length - 1; i >= 0; i--) {
     const p = pearlPopups[i];
     p.timer -= DT;
@@ -310,8 +324,9 @@ function renderHUD() {
       pearlPopups.splice(i, 1);
       continue;
     }
-    const sx = p.x - camX;
-    const sy = p.y - camY;
+    // Map world coords to screen pixels
+    const sx = (p.x - camX) / popVisW * W;
+    const sy = (p.y - camY) / popVisH * H;
     const alpha = Math.min(1, p.timer * 2);
     hudCtx.fillStyle = `rgba(255,217,61,${alpha})`;
     hudCtx.font = 'bold 16px monospace';
@@ -362,12 +377,12 @@ function gameLoop() {
   updateGameCamera();
 
   // ── Render Three.js ──
-  // Position camera based on game camera offset
-  camera.left = camX;
-  camera.right = camX + canvas.width;
-  camera.top = -camY;
-  camera.bottom = -(camY + canvas.height);
-  camera.updateProjectionMatrix();
+  // Position perspective camera: follow player with pitch offset
+  const { visW: camVisW, visH: camVisH } = getVisibleSize();
+  const lookX = camX + camVisW / 2;
+  const lookY = -(camY + camVisH / 2);
+  camera.position.set(lookX, lookY - CAM_Y_OFFSET, CAM_Z_OFFSET);
+  camera.lookAt(lookX, lookY, 0);
 
   // Sync voxel renderer
   const fishState = fishCtrl.getState();

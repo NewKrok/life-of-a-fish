@@ -5,14 +5,6 @@
 
 import { TILE_SIZE, LEVEL_COLS, LEVEL_ROWS, TILES, WATER_SURFACE_Y, WORLD_W, WORLD_H } from './level-data.js';
 
-// Tile type -> base color
-const TILE_COLORS = {
-  1: 0x5a5a6e, // stone
-  2: 0xc2a86e, // sand
-  3: 0xe05555, // coral
-  4: 0x2d8a4e, // seaweed/hazard (green)
-};
-
 const VOXEL_DEPTH = TILE_SIZE; // Z depth of each voxel
 
 // ── God Ray Constants ──
@@ -41,6 +33,7 @@ export class VoxelRenderer {
     this.fishGroup = null;
     this.fishTailPivot = null;
     this.enemyGroups = [];
+    this.pearlMeshes = [];  // { mesh, body } pairs
     this.waterMesh = null;
     this.bubbles = [];
     this._time = 0;
@@ -71,136 +64,147 @@ export class VoxelRenderer {
       return x - Math.floor(x);
     };
 
+    // Pixel size for Minecraft-style chunky pixels
+    const px = size / 16; // 4px per "pixel" at 64x64 — gives 16x16 pixel grid
+
     if (type === 1) {
-      // ── Stone: gray with cracks and variation ──
-      ctx.fillStyle = '#5a5a6e';
+      // ── Stone: Minecraft cobblestone style — bright grays with visible pixels ──
+      // Base fill
+      ctx.fillStyle = '#8a8a9a';
       ctx.fillRect(0, 0, size, size);
 
-      // Random stone patches
-      for (let i = 0; i < 20; i++) {
-        const x = rng(i) * size;
-        const y = rng(i + 100) * size;
-        const s = 4 + rng(i + 200) * 10;
-        const brightness = 70 + rng(i + 300) * 40;
-        ctx.fillStyle = `rgb(${brightness}, ${brightness}, ${brightness + 10})`;
-        ctx.fillRect(x, y, s, s);
+      // Random stone pixel patches — varying gray tones
+      for (let py = 0; py < 16; py++) {
+        for (let px2 = 0; px2 < 16; px2++) {
+          const r = rng(py * 16 + px2);
+          const brightness = 100 + r * 80; // 100-180 range (bright)
+          const blueShift = 5 + r * 10;
+          ctx.fillStyle = `rgb(${brightness}, ${brightness}, ${brightness + blueShift})`;
+          ctx.fillRect(px2 * px, py * px, px, px);
+        }
       }
 
-      // Dark cracks
-      ctx.strokeStyle = 'rgba(30, 30, 40, 0.4)';
-      ctx.lineWidth = 1;
-      for (let i = 0; i < 5; i++) {
-        ctx.beginPath();
-        ctx.moveTo(rng(i + 400) * size, rng(i + 500) * size);
-        ctx.lineTo(rng(i + 600) * size, rng(i + 700) * size);
-        ctx.stroke();
+      // Darker crack lines between "stones"
+      ctx.fillStyle = 'rgba(50, 50, 65, 0.7)';
+      for (let i = 0; i < 8; i++) {
+        const x = Math.floor(rng(i + 400) * 16) * px;
+        const y = Math.floor(rng(i + 500) * 16) * px;
+        const horizontal = rng(i + 600) > 0.5;
+        if (horizontal) {
+          ctx.fillRect(x, y, px * 3, px);
+        } else {
+          ctx.fillRect(x, y, px, px * 3);
+        }
       }
 
-      // Subtle grid lines (Minecraft-style block edges)
-      ctx.strokeStyle = 'rgba(40, 40, 55, 0.3)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(0.5, 0.5, size - 1, size - 1);
+      // Block edge highlight (top/left light, bottom/right dark)
+      ctx.fillStyle = 'rgba(180, 180, 200, 0.3)';
+      ctx.fillRect(0, 0, size, px);
+      ctx.fillRect(0, 0, px, size);
+      ctx.fillStyle = 'rgba(30, 30, 45, 0.4)';
+      ctx.fillRect(0, size - px, size, px);
+      ctx.fillRect(size - px, 0, px, size);
 
     } else if (type === 2) {
-      // ── Sand: warm with grain texture ──
-      ctx.fillStyle = '#c2a86e';
+      // ── Sand: Minecraft sand style — warm yellow with grain pixels ──
+      ctx.fillStyle = '#dbce8e';
       ctx.fillRect(0, 0, size, size);
 
-      // Sand grains
-      for (let i = 0; i < 80; i++) {
-        const x = rng(i) * size;
-        const y = rng(i + 50) * size;
-        const r = 0.5 + rng(i + 100) * 1.5;
-        const light = rng(i + 150) > 0.5;
-        ctx.fillStyle = light ? 'rgba(210, 190, 130, 0.6)' : 'rgba(160, 140, 80, 0.4)';
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.fill();
+      for (let py = 0; py < 16; py++) {
+        for (let px2 = 0; px2 < 16; px2++) {
+          const r = rng(py * 16 + px2 + 1000);
+          const base = 180 + r * 55; // 180-235, bright warm
+          const g = base - 15;
+          const b = base - 70;
+          ctx.fillStyle = `rgb(${Math.min(255, base + 10)}, ${Math.min(255, g)}, ${Math.max(80, b)})`;
+          ctx.fillRect(px2 * px, py * px, px, px);
+        }
       }
 
-      // Subtle wave lines in sand
-      ctx.strokeStyle = 'rgba(180, 155, 90, 0.3)';
-      ctx.lineWidth = 1;
-      for (let i = 0; i < 3; i++) {
-        const y = 15 + i * 18;
-        ctx.beginPath();
-        for (let x = 0; x < size; x += 2) {
-          ctx.lineTo(x, y + Math.sin(x * 0.3 + i) * 2);
-        }
-        ctx.stroke();
+      // Scattered darker sand grains
+      for (let i = 0; i < 12; i++) {
+        const gx = Math.floor(rng(i + 100) * 16) * px;
+        const gy = Math.floor(rng(i + 150) * 16) * px;
+        ctx.fillStyle = 'rgba(170, 145, 75, 0.6)';
+        ctx.fillRect(gx, gy, px, px);
       }
 
       // Block edge
-      ctx.strokeStyle = 'rgba(150, 130, 70, 0.3)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(0.5, 0.5, size - 1, size - 1);
+      ctx.fillStyle = 'rgba(230, 215, 150, 0.35)';
+      ctx.fillRect(0, 0, size, px);
+      ctx.fillRect(0, 0, px, size);
+      ctx.fillStyle = 'rgba(120, 100, 50, 0.3)';
+      ctx.fillRect(0, size - px, size, px);
+      ctx.fillRect(size - px, 0, px, size);
 
     } else if (type === 3) {
-      // ── Coral: vibrant red/pink with organic texture ──
-      ctx.fillStyle = '#d04848';
+      // ── Coral: vibrant red/orange Minecraft style ──
+      ctx.fillStyle = '#e06050';
       ctx.fillRect(0, 0, size, size);
 
-      // Coral polyp bumps
-      for (let i = 0; i < 15; i++) {
-        const x = rng(i) * size;
-        const y = rng(i + 50) * size;
-        const r = 3 + rng(i + 100) * 6;
-        const hue = 350 + rng(i + 150) * 20;
-        const lightness = 45 + rng(i + 200) * 20;
-        ctx.fillStyle = `hsl(${hue}, 70%, ${lightness}%)`;
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.fill();
+      for (let py = 0; py < 16; py++) {
+        for (let px2 = 0; px2 < 16; px2++) {
+          const r = rng(py * 16 + px2 + 2000);
+          const red = 180 + r * 70;     // 180-250
+          const green = 60 + r * 50;    // 60-110
+          const blue = 50 + r * 40;     // 50-90
+          ctx.fillStyle = `rgb(${Math.min(255, red)}, ${green}, ${blue})`;
+          ctx.fillRect(px2 * px, py * px, px, px);
+        }
       }
 
-      // Light spots
+      // Bright coral polyp spots
       for (let i = 0; i < 8; i++) {
-        const x = rng(i + 300) * size;
-        const y = rng(i + 350) * size;
-        ctx.fillStyle = 'rgba(255, 150, 150, 0.3)';
-        ctx.beginPath();
-        ctx.arc(x, y, 2, 0, Math.PI * 2);
-        ctx.fill();
+        const gx = Math.floor(rng(i + 300) * 16) * px;
+        const gy = Math.floor(rng(i + 350) * 16) * px;
+        ctx.fillStyle = 'rgba(255, 180, 150, 0.7)';
+        ctx.fillRect(gx, gy, px, px);
       }
 
-      ctx.strokeStyle = 'rgba(120, 30, 30, 0.3)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(0.5, 0.5, size - 1, size - 1);
+      // Block edge
+      ctx.fillStyle = 'rgba(255, 160, 140, 0.3)';
+      ctx.fillRect(0, 0, size, px);
+      ctx.fillRect(0, 0, px, size);
+      ctx.fillStyle = 'rgba(100, 30, 20, 0.4)';
+      ctx.fillRect(0, size - px, size, px);
+      ctx.fillRect(size - px, 0, px, size);
 
     } else if (type === 4) {
-      // ── Seaweed/hazard: dark green with leafy pattern ──
-      ctx.fillStyle = '#2d8a4e';
+      // ── Seaweed/hazard: bright green Minecraft leaf style ──
+      ctx.fillStyle = '#4aad62';
       ctx.fillRect(0, 0, size, size);
 
-      // Leaf veins
-      ctx.strokeStyle = 'rgba(20, 100, 50, 0.5)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(size / 2, 0);
-      ctx.lineTo(size / 2, size);
-      ctx.stroke();
+      for (let py = 0; py < 16; py++) {
+        for (let px2 = 0; px2 < 16; px2++) {
+          const r = rng(py * 16 + px2 + 3000);
+          const red = 40 + r * 40;
+          const green = 130 + r * 80;   // 130-210 bright green
+          const blue = 50 + r * 40;
+          ctx.fillStyle = `rgb(${red}, ${Math.min(220, green)}, ${blue})`;
+          ctx.fillRect(px2 * px, py * px, px, px);
+        }
+      }
+
+      // Vein pattern — darker pixels in cross
+      ctx.fillStyle = 'rgba(25, 80, 40, 0.5)';
+      for (let i = 0; i < 16; i++) {
+        ctx.fillRect(7 * px, i * px, px * 2, px); // vertical center
+      }
       for (let i = 0; i < 6; i++) {
-        const y = 5 + i * 10;
+        const y = Math.floor(2 + i * 2.5);
         const dir = i % 2 === 0 ? 1 : -1;
-        ctx.beginPath();
-        ctx.moveTo(size / 2, y);
-        ctx.lineTo(size / 2 + dir * 20, y + 8);
-        ctx.stroke();
+        for (let j = 0; j < 4; j++) {
+          ctx.fillRect((8 + dir * j) * px, (y + j) * px, px, px);
+        }
       }
 
-      // Spots
-      for (let i = 0; i < 10; i++) {
-        const x = rng(i + 500) * size;
-        const y = rng(i + 550) * size;
-        ctx.fillStyle = rng(i + 600) > 0.5 ? 'rgba(60, 160, 80, 0.4)' : 'rgba(20, 60, 30, 0.3)';
-        ctx.beginPath();
-        ctx.arc(x, y, 2, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      ctx.strokeStyle = 'rgba(15, 60, 30, 0.3)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(0.5, 0.5, size - 1, size - 1);
+      // Block edge
+      ctx.fillStyle = 'rgba(120, 200, 130, 0.3)';
+      ctx.fillRect(0, 0, size, px);
+      ctx.fillRect(0, 0, px, size);
+      ctx.fillStyle = 'rgba(15, 60, 25, 0.4)';
+      ctx.fillRect(0, size - px, size, px);
+      ctx.fillRect(size - px, 0, px, size);
     }
 
     const texture = new THREE.CanvasTexture(canvas);
@@ -234,11 +238,11 @@ export class VoxelRenderer {
 
     for (const [typeStr, count] of Object.entries(tileCounts)) {
       const type = parseInt(typeStr);
-      const color = TILE_COLORS[type] || 0x888888;
       const texture = this._generateTileTexture(type);
-      const mat = new THREE.MeshLambertMaterial({
+      const mat = new THREE.MeshStandardMaterial({
         map: texture,
-        color,
+        roughness: 0.9,
+        metalness: 0.0,
       });
       const mesh = new THREE.InstancedMesh(boxGeo, mat, count);
       mesh.castShadow = false;
@@ -270,7 +274,7 @@ export class VoxelRenderer {
 
     const addVoxel = (x, y, z, color) => {
       const geo = new THREE.BoxGeometry(V, V, V);
-      const mat = new THREE.MeshLambertMaterial({ color });
+      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0.0 });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.set(x * V, y * V, z * V);
       return mesh;
@@ -340,7 +344,7 @@ export class VoxelRenderer {
 
     const addVoxel = (x, y, z, color) => {
       const geo = new THREE.BoxGeometry(V, V, V);
-      const mat = new THREE.MeshLambertMaterial({ color });
+      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0.0 });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.set(x * V, y * V, z * V);
       return mesh;
@@ -382,6 +386,74 @@ export class VoxelRenderer {
     return group;
   }
 
+  // ── Build pearl collectible meshes ──
+  buildPearls(pearlBodies) {
+    const THREE = this.THREE;
+    const pearlGeo = new THREE.SphereGeometry(6, 8, 8);
+    const pearlMat = new THREE.MeshStandardMaterial({
+      color: 0xfff0c0,
+      emissive: 0xffd93d,
+      emissiveIntensity: 0.5,
+      roughness: 0.3,
+      metalness: 0.4,
+    });
+
+    for (const body of pearlBodies) {
+      const mesh = new THREE.Mesh(pearlGeo, pearlMat.clone());
+      mesh.position.set(body.position.x, -body.position.y, 0);
+      this.scene.add(mesh);
+      this.pearlMeshes.push({ mesh, body });
+    }
+  }
+
+  // ── Generate a Minecraft-style ground texture for the back plane ──
+  _generateGroundTexture() {
+    const THREE = this.THREE;
+    const size = 64;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    const px = size / 16;
+
+    const seed = 9999;
+    const rng = (i) => {
+      const x = Math.sin(seed + i * 9871) * 43758.5453;
+      return x - Math.floor(x);
+    };
+
+    // Sandy/dirt ground — warm brown tones
+    ctx.fillStyle = '#8b7355';
+    ctx.fillRect(0, 0, size, size);
+
+    for (let py = 0; py < 16; py++) {
+      for (let px2 = 0; px2 < 16; px2++) {
+        const r = rng(py * 16 + px2 + 5000);
+        const base = 100 + r * 60;
+        const red = Math.min(255, base + 30);
+        const green = Math.min(200, base + 5);
+        const blue = Math.max(40, base - 30);
+        ctx.fillStyle = `rgb(${red}, ${green}, ${blue})`;
+        ctx.fillRect(px2 * px, py * px, px, px);
+      }
+    }
+
+    // Scattered darker pebble pixels
+    for (let i = 0; i < 15; i++) {
+      const gx = Math.floor(rng(i + 800) * 16) * px;
+      const gy = Math.floor(rng(i + 850) * 16) * px;
+      ctx.fillStyle = 'rgba(70, 55, 35, 0.6)';
+      ctx.fillRect(gx, gy, px, px);
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.magFilter = THREE.NearestFilter;
+    texture.minFilter = THREE.NearestFilter;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    return texture;
+  }
+
   // ── Build underwater background with depth gradient ──
   buildBackground() {
     const THREE = this.THREE;
@@ -392,12 +464,11 @@ export class VoxelRenderer {
     bgCanvas.height = 512;
     const bgCtx = bgCanvas.getContext('2d');
     const grad = bgCtx.createLinearGradient(0, 0, 0, 512);
-    // Top: bright blue near surface
-    grad.addColorStop(0, '#0a4a7a');
-    grad.addColorStop(0.15, '#0b3d6a');
-    grad.addColorStop(0.4, '#072a4d');
-    grad.addColorStop(0.7, '#041a33');
-    grad.addColorStop(1.0, '#020d1a');
+    grad.addColorStop(0, '#1a6aaa');
+    grad.addColorStop(0.15, '#155d90');
+    grad.addColorStop(0.4, '#0f4a75');
+    grad.addColorStop(0.7, '#08304d');
+    grad.addColorStop(1.0, '#041a2a');
     bgCtx.fillStyle = grad;
     bgCtx.fillRect(0, 0, 2, 512);
     const bgTexture = new THREE.CanvasTexture(bgCanvas);
@@ -412,9 +483,35 @@ export class VoxelRenderer {
     bgMesh.renderOrder = -100;
     this.scene.add(bgMesh);
 
+    // ── Ground plane — Minecraft-style textured floor lying flat (XZ plane) ──
+    // Visible from the angled perspective camera as a receding floor
+    const groundTexture = this._generateGroundTexture();
+    const groundRepeatX = WORLD_W / TILE_SIZE;
+    const groundDepthSize = 600; // how far the floor extends in Z behind the blocks
+    const groundRepeatZ = groundDepthSize / TILE_SIZE;
+    groundTexture.repeat.set(groundRepeatX, groundRepeatZ);
+
+    const groundGeo = new THREE.PlaneGeometry(WORLD_W + 400, groundDepthSize);
+    const groundMat = new THREE.MeshStandardMaterial({
+      map: groundTexture,
+      roughness: 1.0,
+      metalness: 0.0,
+    });
+    const groundMesh = new THREE.Mesh(groundGeo, groundMat);
+    // Rotate -90° around X so it lies flat in XZ
+    groundMesh.rotation.x = -Math.PI / 2;
+    // Y = bottom of blocks minus half tile, Z = centered behind
+    groundMesh.position.set(
+      WORLD_W / 2,
+      -WORLD_H + TILE_SIZE / 2,
+      -groundDepthSize / 2
+    );
+    groundMesh.renderOrder = -50;
+    this.scene.add(groundMesh);
+
     // Parallax background layers with faint terrain silhouettes
     for (let i = 0; i < BG_LAYER_COUNT; i++) {
-      const depth = -150 - i * 100; // z position (further back)
+      const depth = -150 - i * 100;
       const alpha = 0.08 - i * 0.02;
       const scale = 1.1 + i * 0.2;
       const color = new THREE.Color().setHSL(0.58, 0.4, 0.15 - i * 0.03);
@@ -632,28 +729,32 @@ export class VoxelRenderer {
   setupLighting() {
     const THREE = this.THREE;
 
-    // Ambient (underwater mood — slightly brighter for textured blocks)
-    const ambient = new THREE.AmbientLight(0x5577aa, 0.8);
+    // Ambient — bright enough to see block textures clearly
+    const ambient = new THREE.AmbientLight(0x88aacc, 1.2);
     this.scene.add(ambient);
 
-    // Sun from above — strong directional to mimic light penetrating water
-    const sun = new THREE.DirectionalLight(0xaaddff, 1.0);
-    sun.position.set(200, 500, 400);
+    // Sun from above-right — strong directional to illuminate block tops & right faces
+    const sun = new THREE.DirectionalLight(0xffeedd, 1.4);
+    sun.position.set(300, 400, 500);
     this.scene.add(sun);
 
-    // Soft fill from the side
-    const fill = new THREE.DirectionalLight(0x6699bb, 0.4);
-    fill.position.set(-200, 0, 200);
+    // Fill light from left-front — ensures left faces aren't too dark
+    const fill = new THREE.DirectionalLight(0x88bbdd, 0.6);
+    fill.position.set(-200, 100, 300);
     this.scene.add(fill);
 
     // Subtle warm uplight from sandy bottom
-    const uplight = new THREE.DirectionalLight(0xaa9966, 0.15);
-    uplight.position.set(0, -300, 100);
+    const uplight = new THREE.DirectionalLight(0xccaa77, 0.3);
+    uplight.position.set(0, -300, 200);
     this.scene.add(uplight);
 
-    // Underwater fog — deeper blue, longer range for better depth feel
-    this.scene.fog = new THREE.FogExp2(0x05192d, 0.0012);
-    this.scene.background = new THREE.Color(0x030e1a);
+    // Hemisphere light for natural sky/ground coloring
+    const hemi = new THREE.HemisphereLight(0x88ccff, 0x886644, 0.4);
+    this.scene.add(hemi);
+
+    // Lighter underwater fog — don't obscure textures too much
+    this.scene.fog = new THREE.FogExp2(0x0a2540, 0.0006);
+    this.scene.background = new THREE.Color(0x061828);
   }
 
   // ── Spawn a bubble particle ──
@@ -685,7 +786,6 @@ export class VoxelRenderer {
 
   // ── Per-frame update ──
   syncFrame(fishBody, fishState, enemyBodies, dt) {
-    const THREE = this.THREE;
     this._time += dt;
 
     // ── Sync player fish ──
@@ -733,6 +833,23 @@ export class VoxelRenderer {
       // Face movement direction
       if (eb.velocity.x < -1) eg.scale.x = -1;
       else if (eb.velocity.x > 1) eg.scale.x = 1;
+    }
+
+    // ── Sync pearls (bob + spin, remove collected) ──
+    for (let i = this.pearlMeshes.length - 1; i >= 0; i--) {
+      const p = this.pearlMeshes[i];
+      if (!p.body.space) {
+        // Pearl was collected — remove mesh
+        this.scene.remove(p.mesh);
+        p.mesh.geometry.dispose();
+        p.mesh.material.dispose();
+        this.pearlMeshes.splice(i, 1);
+        continue;
+      }
+      // Gentle bob and spin
+      const baseY = -p.body.position.y;
+      p.mesh.position.y = baseY + Math.sin(this._time * 2.5 + i * 1.3) * 3;
+      p.mesh.rotation.y = this._time * 1.5 + i;
     }
 
     // ── Update bubbles ──
@@ -804,6 +921,11 @@ export class VoxelRenderer {
     }
     if (this.fishGroup) this.scene.remove(this.fishGroup);
     for (const eg of this.enemyGroups) this.scene.remove(eg);
+    for (const p of this.pearlMeshes) {
+      this.scene.remove(p.mesh);
+      p.mesh.geometry.dispose();
+      p.mesh.material.dispose();
+    }
     if (this.waterMesh) this.scene.remove(this.waterMesh);
     for (const b of this.bubbles) {
       this.scene.remove(b.mesh);
