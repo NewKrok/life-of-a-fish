@@ -33,10 +33,13 @@ export class VoxelRenderer {
     this.fishGroup = null;
     this.fishTailPivot = null;
     this.enemyGroups = [];
+    this.enemyTailPivots = [];
     this.pearlMeshes = [];  // { mesh, body } pairs
     this.waterMesh = null;
     this.bubbles = [];
     this._time = 0;
+    this._fishFlipAngle = 0;       // current Y rotation for 3D flip (0 = right, π = left)
+    this._enemyFlipAngles = [];    // per-enemy Y rotation for 3D flip
 
     // New visual elements
     this.godRays = [];
@@ -266,11 +269,11 @@ export class VoxelRenderer {
     }
   }
 
-  // ── Build the player fish model (voxel style) ──
+  // ── Build the player fish model (voxel style, Magikarp-inspired) ──
   buildFish() {
     const THREE = this.THREE;
     const group = new THREE.Group();
-    const V = 4; // voxel unit size (smaller than tile for detail)
+    const V = 2; // smaller voxel for more detail
 
     const addVoxel = (x, y, z, color) => {
       const geo = new THREE.BoxGeometry(V, V, V);
@@ -280,67 +283,193 @@ export class VoxelRenderer {
       return mesh;
     };
 
-    // Body (orange) - 5 voxels long, 3 tall, 2 deep
-    const bodyColor = 0xff8c42;
-    const bodyVoxels = [
-      // Main body
-      [0, 0, 0], [1, 0, 0], [2, 0, 0], [3, 0, 0],
-      [0, 1, 0], [1, 1, 0], [2, 1, 0], [3, 1, 0],
-      [0, -1, 0], [1, -1, 0], [2, -1, 0],
-      // Depth layer
-      [0, 0, 1], [1, 0, 1], [2, 0, 1], [3, 0, 1],
-      [0, 1, 1], [1, 1, 1], [2, 1, 1], [3, 1, 1],
-      [0, -1, 1], [1, -1, 1], [2, -1, 1],
-      // Head (front)
-      [4, 0, 0], [4, 1, 0], [4, 0, 1], [4, 1, 1],
-    ];
-    for (const [x, y, z] of bodyVoxels) {
-      group.add(addVoxel(x, y, z, bodyColor));
+    // Colors
+    const RED = 0xcc2222;
+    const RED_DARK = 0xa01818;
+    const RED_LIGHT = 0xdd3333;
+    const WHITE = 0xe8e0d0;
+    const WHITE_LIGHT = 0xf5f0e8;
+    const YELLOW = 0xf0c020;
+    const YELLOW_DARK = 0xd4a010;
+    const EYE_WHITE = 0xffffff;
+    const EYE_BLACK = 0x111111;
+    const WHISKER = 0xd4a010;
+    const MOUTH = 0xc87830;
+
+    // Helper: add a row of voxels along X for a given y, z, color
+    const row = (xs, y, z, color) => {
+      for (const x of xs) group.add(addVoxel(x, y, z, color));
+    };
+
+    // ── Body: round oval shape, 10 long × 8 tall × 6 deep ──
+    // Build layer by layer in Z. Body is symmetric around z=2.5
+    // Each Z-slice defines rows [y] -> x range
+
+    // Z=0, Z=5 (outermost edges, small)
+    const sliceOuter = () => {
+      // Red upper body
+      row([3, 4, 5, 6], 3, 0, RED);
+      row([3, 4, 5, 6], 2, 0, RED);
+      row([4, 5], 1, 0, RED_LIGHT);
+      // White belly
+      row([4, 5], 0, 0, WHITE);
+      row([4, 5], -1, 0, WHITE);
+    };
+
+    // Z=1, Z=4 (mid-outer, bigger)
+    const sliceMidOuter = () => {
+      row([2, 3, 4, 5, 6, 7], 4, 1, RED);
+      row([1, 2, 3, 4, 5, 6, 7, 8], 3, 1, RED);
+      row([1, 2, 3, 4, 5, 6, 7, 8], 2, 1, RED_LIGHT);
+      row([2, 3, 4, 5, 6, 7, 8], 1, 1, RED_LIGHT);
+      // White belly
+      row([2, 3, 4, 5, 6, 7, 8], 0, 1, WHITE);
+      row([3, 4, 5, 6, 7], -1, 1, WHITE);
+      row([4, 5, 6], -2, 1, WHITE_LIGHT);
+    };
+
+    // Z=2, Z=3 (center, biggest cross-section)
+    const sliceCenter = () => {
+      row([3, 4, 5, 6], 5, 2, RED_DARK);
+      row([1, 2, 3, 4, 5, 6, 7, 8], 4, 2, RED);
+      row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 3, 2, RED);
+      row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 2, 2, RED_LIGHT);
+      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 1, 2, RED_LIGHT);
+      // White belly
+      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 0, 2, WHITE);
+      row([2, 3, 4, 5, 6, 7, 8], -1, 2, WHITE);
+      row([3, 4, 5, 6, 7], -2, 2, WHITE_LIGHT);
+    };
+
+    // Place body slices symmetrically
+    // Z=0 and Z=5
+    sliceOuter();
+    // Mirror Z=0 to Z=5
+    for (const child of [...group.children]) {
+      if (child.position.z === 0) {
+        group.add(addVoxel(child.position.x / V, child.position.y / V, 5, child.material.color.getHex()));
+      }
     }
 
-    // Eye (white + black pupil)
-    group.add(addVoxel(4, 1, 0, 0xffffff)); // white
-    const pupil = addVoxel(4, 1, -0.3, 0x111111);
-    pupil.scale.set(0.5, 0.5, 0.5);
-    group.add(pupil);
+    // Z=1 and Z=4
+    const countBefore1 = group.children.length;
+    sliceMidOuter();
+    const addedSlice1 = group.children.slice(countBefore1);
+    for (const child of addedSlice1) {
+      group.add(addVoxel(child.position.x / V, child.position.y / V, 4, child.material.color.getHex()));
+    }
 
-    // Top fin (yellow)
-    group.add(addVoxel(1, 2, 0, 0xffd93d));
-    group.add(addVoxel(2, 2, 0, 0xffd93d));
-    group.add(addVoxel(1, 2, 1, 0xffd93d));
-    group.add(addVoxel(2, 2, 1, 0xffd93d));
+    // Z=2 and Z=3
+    const countBefore2 = group.children.length;
+    sliceCenter();
+    const addedSlice2 = group.children.slice(countBefore2);
+    for (const child of addedSlice2) {
+      group.add(addVoxel(child.position.x / V, child.position.y / V, 3, child.material.color.getHex()));
+    }
 
-    // Tail (separate group for animation)
+    // ── Horizontal scale pattern (dark red stripes on body) ──
+    for (const z of [1, 2, 3, 4]) {
+      row([2, 4, 6, 8], 3, z, RED_DARK);
+      row([3, 5, 7], 2, z, RED_DARK);
+    }
+
+    // ── Eyes (on outermost visible Z layers: z=0 and z=5) ──
+    // Left eye (z=0 side) — 2 voxels tall
+    group.add(addVoxel(8, 3, -0.2, EYE_WHITE));
+    group.add(addVoxel(8, 2, -0.2, EYE_WHITE));
+    const pupilL = addVoxel(8, 2.8, -0.5, EYE_BLACK);
+    pupilL.scale.set(0.7, 0.7, 0.4);
+    group.add(pupilL);
+    // Right eye (z=5 side) — 2 voxels tall
+    group.add(addVoxel(8, 3, 5.2, EYE_WHITE));
+    group.add(addVoxel(8, 2, 5.2, EYE_WHITE));
+    const pupilR = addVoxel(8, 2.8, 5.5, EYE_BLACK);
+    pupilR.scale.set(0.7, 0.7, 0.4);
+    group.add(pupilR);
+
+    // ── Mouth (front, slightly open) ──
+    group.add(addVoxel(9, 1, 2, MOUTH));
+    group.add(addVoxel(9, 1, 3, MOUTH));
+
+    // ── Whiskers / barbels (yellow, hanging down from mouth) ──
+    group.add(addVoxel(10, 1, 1, WHISKER));
+    group.add(addVoxel(10, 0, 1, WHISKER));
+    group.add(addVoxel(10, 1, 4, WHISKER));
+    group.add(addVoxel(10, 0, 4, WHISKER));
+
+    // ── Dorsal crown / top fin (yellow crest) ──
+    // Base row
+    for (const x of [3, 4, 5, 6]) {
+      for (const z of [2, 3]) {
+        group.add(addVoxel(x, 6, z, YELLOW));
+      }
+    }
+    // Tips (narrower)
+    for (const x of [4, 5]) {
+      for (const z of [2, 3]) {
+        group.add(addVoxel(x, 7, z, YELLOW_DARK));
+      }
+    }
+
+    // ── Pectoral fins (small yellow, on sides) ──
+    // Left fin (z=-1)
+    group.add(addVoxel(5, 0, -1, YELLOW));
+    group.add(addVoxel(6, 0, -1, YELLOW));
+    group.add(addVoxel(5, -1, -1, YELLOW_DARK));
+    group.add(addVoxel(6, -1, -1, YELLOW_DARK));
+    // Right fin (z=6)
+    group.add(addVoxel(5, 0, 6, YELLOW));
+    group.add(addVoxel(6, 0, 6, YELLOW));
+    group.add(addVoxel(5, -1, 6, YELLOW_DARK));
+    group.add(addVoxel(6, -1, 6, YELLOW_DARK));
+
+    // ── Tail (separate group for animation) ──
     const tailPivot = new THREE.Group();
-    tailPivot.position.set(-1 * V, 0, 0.5 * V);
-    const tailColor = 0xff6b35;
+    tailPivot.position.set(0, V * 1.5, V * 2.5); // pivot at body rear center
+    const TAIL_Y = 0xf0b010;
+    const TAIL_Y_DARK = 0xd09000;
+
+    // Tail fan shape — spreads out vertically
     const tailVoxels = [
-      [-1, 0, 0], [-1, 1, 0], [-1, -1, 0],
-      [-2, 1, 0], [-2, 0, 0], [-2, -1, 0],
-      [-1, 0, 1], [-1, 1, 1], [-1, -1, 1],
-      [-2, 1, 1], [-2, 0, 1], [-2, -1, 1],
+      // Connecting segment
+      [-1, 2, 0, TAIL_Y], [-1, 1, 0, TAIL_Y], [-1, 0, 0, TAIL_Y], [-1, -1, 0, TAIL_Y],
+      [-1, 2, 1, TAIL_Y], [-1, 1, 1, TAIL_Y], [-1, 0, 1, TAIL_Y], [-1, -1, 1, TAIL_Y],
+      // Fan part (wider)
+      [-2, 3, 0, TAIL_Y], [-2, 2, 0, TAIL_Y], [-2, 1, 0, TAIL_Y],
+      [-2, 0, 0, TAIL_Y], [-2, -1, 0, TAIL_Y], [-2, -2, 0, TAIL_Y],
+      [-2, 3, 1, TAIL_Y], [-2, 2, 1, TAIL_Y], [-2, 1, 1, TAIL_Y],
+      [-2, 0, 1, TAIL_Y], [-2, -1, 1, TAIL_Y], [-2, -2, 1, TAIL_Y],
+      // Outer tips
+      [-3, 3, 0, TAIL_Y_DARK], [-3, -2, 0, TAIL_Y_DARK],
+      [-3, 3, 1, TAIL_Y_DARK], [-3, -2, 1, TAIL_Y_DARK],
+      [-3, 4, 0, TAIL_Y_DARK], [-3, -3, 0, TAIL_Y_DARK],
+      [-3, 4, 1, TAIL_Y_DARK], [-3, -3, 1, TAIL_Y_DARK],
     ];
-    for (const [x, y, z] of tailVoxels) {
-      const v = addVoxel(x + 1, y, z, tailColor);
-      // Offset relative to pivot
-      tailPivot.add(v);
+    for (const [x, y, z, color] of tailVoxels) {
+      tailPivot.add(addVoxel(x, y, z, color));
     }
     group.add(tailPivot);
     this.fishTailPivot = tailPivot;
 
-    // Center the fish model
-    group.position.set(0, 0, -0.5 * V);
+    // Center the voxel group so (0,0,0) aligns with the physics capsule center
+    // Body voxels span roughly x:0..9, y:-2..5 -> center at ~(4.5, 1.5)
+    group.position.set(-4.5 * V, -1.5 * V, -2.5 * V);
+    group.scale.set(1.15, 1.15, 1.15);
 
-    this.fishGroup = group;
-    this.scene.add(group);
-    return group;
+    // Wrapper group: positioned at physics body, Y-rotated for 3D flip
+    const wrapper = new this.THREE.Group();
+    wrapper.add(group);
+
+    this.fishGroup = wrapper;
+    this.scene.add(wrapper);
+    return wrapper;
   }
 
-  // ── Build an enemy fish (red/dark) ──
+  // ── Build an enemy fish (dark/purple, Magikarp-style) ──
   buildEnemyFish() {
     const THREE = this.THREE;
     const group = new THREE.Group();
-    const V = 4;
+    const V = 2;
 
     const addVoxel = (x, y, z, color) => {
       const geo = new THREE.BoxGeometry(V, V, V);
@@ -350,40 +479,106 @@ export class VoxelRenderer {
       return mesh;
     };
 
-    // Body (dark red)
-    const bodyColor = 0x992222;
-    const coords = [
-      [0, 0, 0], [1, 0, 0], [2, 0, 0], [3, 0, 0],
-      [0, 1, 0], [1, 1, 0], [2, 1, 0], [3, 1, 0],
-      [0, -1, 0], [1, -1, 0], [2, -1, 0],
-      [0, 0, 1], [1, 0, 1], [2, 0, 1], [3, 0, 1],
-      [0, 1, 1], [1, 1, 1], [2, 1, 1], [3, 1, 1],
-      [0, -1, 1], [1, -1, 1], [2, -1, 1],
-      [4, 0, 0], [4, 1, 0], [4, 0, 1], [4, 1, 1],
-    ];
-    for (const [x, y, z] of coords) group.add(addVoxel(x, y, z, bodyColor));
+    // Colors
+    const BODY = 0x662244;
+    const BODY_DARK = 0x551133;
+    const BODY_LIGHT = 0x773355;
+    const BELLY = 0x998888;
+    const BELLY_LIGHT = 0xaa9999;
+    const FIN = 0x993366;
+    const FIN_DARK = 0x772255;
+    const EYE_RED = 0xff2222;
 
-    // Eye
-    group.add(addVoxel(4, 1, 0, 0xff4444));
+    const row = (xs, y, z, color) => {
+      for (const x of xs) group.add(addVoxel(x, y, z, color));
+    };
 
-    // Spiky fin
-    group.add(addVoxel(1, 2, 0, 0x661111));
-    group.add(addVoxel(2, 2, 0, 0x661111));
-    group.add(addVoxel(3, 2, 0, 0x661111));
+    // Z=0, Z=5 (outermost)
+    const sliceOuter = (z) => {
+      row([3, 4, 5, 6], 3, z, BODY);
+      row([3, 4, 5, 6], 2, z, BODY_LIGHT);
+      row([4, 5], 1, z, BODY_LIGHT);
+      row([4, 5], 0, z, BELLY);
+      row([4, 5], -1, z, BELLY);
+    };
 
-    // Tail
+    // Z=1, Z=4 (mid)
+    const sliceMid = (z) => {
+      row([2, 3, 4, 5, 6, 7], 4, z, BODY);
+      row([1, 2, 3, 4, 5, 6, 7, 8], 3, z, BODY);
+      row([1, 2, 3, 4, 5, 6, 7, 8], 2, z, BODY_LIGHT);
+      row([2, 3, 4, 5, 6, 7, 8], 1, z, BODY_LIGHT);
+      row([2, 3, 4, 5, 6, 7, 8], 0, z, BELLY);
+      row([3, 4, 5, 6, 7], -1, z, BELLY);
+      row([4, 5, 6], -2, z, BELLY_LIGHT);
+    };
+
+    // Z=2, Z=3 (center)
+    const sliceCenter = (z) => {
+      row([3, 4, 5, 6], 5, z, BODY_DARK);
+      row([1, 2, 3, 4, 5, 6, 7, 8], 4, z, BODY);
+      row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 3, z, BODY);
+      row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 2, z, BODY_LIGHT);
+      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 1, z, BODY_LIGHT);
+      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 0, z, BELLY);
+      row([2, 3, 4, 5, 6, 7, 8], -1, z, BELLY);
+      row([3, 4, 5, 6, 7], -2, z, BELLY_LIGHT);
+    };
+
+    sliceOuter(0); sliceOuter(5);
+    sliceMid(1); sliceMid(4);
+    sliceCenter(2); sliceCenter(3);
+
+    // Scale pattern
+    for (const z of [1, 2, 3, 4]) {
+      row([2, 4, 6, 8], 3, z, BODY_DARK);
+      row([3, 5, 7], 2, z, BODY_DARK);
+    }
+
+    // Eyes (angry red) — 2 voxels tall
+    group.add(addVoxel(8, 3, -0.2, EYE_RED));
+    group.add(addVoxel(8, 2, -0.2, EYE_RED));
+    group.add(addVoxel(8, 3, 5.2, EYE_RED));
+    group.add(addVoxel(8, 2, 5.2, EYE_RED));
+
+    // Spiky dorsal fin (reduced height)
+    for (const x of [2, 3, 4, 5, 6, 7]) {
+      for (const z of [2, 3]) {
+        group.add(addVoxel(x, 6, z, FIN));
+      }
+    }
+    for (const x of [4, 5]) {
+      for (const z of [2, 3]) {
+        group.add(addVoxel(x, 7, z, FIN_DARK));
+      }
+    }
+
+    // Tail (separate group for animation)
+    const tailPivot = new THREE.Group();
+    tailPivot.position.set(0, V * 1.5, V * 2.5);
     const tailVoxels = [
-      [-1, 0, 0], [-1, 1, 0], [-1, -1, 0],
-      [-2, 1, 0], [-2, -1, 0],
-      [-1, 0, 1], [-1, 1, 1], [-1, -1, 1],
-      [-2, 1, 1], [-2, -1, 1],
+      [-1, 2, 0], [-1, 1, 0], [-1, 0, 0], [-1, -1, 0],
+      [-1, 2, 1], [-1, 1, 1], [-1, 0, 1], [-1, -1, 1],
+      [-2, 3, 0], [-2, 2, 0], [-2, 1, 0], [-2, 0, 0], [-2, -1, 0], [-2, -2, 0],
+      [-2, 3, 1], [-2, 2, 1], [-2, 1, 1], [-2, 0, 1], [-2, -1, 1], [-2, -2, 1],
+      [-3, 3, 0], [-3, -2, 0], [-3, 4, 0], [-3, -3, 0],
+      [-3, 3, 1], [-3, -2, 1], [-3, 4, 1], [-3, -3, 1],
     ];
-    for (const [x, y, z] of tailVoxels) group.add(addVoxel(x, y, z, 0x771111));
+    for (const [x, y, z] of tailVoxels) tailPivot.add(addVoxel(x, y, z, FIN));
+    group.add(tailPivot);
 
-    group.position.set(0, 0, -2);
-    this.scene.add(group);
-    this.enemyGroups.push(group);
-    return group;
+    // Center the voxel group on physics capsule center
+    group.position.set(-4.5 * V, -1.5 * V, -2.5 * V);
+    group.scale.set(1.15, 1.15, 1.15);
+
+    // Wrapper group for Y-rotation (3D flip)
+    const wrapper = new this.THREE.Group();
+    wrapper.add(group);
+
+    this.scene.add(wrapper);
+    this.enemyGroups.push(wrapper);
+    this.enemyTailPivots.push(tailPivot);
+    return wrapper;
   }
 
   // ── Build pearl collectible meshes ──
@@ -795,14 +990,12 @@ export class VoxelRenderer {
         -fishBody.position.y,
         0
       );
-      this.fishGroup.rotation.z = -fishBody.rotation;
+      this.fishGroup.rotation.z = -(fishState?.visualRotation ?? 0);
 
-      // Flip fish when facing left (mirror on Y axis)
-      if (fishState && !fishState.facingRight) {
-        this.fishGroup.scale.x = -1;
-      } else {
-        this.fishGroup.scale.x = 1;
-      }
+      // 3D flip: lerp Y rotation for smooth turn-around
+      const targetFlip = (fishState && !fishState.facingRight) ? Math.PI : 0;
+      this._fishFlipAngle += (targetFlip - this._fishFlipAngle) * 0.12;
+      this.fishGroup.rotation.y = this._fishFlipAngle;
 
       // Tail animation — wave based on swim speed
       if (this.fishTailPivot) {
@@ -830,9 +1023,20 @@ export class VoxelRenderer {
       const eg = this.enemyGroups[i];
       eg.position.set(eb.position.x, -eb.position.y, 0);
       eg.rotation.z = -eb.rotation;
-      // Face movement direction
-      if (eb.velocity.x < -1) eg.scale.x = -1;
-      else if (eb.velocity.x > 1) eg.scale.x = 1;
+      // 3D flip: lerp Y rotation for smooth turn-around
+      if (this._enemyFlipAngles[i] === undefined) this._enemyFlipAngles[i] = 0;
+      let targetFlip = this._enemyFlipAngles[i];
+      if (eb.velocity.x < -1) targetFlip = Math.PI;
+      else if (eb.velocity.x > 1) targetFlip = 0;
+      this._enemyFlipAngles[i] += (targetFlip - this._enemyFlipAngles[i]) * 0.12;
+      eg.rotation.y = this._enemyFlipAngles[i];
+      // Tail animation
+      if (this.enemyTailPivots[i]) {
+        const speed = Math.abs(eb.velocity.x);
+        const freq = 6 + speed * 0.04;
+        const amp = 0.25 + Math.min(speed / 300, 0.35);
+        this.enemyTailPivots[i].rotation.y = Math.sin(this._time * freq + i * 2) * amp;
+      }
     }
 
     // ── Sync pearls (bob + spin, remove collected) ──

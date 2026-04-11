@@ -15,6 +15,7 @@ const SURFACE_JUMP_VY = -320;    // upward burst when jumping from surface
 const AIR_GRAVITY_MULT = 1.2;    // fish falls slightly faster in air
 const AIR_HORIZONTAL_DRAG = 0.98;
 const WATER_ENTRY_DAMPING = 0.6; // velocity multiplier when entering water
+const IDLE_FLOAT_UP = -92;       // upward drift when idle in water (px/s²)
 const ROTATION_LERP = 0.12;      // how fast fish rotates toward velocity direction
 const HYSTERESIS = 8;            // px above/below surface to prevent flicker
 const DT = 1 / 60;
@@ -36,6 +37,7 @@ export class FishController {
     this.dashDirY = 0;
     this.facingRight = true;
     this.swimSpeed = 0; // magnitude of velocity for animation
+    this.visualRotation = 0; // visual tilt angle (not applied to physics body)
     this.alive = true;
 
     // For splash detection
@@ -103,7 +105,11 @@ export class FishController {
 
       // Extra drag when no input (fish slows down naturally)
       if (Math.abs(input.dirX) < 0.1) cvx *= SWIM_DRAG;
-      if (Math.abs(input.dirY) < 0.1) cvy *= SWIM_DRAG;
+      if (Math.abs(input.dirY) < 0.1) {
+        cvy *= SWIM_DRAG;
+        // Gentle upward float when idle (buoyancy)
+        cvy += IDLE_FLOAT_UP * DT;
+      }
 
       // Clamp to max speed
       const speed = Math.sqrt(cvx * cvx + cvy * cvy);
@@ -158,19 +164,23 @@ export class FishController {
     body.velocity = new Vec2(newVx, newVy);
 
     // ── Rotation ── fish points toward velocity direction
+    // Always compute angle as if facing right (positive X), flip handles mirroring
     const spd = Math.sqrt(newVx * newVx + newVy * newVy);
     this.swimSpeed = spd;
 
-    if (spd > 10) {
-      const targetAngle = Math.atan2(newVy, newVx);
-      let currentAngle = body.rotation;
+    const hasInput = Math.abs(input.dirX) > 0.1 || Math.abs(input.dirY) > 0.1;
 
-      // Normalize angle difference
-      let diff = targetAngle - currentAngle;
+    if (hasInput && spd > 10) {
+      // Rotate toward movement direction when player is actively steering
+      const absVx = Math.abs(newVx);
+      const targetAngle = Math.atan2(newVy, absVx);
+      let diff = targetAngle - this.visualRotation;
       while (diff > Math.PI) diff -= 2 * Math.PI;
       while (diff < -Math.PI) diff += 2 * Math.PI;
-
-      body.rotation = currentAngle + diff * ROTATION_LERP;
+      this.visualRotation += diff * ROTATION_LERP;
+    } else if (this.inWater) {
+      // Idle in water: gently return to horizontal
+      this.visualRotation += (0 - this.visualRotation) * ROTATION_LERP * 0.5;
     }
 
     // Facing direction (for when idle)
@@ -211,6 +221,7 @@ export class FishController {
       dashing: this.dashing,
       facingRight: this.facingRight,
       swimSpeed: this.swimSpeed,
+      visualRotation: this.visualRotation,
       alive: this.alive,
       justEnteredWater: this.justEnteredWater,
       justLeftWater: this.justLeftWater,

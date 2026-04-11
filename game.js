@@ -60,7 +60,7 @@ window.addEventListener('resize', () => {
 
 // Perspective camera for 3D isometric view
 const CAM_FOV = 45;                    // field of view in degrees
-const CAM_PITCH = -0.38;               // downward tilt in radians (~22°)
+const CAM_PITCH = -0.26;               // downward tilt in radians (~15°)
 const CAM_DISTANCE = 550;              // distance from the look-at plane
 const camera = new THREE.PerspectiveCamera(
   CAM_FOV,
@@ -149,7 +149,7 @@ voxelRenderer.buildPearls(pearlBodies);
 const enemyBodies = [];
 for (const en of entities.enemies) {
   const b = new Body(BodyType.KINEMATIC, new Vec2(en.x, en.y));
-  const shape = new Capsule(20, 8);
+  const shape = new Capsule(24, 12);
   shape.sensorEnabled = true;
   shape.cbTypes.add(enemyTag);
   b.shapes.add(shape);
@@ -171,7 +171,7 @@ const player = new Body(BodyType.DYNAMIC, new Vec2(entities.playerSpawn.x, entit
 const playerShape = new Capsule(PLAYER_CAPSULE_W, PLAYER_CAPSULE_H, undefined, new Material(0, 0.1, 0.1, 1));
 playerShape.cbTypes.add(playerTag);
 player.shapes.add(playerShape);
-player.allowRotation = true;
+player.allowRotation = false;
 player.isBullet = true;
 player.space = space;
 
@@ -276,6 +276,106 @@ function updateGameCamera() {
   const { visW, visH } = getVisibleSize();
   camX = Math.max(0, Math.min(player.position.x - visW / 2, WORLD_W - visW));
   camY = Math.max(0, Math.min(player.position.y - visH / 2 - 30, WORLD_H - visH));
+}
+
+// ── Physics Debug Toggle (F3) ──
+let debugPhysics = false;
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'F3') { debugPhysics = !debugPhysics; e.preventDefault(); }
+});
+
+function renderPhysicsDebug() {
+  if (!debugPhysics) return;
+  const W = hudCanvas.width;
+  const H = hudCanvas.height;
+  const { visW, visH } = getVisibleSize();
+
+  // Scale factor: world units -> screen pixels
+  const sx = W / visW;
+  const sy = H / visH;
+
+  hudCtx.save();
+  // Transform: translate by camera, then scale to screen
+  hudCtx.setTransform(sx, 0, 0, sy, -camX * sx, -camY * sy);
+  hudCtx.lineWidth = 1.5 / sx; // constant screen-space line width
+
+  const drawShape = (shape, fillColor, strokeColor) => {
+    hudCtx.strokeStyle = strokeColor;
+    if (shape.isCircle()) {
+      const r = shape.castCircle.radius;
+      hudCtx.beginPath();
+      hudCtx.arc(0, 0, r, 0, Math.PI * 2);
+      if (fillColor) { hudCtx.fillStyle = fillColor; hudCtx.fill(); }
+      hudCtx.stroke();
+    } else if (shape.isCapsule()) {
+      const cap = shape.castCapsule;
+      const hl = cap.halfLength;
+      const r = cap.radius;
+      hudCtx.beginPath();
+      hudCtx.moveTo(-hl, -r);
+      hudCtx.lineTo(hl, -r);
+      hudCtx.arc(hl, 0, r, -Math.PI / 2, Math.PI / 2);
+      hudCtx.lineTo(-hl, r);
+      hudCtx.arc(-hl, 0, r, Math.PI / 2, -Math.PI / 2);
+      hudCtx.closePath();
+      if (fillColor) { hudCtx.fillStyle = fillColor; hudCtx.fill(); }
+      hudCtx.stroke();
+    } else if (shape.isPolygon()) {
+      const verts = shape.castPolygon.localVerts;
+      if (verts.length < 3) return;
+      hudCtx.beginPath();
+      hudCtx.moveTo(verts.at(0).x, verts.at(0).y);
+      for (let v = 1; v < verts.length; v++) {
+        hudCtx.lineTo(verts.at(v).x, verts.at(v).y);
+      }
+      hudCtx.closePath();
+      if (fillColor) { hudCtx.fillStyle = fillColor; hudCtx.fill(); }
+      hudCtx.stroke();
+    }
+  };
+
+  for (const body of space.bodies) {
+    // Pick colors by body role
+    let fill = null;
+    let stroke = 'rgba(0,255,0,0.5)';
+
+    if (body === player) {
+      fill = 'rgba(0,200,255,0.25)';
+      stroke = 'rgba(0,200,255,0.9)';
+    } else if (body.type === BodyType.KINEMATIC) {
+      fill = 'rgba(255,165,0,0.2)';
+      stroke = 'rgba(255,165,0,0.8)';
+    } else {
+      // Static: check fluid / sensor
+      let isFluid = false;
+      let isSensor = false;
+      for (const shape of body.shapes) {
+        if (shape.fluidEnabled) isFluid = true;
+        if (shape.sensorEnabled) isSensor = true;
+      }
+      if (isFluid) {
+        fill = 'rgba(50,100,255,0.12)';
+        stroke = 'rgba(50,100,255,0.5)';
+      } else if (isSensor) {
+        stroke = 'rgba(255,255,0,0.6)';
+      }
+    }
+
+    hudCtx.save();
+    hudCtx.translate(body.position.x, body.position.y);
+    hudCtx.rotate(body.rotation);
+    for (const shape of body.shapes) {
+      drawShape(shape, fill, stroke);
+    }
+    hudCtx.restore();
+  }
+
+  // Reset transform for label
+  hudCtx.setTransform(1, 0, 0, 1, 0, 0);
+  hudCtx.fillStyle = 'rgba(255,255,0,0.8)';
+  hudCtx.font = 'bold 12px monospace';
+  hudCtx.fillText('PHYSICS DEBUG (F3)', 10, H - 10);
+  hudCtx.restore();
 }
 
 // ── HUD Rendering ──
@@ -392,6 +492,7 @@ function gameLoop() {
 
   // ── HUD ──
   renderHUD();
+  renderPhysicsDebug();
 
   requestAnimationFrame(gameLoop);
 }
