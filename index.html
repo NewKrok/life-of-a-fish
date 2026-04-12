@@ -141,6 +141,62 @@
       transform: scale(0.97);
     }
 
+    /* ── Level Select ── */
+    .hidden { display: none !important; }
+    .level-select-title {
+      font: bold 22px 'Silkscreen', monospace;
+      color: #ffd93d;
+      text-shadow:
+        0 0 12px rgba(255, 217, 61, 0.3),
+        0 2px 4px rgba(0, 0, 0, 0.6);
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+      pointer-events: none;
+    }
+    .level-cards {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: 100%;
+      max-width: 340px;
+    }
+    .level-card {
+      background: rgba(10, 40, 70, 0.7);
+      border: 2px solid rgba(100, 180, 255, 0.3);
+      border-radius: 10px;
+      padding: 14px 20px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-align: left;
+    }
+    .level-card:hover {
+      background: rgba(20, 60, 100, 0.85);
+      border-color: rgba(100, 200, 255, 0.6);
+      transform: scale(1.03);
+    }
+    .level-card:active {
+      transform: scale(0.97);
+    }
+    .level-card-name {
+      font: bold 13px 'Silkscreen', monospace;
+      color: #ffffff;
+      letter-spacing: 1px;
+      margin-bottom: 4px;
+    }
+    .level-card-desc {
+      font: 10px 'Silkscreen', monospace;
+      color: rgba(200, 230, 255, 0.5);
+    }
+    .level-card-number {
+      font: bold 10px 'Silkscreen', monospace;
+      color: #ffd93d;
+      margin-bottom: 2px;
+    }
+    .level-back-btn {
+      margin-top: 6px;
+      min-width: 160px;
+    }
+
     /* ── Aquarium Close Button ── */
     #aquariumClose {
       position: absolute;
@@ -385,11 +441,17 @@
   <!-- Main Menu Overlay -->
   <div id="menuOverlay">
     <div class="menu-title">Life of a Fish</div>
-    <div class="menu-items">
+    <div class="menu-items" id="menuMain">
       <button class="menu-btn" id="btnStartGame">Start Game</button>
       <button class="menu-btn" id="btnAquarium">Aquarium</button>
       <button class="menu-btn" id="btnSettings">Settings</button>
       <button class="menu-btn" id="btnAbout">About</button>
+    </div>
+    <!-- Level Select (hidden by default, shown when Start Game is clicked) -->
+    <div class="menu-items hidden" id="levelSelect">
+      <div class="level-select-title">Select Level</div>
+      <div class="level-cards" id="levelCards"></div>
+      <button class="menu-btn level-back-btn" id="levelSelectBack">Back</button>
     </div>
   </div>
 

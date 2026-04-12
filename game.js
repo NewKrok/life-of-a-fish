@@ -12,6 +12,7 @@ import {
   TILE_SIZE, LEVEL_COLS, LEVEL_ROWS, WORLD_W, WORLD_H,
   WATER_SURFACE_Y, TILES,
   getLevelEntities, getMergedSolidBodies, getWaterZones, resetTiles,
+  getLevels, setCurrentLevel, getCurrentLevelIndex,
 } from './level-data.js';
 
 import {
@@ -136,6 +137,9 @@ const pauseSfxLabel = document.getElementById('pauseSfxVolVal');
 function showMenu() {
   appState = 'menu';
   menuOverlay.classList.remove('hidden');
+  // Ensure main menu buttons are visible, level select is hidden
+  document.getElementById('menuMain').classList.remove('hidden');
+  document.getElementById('levelSelect').classList.add('hidden');
   aquariumCloseBtn.classList.remove('visible');
   settingsPanel.classList.remove('visible');
   aboutPanel.classList.remove('visible');
@@ -356,24 +360,70 @@ function _irisStopStandalone() {
   _irisStartStandalone();
 }
 
+// ── Level Select UI ──
+const menuMain = document.getElementById('menuMain');
+const levelSelect = document.getElementById('levelSelect');
+const levelCards = document.getElementById('levelCards');
+
+// Populate level cards from level-data
+function _buildLevelCards() {
+  levelCards.innerHTML = '';
+  const levels = getLevels();
+  for (const lv of levels) {
+    const card = document.createElement('div');
+    card.className = 'level-card';
+    card.innerHTML =
+      `<div class="level-card-number">Level ${lv.index + 1}</div>` +
+      `<div class="level-card-name">${lv.name}</div>` +
+      `<div class="level-card-desc">${lv.description}</div>`;
+    card.addEventListener('click', () => _startLevel(lv.index, card));
+    levelCards.appendChild(card);
+  }
+}
+_buildLevelCards();
+
+function _showLevelSelect() {
+  menuMain.classList.add('hidden');
+  levelSelect.classList.remove('hidden');
+}
+
+function _hideLevelSelect() {
+  levelSelect.classList.add('hidden');
+  menuMain.classList.remove('hidden');
+}
+
 // ── Start Game: close to Start button → black → game inits → open from player spawn ──
 let _startGamePending = false;
 
+// "Start Game" opens level select
 document.getElementById('btnStartGame').addEventListener('click', () => {
   if (irisState !== 'none') return;
+  sfx.buttonClick();
+  _showLevelSelect();
+});
+
+// "Back" from level select returns to main menu
+document.getElementById('levelSelectBack').addEventListener('click', () => {
+  sfx.buttonClick();
+  _hideLevelSelect();
+});
+
+// Start a specific level
+function _startLevel(index, cardEl) {
+  if (irisState !== 'none') return;
   sfx.gameStart();
-  // Get button rect BEFORE hiding (hidden elements return 0,0,0,0)
-  const btn = document.getElementById('btnStartGame');
-  const rect = btn.getBoundingClientRect();
+  setCurrentLevel(index);
+  // Get card rect BEFORE hiding
+  const rect = cardEl.getBoundingClientRect();
   const cx = rect.left + rect.width / 2;
   const cy = rect.top + rect.height / 2;
   hideMenuUI();
+  _hideLevelSelect();
   aquariumCloseBtn.classList.remove('visible');
   _startGamePending = true;
-  // Close to button; onBlack just sets a flag
   irisCloseOpen(cx, cy, cx, cy, () => { /* standalone loop handles init */ });
   _irisStartStandalone();
-});
+}
 
 // Signal: startGame should set iris open center to player spawn
 let _startWithExpand = true; // true on first load too
