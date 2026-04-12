@@ -793,7 +793,7 @@ function renderPhysicsDebug() {
   // Reset transform for label
   hudCtx.setTransform(1, 0, 0, 1, 0, 0);
   hudCtx.fillStyle = 'rgba(255,255,0,0.8)';
-  hudCtx.font = 'bold 12px monospace';
+  hudCtx.font = "bold 10px 'Silkscreen', monospace";
   hudCtx.fillText('PHYSICS DEBUG (F3)', 10, H - 10);
   hudCtx.restore();
 }
@@ -808,12 +808,12 @@ function renderHUD() {
 
   // Controls hint
   hudCtx.fillStyle = 'rgba(255,255,255,0.5)';
-  hudCtx.font = '12px monospace';
+  hudCtx.font = "10px 'Silkscreen', monospace";
   hudCtx.fillText('WASD / Arrows = swim, Space = dash, E = grab/throw rock', 10, 20);
 
   // Pearl counter
   hudCtx.fillStyle = '#ffd93d';
-  hudCtx.font = 'bold 14px monospace';
+  hudCtx.font = "bold 12px 'Silkscreen', monospace";
   hudCtx.fillText(`Pearl: ${pearlCount}`, W - 120, 20);
 
   // State indicator
@@ -822,7 +822,7 @@ function renderHUD() {
   if (!state.inWater) { stateText = 'IN AIR'; stateColor = '#f85149'; }
   if (state.dashing) { stateText = 'DASH!'; stateColor = '#ff8c42'; }
   hudCtx.fillStyle = stateColor;
-  hudCtx.font = 'bold 12px monospace';
+  hudCtx.font = "bold 10px 'Silkscreen', monospace";
   hudCtx.fillText(stateText, 10, 40);
 
   // Depth meter
@@ -830,7 +830,7 @@ function renderHUD() {
   const depthM = (depthPx / TILE_SIZE).toFixed(1);
   if (state.inWater) {
     hudCtx.fillStyle = 'rgba(100,200,255,0.6)';
-    hudCtx.font = '11px monospace';
+    hudCtx.font = "10px 'Silkscreen', monospace";
     hudCtx.fillText(`Depth: ${depthM}m`, 10, 58);
   }
 

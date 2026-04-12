@@ -37,7 +37,16 @@ export class MenuScene {
     // Aquarium mode state
     this._aquariumMode = false;
     this._aquariumCamDir = 1;       // 1 = moving right, -1 = moving left
-    this._aquariumCamSpeed = 30;    // px/s
+    this._aquariumCamSpeed = 24;    // px/s (20% slower than original 30)
+
+    // Easing back to center when leaving aquarium
+    this._easingBack = false;
+    this._easeStartX = 0;
+    this._easeStartY = 0;
+    this._easeTargetX = 0;
+    this._easeTargetY = 0;
+    this._easeElapsed = 0;
+    this._easeDuration = 0.5;       // seconds
 
     // ── Scene ──
     this.scene = new THREE.Scene();
@@ -384,6 +393,16 @@ export class MenuScene {
     this._aquariumMode = enabled;
     if (enabled) {
       this._aquariumCamDir = 1;
+      this._easingBack = false;
+    } else {
+      // Start easing back to center
+      const { visW, visH } = this._getVisibleSize();
+      this._easingBack = true;
+      this._easeStartX = this.camX;
+      this._easeStartY = this.camY;
+      this._easeTargetX = Math.max(0, Math.min(MENU_WORLD_W / 2 - visW / 2, MENU_WORLD_W - visW));
+      this._easeTargetY = Math.max(0, Math.min(MENU_WORLD_H / 2 - visH / 2 - 30, MENU_WORLD_H - visH));
+      this._easeElapsed = 0;
     }
   }
 
@@ -447,11 +466,21 @@ export class MenuScene {
     const { visW, visH } = this._getVisibleSize();
 
     if (this._aquariumMode) {
-      // Slow pan left/right
+      // Slow pan left/right with 10% margin on each side
+      const margin = MENU_WORLD_W * 0.10;
+      const minCamX = margin;
+      const maxCamX = MENU_WORLD_W - visW - margin;
       this.camX += this._aquariumCamDir * this._aquariumCamSpeed * DT;
-      const maxCamX = MENU_WORLD_W - visW;
       if (this.camX >= maxCamX) { this.camX = maxCamX; this._aquariumCamDir = -1; }
-      if (this.camX <= 0) { this.camX = 0; this._aquariumCamDir = 1; }
+      if (this.camX <= minCamX) { this.camX = minCamX; this._aquariumCamDir = 1; }
+    } else if (this._easingBack) {
+      // Ease back to center with smooth easeInOut
+      this._easeElapsed += DT;
+      const t = Math.min(this._easeElapsed / this._easeDuration, 1);
+      const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      this.camX = this._easeStartX + (this._easeTargetX - this._easeStartX) * ease;
+      this.camY = this._easeStartY + (this._easeTargetY - this._easeStartY) * ease;
+      if (t >= 1) this._easingBack = false;
     } else {
       // Static: centered
       this._centerCamera();
