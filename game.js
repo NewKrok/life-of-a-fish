@@ -18,6 +18,7 @@ import { FishController } from './fish-controller.js';
 import { VoxelRenderer } from './voxel-renderer.js';
 import { TouchControls } from './touch-controls.js';
 import { MenuScene } from './menu-scene.js';
+import { MusicSystem } from './music-system.js';
 
 // ── Three.js import ──
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js";
@@ -74,6 +75,21 @@ let gameAnimId = null;
 // Menu scene (created immediately — runs as menu background)
 const menuScene = new MenuScene(THREE, renderer);
 
+// ── Music ──
+const music = new MusicSystem();
+window._music = music; // exposed for settings panel volume control
+
+// Start menu music on first user interaction (browser autoplay policy)
+function initMenuMusic() {
+  music.play('menu');
+  document.removeEventListener('click', initMenuMusic);
+  document.removeEventListener('keydown', initMenuMusic);
+  document.removeEventListener('touchstart', initMenuMusic);
+}
+document.addEventListener('click', initMenuMusic);
+document.addEventListener('keydown', initMenuMusic);
+document.addEventListener('touchstart', initMenuMusic);
+
 window.addEventListener('resize', () => {
   const w = window.innerWidth;
   const h = window.innerHeight;
@@ -97,6 +113,7 @@ function showMenu() {
   hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
   menuScene.setAquariumMode(false);
   if (!menuScene._running) menuScene.start();
+  music.play('menu');
 }
 
 function hideMenuUI() {
@@ -110,6 +127,7 @@ document.getElementById('btnStartGame').addEventListener('click', () => {
   aquariumCloseBtn.classList.remove('visible');
   menuScene.stop();
   appState = 'game';
+  music.play('game');
   startGame();
 });
 

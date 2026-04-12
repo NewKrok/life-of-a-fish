@@ -221,6 +221,54 @@
       color: #a0d4ff;
       text-decoration: underline;
     }
+
+    /* ── Settings controls ── */
+    .settings-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+      padding: 0 8px;
+    }
+    .settings-label {
+      font: bold 11px 'Silkscreen', monospace;
+      color: rgba(200, 230, 255, 0.8);
+      min-width: 60px;
+      text-align: left;
+    }
+    .settings-value {
+      font: 11px 'Silkscreen', monospace;
+      color: rgba(200, 230, 255, 0.6);
+      min-width: 36px;
+      text-align: right;
+    }
+    .settings-slider {
+      -webkit-appearance: none;
+      appearance: none;
+      flex: 1;
+      height: 6px;
+      border-radius: 3px;
+      background: rgba(100, 180, 255, 0.15);
+      outline: none;
+    }
+    .settings-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #64b4ff;
+      border: 2px solid rgba(200, 230, 255, 0.5);
+      cursor: pointer;
+    }
+    .settings-slider::-moz-range-thumb {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #64b4ff;
+      border: 2px solid rgba(200, 230, 255, 0.5);
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -255,7 +303,11 @@
   <div class="menu-panel" id="settingsPanel">
     <div class="panel-box">
       <div class="panel-title">Settings</div>
-      <div class="panel-text">Settings coming soon...</div>
+      <div class="settings-row">
+        <label class="settings-label" for="musicVolume">Music</label>
+        <input type="range" id="musicVolume" class="settings-slider" min="0" max="100" value="50">
+        <span class="settings-value" id="musicVolumeVal">50%</span>
+      </div>
       <button class="panel-back-btn" id="settingsBack">Back</button>
     </div>
   </div>
@@ -281,5 +333,15 @@
   </div>
 
   <script type="module" src="game.js"></script>
+  <script>
+    // Music volume slider
+    const slider = document.getElementById('musicVolume');
+    const valLabel = document.getElementById('musicVolumeVal');
+    slider.addEventListener('input', () => {
+      const v = parseInt(slider.value);
+      valLabel.textContent = v + '%';
+      if (window._music) window._music.setVolume(v / 100);
+    });
+  </script>
 </body>
 </html>
