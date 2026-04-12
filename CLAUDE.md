@@ -28,10 +28,21 @@ fish-controller.js    — Player movement: swim/dash/jump states, water detectio
 voxel-renderer.js     — Three.js voxel rendering: terrain, fish models, bubbles, water
 level-data.js         — Tile map definition (125×25), entity parsing, body merging
 touch-controls.js     — Mobile virtual joystick + dash button (pointer events)
+menu-scene.js         — Main menu background: aquarium scene with AI fish, camera pan
+menu-level-data.js    — Dedicated tile map for menu aquarium (60×25)
 example.js            — Nape-js physics reference/demo (not used in game)
 ```
 
 ## Architecture
+
+### Menu System (menu-scene.js)
+
+App starts in menu state. `MenuScene` creates its own Three.js scene, physics space, and VoxelRenderer to render a dedicated aquarium level as the menu background. AI fish patrol around creating a living aquarium effect.
+
+- **States**: `menu` | `game` | `aquarium` | `settings` | `about`
+- **Start Game**: stops menu scene, initializes and starts the game loop
+- **Aquarium**: hides menu UI, enables slow camera pan across the level, shows close (×) button
+- **Settings / About**: placeholder panels overlaid on the menu background
 
 ### Game Loop (game.js, 60 FPS)
 

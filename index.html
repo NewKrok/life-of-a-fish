@@ -78,6 +78,142 @@
     .dash-btn:active, .dash-btn.active {
       background: rgba(255,140,66,0.5);
     }
+
+    /* ── Main Menu Overlay ── */
+    #menuOverlay {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      z-index: 10;
+    }
+    #menuOverlay.hidden { display: none; }
+
+    .menu-title {
+      font-family: 'Georgia', serif;
+      font-size: 52px;
+      font-weight: bold;
+      color: #ffd93d;
+      text-shadow:
+        0 0 20px rgba(255, 217, 61, 0.4),
+        0 2px 4px rgba(0, 0, 0, 0.6),
+        0 4px 12px rgba(0, 0, 0, 0.3);
+      letter-spacing: 3px;
+      margin-bottom: 48px;
+      pointer-events: none;
+    }
+
+    .menu-items {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      pointer-events: auto;
+    }
+
+    .menu-btn {
+      background: rgba(10, 40, 70, 0.7);
+      border: 2px solid rgba(100, 180, 255, 0.3);
+      border-radius: 8px;
+      padding: 14px 48px;
+      min-width: 240px;
+      color: #c8e6ff;
+      font: bold 18px monospace;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.2s ease;
+      letter-spacing: 1px;
+    }
+    .menu-btn:hover {
+      background: rgba(20, 60, 100, 0.85);
+      border-color: rgba(100, 200, 255, 0.6);
+      color: #ffffff;
+      transform: scale(1.04);
+    }
+    .menu-btn:active {
+      transform: scale(0.97);
+    }
+
+    /* ── Aquarium Close Button ── */
+    #aquariumClose {
+      position: absolute;
+      top: 20px; right: 20px;
+      width: 44px; height: 44px;
+      border-radius: 50%;
+      background: rgba(10, 30, 60, 0.7);
+      border: 2px solid rgba(100, 180, 255, 0.4);
+      color: #c8e6ff;
+      font: bold 20px monospace;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 20;
+      transition: all 0.2s ease;
+    }
+    #aquariumClose:hover {
+      background: rgba(20, 50, 90, 0.9);
+      border-color: rgba(100, 200, 255, 0.7);
+      color: #ffffff;
+    }
+    #aquariumClose.visible { display: flex; }
+
+    /* ── Settings / About Panels ── */
+    .menu-panel {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 15;
+      pointer-events: none;
+    }
+    .menu-panel.visible {
+      display: flex;
+    }
+    .panel-box {
+      background: rgba(6, 21, 32, 0.92);
+      border: 2px solid rgba(100, 180, 255, 0.3);
+      border-radius: 12px;
+      padding: 32px 48px;
+      min-width: 320px;
+      max-width: 440px;
+      text-align: center;
+      pointer-events: auto;
+    }
+    .panel-title {
+      font: bold 24px monospace;
+      color: #ffd93d;
+      margin-bottom: 20px;
+      letter-spacing: 1px;
+    }
+    .panel-text {
+      font: 14px monospace;
+      color: rgba(200, 230, 255, 0.7);
+      line-height: 1.8;
+      margin-bottom: 24px;
+    }
+    .panel-back-btn {
+      background: rgba(10, 40, 70, 0.7);
+      border: 2px solid rgba(100, 180, 255, 0.3);
+      border-radius: 8px;
+      padding: 10px 32px;
+      color: #c8e6ff;
+      font: bold 14px monospace;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .panel-back-btn:hover {
+      background: rgba(20, 60, 100, 0.85);
+      border-color: rgba(100, 200, 255, 0.6);
+      color: #ffffff;
+    }
   </style>
 </head>
 <body>
@@ -92,6 +228,43 @@
       </div>
     </div>
     <div class="dash-btn" id="dashBtn">DASH</div>
+  </div>
+
+  <!-- Main Menu Overlay -->
+  <div id="menuOverlay">
+    <div class="menu-title">Life of a Fish</div>
+    <div class="menu-items">
+      <button class="menu-btn" id="btnStartGame">Start Game</button>
+      <button class="menu-btn" id="btnAquarium">Aquarium</button>
+      <button class="menu-btn" id="btnSettings">Settings</button>
+      <button class="menu-btn" id="btnAbout">About</button>
+    </div>
+  </div>
+
+  <!-- Aquarium close button -->
+  <button id="aquariumClose">&times;</button>
+
+  <!-- Settings Panel -->
+  <div class="menu-panel" id="settingsPanel">
+    <div class="panel-box">
+      <div class="panel-title">Settings</div>
+      <div class="panel-text">Settings coming soon...</div>
+      <button class="panel-back-btn" id="settingsBack">Back</button>
+    </div>
+  </div>
+
+  <!-- About Panel -->
+  <div class="menu-panel" id="aboutPanel">
+    <div class="panel-box">
+      <div class="panel-title">About</div>
+      <div class="panel-text">
+        Life of a Fish<br>
+        An underwater platformer<br><br>
+        Swim, dash, and explore<br>
+        the ocean depths!
+      </div>
+      <button class="panel-back-btn" id="aboutBack">Back</button>
+    </div>
   </div>
 
   <script type="module" src="game.js"></script>

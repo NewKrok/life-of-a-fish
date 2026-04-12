@@ -17,6 +17,7 @@ import {
 import { FishController } from './fish-controller.js';
 import { VoxelRenderer } from './voxel-renderer.js';
 import { TouchControls } from './touch-controls.js';
+import { MenuScene } from './menu-scene.js';
 
 // ── Three.js import ──
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js";
@@ -65,44 +66,126 @@ renderer.setClearColor(0x061520);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
+// ── App State ──
+let appState = 'menu';  // 'menu' | 'game' | 'aquarium' | 'settings' | 'about'
+let gameInitialized = false;
+let gameAnimId = null;
+
+// Menu scene (created immediately — runs as menu background)
+const menuScene = new MenuScene(THREE, renderer);
+
 window.addEventListener('resize', () => {
   const w = window.innerWidth;
   const h = window.innerHeight;
   renderer.setSize(w, h);
-  updateCamera(w, h);
+  menuScene.resize(w, h);
+  if (gameInitialized) updateCamera(w, h);
 });
 
-// Perspective camera for 3D isometric view
+// ── Menu UI Elements ──
+const menuOverlay = document.getElementById('menuOverlay');
+const aquariumCloseBtn = document.getElementById('aquariumClose');
+const settingsPanel = document.getElementById('settingsPanel');
+const aboutPanel = document.getElementById('aboutPanel');
+
+function showMenu() {
+  appState = 'menu';
+  menuOverlay.classList.remove('hidden');
+  aquariumCloseBtn.classList.remove('visible');
+  settingsPanel.classList.remove('visible');
+  aboutPanel.classList.remove('visible');
+  hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
+  menuScene.setAquariumMode(false);
+  if (!menuScene._running) menuScene.start();
+}
+
+function hideMenuUI() {
+  menuOverlay.classList.add('hidden');
+  settingsPanel.classList.remove('visible');
+  aboutPanel.classList.remove('visible');
+}
+
+document.getElementById('btnStartGame').addEventListener('click', () => {
+  hideMenuUI();
+  aquariumCloseBtn.classList.remove('visible');
+  menuScene.stop();
+  appState = 'game';
+  startGame();
+});
+
+document.getElementById('btnAquarium').addEventListener('click', () => {
+  appState = 'aquarium';
+  hideMenuUI();
+  aquariumCloseBtn.classList.add('visible');
+  menuScene.setAquariumMode(true);
+});
+
+aquariumCloseBtn.addEventListener('click', () => {
+  showMenu();
+});
+
+document.getElementById('btnSettings').addEventListener('click', () => {
+  appState = 'settings';
+  menuOverlay.classList.add('hidden');
+  settingsPanel.classList.add('visible');
+});
+
+document.getElementById('settingsBack').addEventListener('click', () => {
+  showMenu();
+});
+
+document.getElementById('btnAbout').addEventListener('click', () => {
+  appState = 'about';
+  menuOverlay.classList.add('hidden');
+  aboutPanel.classList.add('visible');
+});
+
+document.getElementById('aboutBack').addEventListener('click', () => {
+  showMenu();
+});
+
+// Start the menu scene immediately
+menuScene.start();
+
+// ── Game Camera (shared constants, used inside startGame) ──
 const CAM_FOV = 45;                    // field of view in degrees
 const CAM_PITCH = -0.26;               // downward tilt in radians (~15°)
 const CAM_DISTANCE = 550;              // distance from the look-at plane
-const camera = new THREE.PerspectiveCamera(
-  CAM_FOV,
-  window.innerWidth / window.innerHeight,
-  1, 3000
-);
+const CAM_Z_OFFSET = Math.cos(CAM_PITCH) * CAM_DISTANCE;
+const CAM_Y_OFFSET = Math.sin(CAM_PITCH) * CAM_DISTANCE;
 
-// Calculate camera offset from pitch angle
-const CAM_Z_OFFSET = Math.cos(CAM_PITCH) * CAM_DISTANCE;  // ~510
-const CAM_Y_OFFSET = Math.sin(CAM_PITCH) * CAM_DISTANCE;  // ~-204 (looking down)
+let camera, scene, voxelRenderer;
 
 function updateCamera(w, h) {
+  if (!camera) return;
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
 
-const scene = new THREE.Scene();
+// ── Start Game (called when player clicks Start Game) ──
+function startGame() {
+  if (gameInitialized) {
+    // Resume existing game
+    gameLoop();
+    return;
+  }
+  gameInitialized = true;
 
-// ── Voxel Renderer ──
-const voxelRenderer = new VoxelRenderer(THREE, scene);
-voxelRenderer.setupLighting();
-voxelRenderer.buildBackground();
-voxelRenderer.buildTerrain();
-voxelRenderer.buildWater(WORLD_W, WORLD_H);
-voxelRenderer.buildBackgroundWaves();
-voxelRenderer.buildAmbientBubbles();
-voxelRenderer.buildGodRays();
-const playerFishMesh = voxelRenderer.buildFish();
+  camera = new THREE.PerspectiveCamera(
+    CAM_FOV, window.innerWidth / window.innerHeight, 1, 3000
+  );
+
+  scene = new THREE.Scene();
+
+  voxelRenderer = new VoxelRenderer(THREE, scene);
+  voxelRenderer.setupLighting();
+  voxelRenderer.buildBackground();
+  voxelRenderer.buildTerrain();
+  voxelRenderer.buildWater(WORLD_W, WORLD_H);
+  voxelRenderer.buildBackgroundWaves();
+  voxelRenderer.buildAmbientBubbles();
+  voxelRenderer.buildGodRays();
+  const playerFishMesh = voxelRenderer.buildFish();
 
 // ── Nape-js Physics setup ──
 const space = new Space();
@@ -975,7 +1058,9 @@ function gameLoop() {
   renderHUD();
   renderPhysicsDebug();
 
-  requestAnimationFrame(gameLoop);
+  gameAnimId = requestAnimationFrame(gameLoop);
 }
 
+// Kick off the game loop inside startGame
 gameLoop();
+} // end startGame

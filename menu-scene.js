@@ -1,0 +1,487 @@
+// ── Menu Scene ──────────────────────────────────────────────────────────────
+// Self-contained menu background: renders a dedicated aquarium level with
+// AI fish swimming around. Used as the backdrop for the main menu.
+
+import {
+  Space, Body, BodyType, Vec2, Capsule, Circle,
+  FluidProperties, Polygon,
+} from "https://cdn.jsdelivr.net/npm/@newkrok/nape-js@3.26.0/dist/index.js";
+
+import { TILE_SIZE } from './level-data.js';
+import {
+  MENU_COLS, MENU_ROWS, MENU_WORLD_W, MENU_WORLD_H, MENU_WATER_SURFACE_Y,
+  MENU_TILES, getMenuFish, getMenuMergedBodies, getMenuWaterZones,
+} from './menu-level-data.js';
+
+import { VoxelRenderer } from './voxel-renderer.js';
+
+// ── Constants ──
+const DT = 1 / 60;
+const ENEMY_SPEED = 55;              // px/s — gentle patrol
+const SHARK_PATROL_SPEED = 40;       // px/s
+const PUFFER_SPEED = 25;             // px/s
+const PUFFER_RANGE = 50;             // px
+
+// ── Camera ──
+const CAM_FOV = 45;
+const CAM_PITCH = -0.26;
+const CAM_DISTANCE = 550;
+
+export class MenuScene {
+  constructor(THREE, renderer) {
+    this.THREE = THREE;
+    this.renderer = renderer;
+    this._running = false;
+    this._animId = null;
+
+    // Aquarium mode state
+    this._aquariumMode = false;
+    this._aquariumCamDir = 1;       // 1 = moving right, -1 = moving left
+    this._aquariumCamSpeed = 30;    // px/s
+
+    // ── Scene ──
+    this.scene = new THREE.Scene();
+
+    // ── Camera ──
+    const camZOffset = Math.cos(CAM_PITCH) * CAM_DISTANCE;
+    const camYOffset = Math.sin(CAM_PITCH) * CAM_DISTANCE;
+    this._camZOffset = camZOffset;
+    this._camYOffset = camYOffset;
+
+    this.camera = new THREE.PerspectiveCamera(
+      CAM_FOV, window.innerWidth / window.innerHeight, 1, 3000
+    );
+    this.camX = 0;
+    this.camY = 0;
+
+    // ── Voxel Renderer (uses the main level-data imports by default,
+    //    but we'll override terrain with our own build) ──
+    this.voxelRenderer = new VoxelRenderer(THREE, this.scene);
+    this.voxelRenderer.setupLighting();
+    this._buildMenuBackground();
+    this._buildMenuTerrain();
+    this.voxelRenderer.buildWater(MENU_WORLD_W);
+    this.voxelRenderer.buildBackgroundWaves();
+    this.voxelRenderer.buildAmbientBubbles();
+    this.voxelRenderer.buildGodRays();
+
+    // ── Physics ──
+    this.space = new Space();
+    this.space.gravity = new Vec2(0, 200);
+
+    // Terrain bodies
+    const merged = getMenuMergedBodies();
+    for (const mb of merged) {
+      const b = new Body(BodyType.STATIC, new Vec2(mb.x, mb.y));
+      b.shapes.add(new Polygon(Polygon.box(mb.w, mb.h)));
+      b.space = this.space;
+    }
+
+    // Water zones
+    const waterZones = getMenuWaterZones();
+    for (const wz of waterZones) {
+      const b = new Body(BodyType.STATIC, new Vec2(wz.x, wz.y));
+      const shape = new Polygon(Polygon.box(wz.w, wz.h));
+      shape.fluidEnabled = true;
+      shape.fluidProperties = new FluidProperties(1.0, 3);
+      b.shapes.add(shape);
+      b.space = this.space;
+    }
+
+    // ── Fish entities ──
+    const fish = getMenuFish();
+
+    this.enemyBodies = [];
+    for (const en of fish.enemies) {
+      const b = new Body(BodyType.KINEMATIC, new Vec2(en.x, en.y));
+      b.shapes.add(new Capsule(24, 12));
+      b.space = this.space;
+      b._patrol = {
+        minX: Math.max(TILE_SIZE * 2, en.x - 120 - Math.random() * 80),
+        maxX: Math.min(MENU_WORLD_W - TILE_SIZE * 2, en.x + 120 + Math.random() * 80),
+        speed: ENEMY_SPEED + (Math.random() - 0.5) * 20,
+        _dir: Math.random() < 0.5 ? 1 : -1,
+      };
+      this.enemyBodies.push(b);
+      this.voxelRenderer.buildEnemyFish();
+    }
+
+    this.sharkBodies = [];
+    for (const sh of fish.sharks) {
+      const b = new Body(BodyType.KINEMATIC, new Vec2(sh.x, sh.y));
+      b.shapes.add(new Capsule(28, 14));
+      b.space = this.space;
+      b._patrol = {
+        minX: Math.max(TILE_SIZE * 2, sh.x - 150 - Math.random() * 100),
+        maxX: Math.min(MENU_WORLD_W - TILE_SIZE * 2, sh.x + 150 + Math.random() * 100),
+        speed: SHARK_PATROL_SPEED + (Math.random() - 0.5) * 10,
+        _dir: Math.random() < 0.5 ? 1 : -1,
+      };
+      this.sharkBodies.push(b);
+      this.voxelRenderer.buildShark();
+    }
+
+    this.pufferfishBodies = [];
+    for (const pf of fish.pufferfish) {
+      const b = new Body(BodyType.KINEMATIC, new Vec2(pf.x, pf.y));
+      b.shapes.add(new Circle(17));
+      b.space = this.space;
+      b._patrol = {
+        minY: pf.y - PUFFER_RANGE,
+        maxY: pf.y + PUFFER_RANGE,
+        speed: PUFFER_SPEED,
+        _dir: 1,
+      };
+      this.pufferfishBodies.push(b);
+      this.voxelRenderer.buildPufferfish();
+    }
+
+    // ── Center camera on aquarium ──
+    this._centerCamera();
+  }
+
+  // ── Build menu-specific background (adapted from VoxelRenderer) ──
+  _buildMenuBackground() {
+    const THREE = this.THREE;
+    const WORLD_W = MENU_WORLD_W;
+    const WORLD_H = MENU_WORLD_H;
+    const WATER_SURF = MENU_WATER_SURFACE_Y;
+
+    // Sky
+    const skyCanvas = document.createElement('canvas');
+    skyCanvas.width = 2; skyCanvas.height = 256;
+    const skyCtx = skyCanvas.getContext('2d');
+    const skyGrad = skyCtx.createLinearGradient(0, 0, 0, 256);
+    skyGrad.addColorStop(0, '#3a8fd4');
+    skyGrad.addColorStop(0.3, '#6bb5e8');
+    skyGrad.addColorStop(0.6, '#9dd4f0');
+    skyGrad.addColorStop(0.8, '#d4eef8');
+    skyGrad.addColorStop(0.95, '#ffeebb');
+    skyGrad.addColorStop(1.0, '#ffdd88');
+    skyCtx.fillStyle = skyGrad;
+    skyCtx.fillRect(0, 0, 2, 256);
+    const skyTexture = new THREE.CanvasTexture(skyCanvas);
+
+    const skyH = WATER_SURF + 100;
+    const skyGeo = new THREE.PlaneGeometry(WORLD_W + 2000, skyH);
+    const skyMat = new THREE.MeshBasicMaterial({ map: skyTexture, depthWrite: false });
+    const skyMesh = new THREE.Mesh(skyGeo, skyMat);
+    skyMesh.position.set(WORLD_W / 2, -WATER_SURF + skyH / 2, -399);
+    skyMesh.renderOrder = -100;
+    this.scene.add(skyMesh);
+
+    // Underwater background
+    const groundY = WORLD_H - TILE_SIZE;
+    const waterBgH = groundY - WATER_SURF;
+    const bgCanvas = document.createElement('canvas');
+    bgCanvas.width = 2; bgCanvas.height = 256;
+    const bgCtx = bgCanvas.getContext('2d');
+    const grad = bgCtx.createLinearGradient(0, 0, 0, 256);
+    grad.addColorStop(0, '#1a7aaa');
+    grad.addColorStop(0.15, '#146090');
+    grad.addColorStop(0.3, '#0e4a72');
+    grad.addColorStop(0.5, '#0a3558');
+    grad.addColorStop(0.7, '#072845');
+    grad.addColorStop(1.0, '#061e35');
+    bgCtx.fillStyle = grad;
+    bgCtx.fillRect(0, 0, 2, 256);
+    const bgTexture = new THREE.CanvasTexture(bgCanvas);
+
+    const bgGeo = new THREE.PlaneGeometry(WORLD_W + 2000, waterBgH);
+    const bgMat = new THREE.MeshBasicMaterial({ map: bgTexture, depthWrite: false });
+    const bgMesh = new THREE.Mesh(bgGeo, bgMat);
+    bgMesh.position.set(WORLD_W / 2, -(WATER_SURF + waterBgH / 2), -399);
+    bgMesh.renderOrder = -100;
+    this.scene.add(bgMesh);
+
+    // Ground plane
+    const groundTexture = this.voxelRenderer._generateGroundTexture();
+    const groundRepeatX = WORLD_W / TILE_SIZE;
+    const groundDepthSize = 600;
+    const groundRepeatZ = groundDepthSize / TILE_SIZE;
+    groundTexture.repeat.set(groundRepeatX, groundRepeatZ);
+
+    const groundGeo = new THREE.PlaneGeometry(WORLD_W + 400, groundDepthSize);
+    const groundMat = new THREE.MeshStandardMaterial({
+      map: groundTexture, roughness: 1.0, metalness: 0.0,
+    });
+    const groundMesh = new THREE.Mesh(groundGeo, groundMat);
+    groundMesh.rotation.x = -Math.PI / 2;
+    groundMesh.position.set(WORLD_W / 2, -WORLD_H + TILE_SIZE / 2, -groundDepthSize / 2);
+    groundMesh.renderOrder = -50;
+    this.scene.add(groundMesh);
+
+    // Ground fog overlay
+    const groundFogCanvas = document.createElement('canvas');
+    groundFogCanvas.width = 2; groundFogCanvas.height = 128;
+    const gfCtx = groundFogCanvas.getContext('2d');
+    const gfGrad = gfCtx.createLinearGradient(0, 0, 0, 128);
+    gfGrad.addColorStop(0, 'rgba(6, 30, 53, 1.0)');
+    gfGrad.addColorStop(0.25, 'rgba(6, 30, 53, 0.5)');
+    gfGrad.addColorStop(0.5, 'rgba(6, 30, 53, 0)');
+    gfGrad.addColorStop(1.0, 'rgba(6, 30, 53, 0)');
+    gfCtx.fillStyle = gfGrad;
+    gfCtx.fillRect(0, 0, 2, 128);
+    const groundFogTexture = new THREE.CanvasTexture(groundFogCanvas);
+
+    const groundFogGeo = new THREE.PlaneGeometry(WORLD_W + 400, groundDepthSize);
+    const groundFogMat = new THREE.MeshBasicMaterial({
+      map: groundFogTexture, transparent: true, depthWrite: false,
+      polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+    });
+    const groundFogMesh = new THREE.Mesh(groundFogGeo, groundFogMat);
+    groundFogMesh.rotation.x = -Math.PI / 2;
+    groundFogMesh.position.set(WORLD_W / 2, -WORLD_H + TILE_SIZE / 2 + 1, -groundDepthSize / 2);
+    groundFogMesh.renderOrder = -49;
+    this.scene.add(groundFogMesh);
+
+    // Parallax layers
+    for (let i = 0; i < 3; i++) {
+      const depth = -150 - i * 100;
+      const alpha = 0.08 - i * 0.02;
+      const scale = 1.1 + i * 0.2;
+      const color = new THREE.Color().setHSL(0.58, 0.4, 0.15 - i * 0.03);
+
+      const layerGeo = new THREE.PlaneGeometry(WORLD_W * scale, WORLD_H * scale);
+      const layerMat = new THREE.MeshBasicMaterial({
+        color, transparent: true, opacity: alpha, depthWrite: false,
+      });
+      const layerMesh = new THREE.Mesh(layerGeo, layerMat);
+      layerMesh.position.set(WORLD_W / 2, -WORLD_H / 2, depth);
+      layerMesh.renderOrder = -90 + i;
+      this.scene.add(layerMesh);
+    }
+  }
+
+  // ── Build terrain from menu tile data ──
+  _buildMenuTerrain() {
+    const THREE = this.THREE;
+    const VOXEL_DEPTH = TILE_SIZE;
+
+    // Count tiles per type
+    const tileCounts = {};
+    for (let row = 0; row < MENU_ROWS; row++) {
+      for (let col = 0; col < MENU_COLS; col++) {
+        const t = MENU_TILES[row][col];
+        if ((t >= 1 && t <= 4) || t === 8) {
+          tileCounts[t] = (tileCounts[t] || 0) + 1;
+        }
+      }
+    }
+
+    const boxGeo = new THREE.BoxGeometry(TILE_SIZE, TILE_SIZE, VOXEL_DEPTH);
+    const dummy = new THREE.Object3D();
+
+    for (const [typeStr, count] of Object.entries(tileCounts)) {
+      const type = parseInt(typeStr);
+      const texture = this.voxelRenderer._generateTileTexture(type);
+      const mat = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.9, metalness: 0.0 });
+      const mesh = new THREE.InstancedMesh(boxGeo, mat, count);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
+
+      let idx = 0;
+      const color = new THREE.Color();
+      for (let row = 0; row < MENU_ROWS; row++) {
+        for (let col = 0; col < MENU_COLS; col++) {
+          if (MENU_TILES[row][col] !== type) continue;
+          const x = col * TILE_SIZE + TILE_SIZE / 2;
+          const y = -(row * TILE_SIZE + TILE_SIZE / 2);
+          dummy.position.set(x, y, 0);
+          dummy.updateMatrix();
+          mesh.setMatrixAt(idx, dummy.matrix);
+
+          const worldY = row * TILE_SIZE + TILE_SIZE / 2;
+          const depthBelow = Math.max(0, worldY - MENU_WATER_SURFACE_Y);
+          const maxDepth = MENU_WORLD_H - MENU_WATER_SURFACE_Y;
+          const depthFactor = 1.0 - (depthBelow / maxDepth) * 0.55;
+          color.setRGB(depthFactor, depthFactor, depthFactor);
+          mesh.setColorAt(idx, color);
+          idx++;
+        }
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.instanceColor.needsUpdate = true;
+      this.scene.add(mesh);
+    }
+
+    // Cave background layer
+    const SOLID_TYPES = new Set([1, 2, 3]);
+    const NON_EMPTY = new Set([1, 2, 3, 4, 8]);
+    const caveBg = Array.from({ length: MENU_ROWS }, () => new Array(MENU_COLS).fill(false));
+    const radius = 2;
+    for (let row = 0; row < MENU_ROWS; row++) {
+      for (let col = 0; col < MENU_COLS; col++) {
+        if (NON_EMPTY.has(MENU_TILES[row][col])) continue;
+        let nearSolid = false;
+        for (let dr = -radius; dr <= radius && !nearSolid; dr++) {
+          for (let dc = -radius; dc <= radius && !nearSolid; dc++) {
+            if (dr === 0 && dc === 0) continue;
+            const nr = row + dr, nc = col + dc;
+            if (nr >= 0 && nr < MENU_ROWS && nc >= 0 && nc < MENU_COLS) {
+              if (SOLID_TYPES.has(MENU_TILES[nr][nc])) nearSolid = true;
+            }
+          }
+        }
+        caveBg[row][col] = nearSolid;
+      }
+    }
+
+    let caveCount = 0;
+    for (let row = 0; row < MENU_ROWS; row++)
+      for (let col = 0; col < MENU_COLS; col++)
+        if (caveBg[row][col]) caveCount++;
+
+    if (caveCount > 0) {
+      const caveTexture = this.voxelRenderer._generateTileTexture('cave_bg');
+      const caveMat = new THREE.MeshStandardMaterial({ map: caveTexture, roughness: 1.0, metalness: 0.0 });
+      const caveMesh = new THREE.InstancedMesh(boxGeo, caveMat, caveCount);
+      caveMesh.receiveShadow = true;
+      caveMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(caveCount * 3), 3);
+
+      let caveIdx = 0;
+      const caveColor = new THREE.Color();
+      for (let row = 0; row < MENU_ROWS; row++) {
+        for (let col = 0; col < MENU_COLS; col++) {
+          if (!caveBg[row][col]) continue;
+          dummy.position.set(col * TILE_SIZE + TILE_SIZE / 2, -(row * TILE_SIZE + TILE_SIZE / 2), -TILE_SIZE);
+          dummy.updateMatrix();
+          caveMesh.setMatrixAt(caveIdx, dummy.matrix);
+
+          const worldY = row * TILE_SIZE + TILE_SIZE / 2;
+          const depthBelow = Math.max(0, worldY - MENU_WATER_SURFACE_Y);
+          const maxDepth = MENU_WORLD_H - MENU_WATER_SURFACE_Y;
+          const depthFactor = 0.35 - (depthBelow / maxDepth) * 0.15;
+          caveColor.setRGB(depthFactor, depthFactor, depthFactor);
+          caveMesh.setColorAt(caveIdx, caveColor);
+          caveIdx++;
+        }
+      }
+      caveMesh.instanceMatrix.needsUpdate = true;
+      caveMesh.instanceColor.needsUpdate = true;
+      this.scene.add(caveMesh);
+    }
+  }
+
+  // ── Camera helpers ──
+  _getVisibleSize() {
+    const vFov = CAM_FOV * Math.PI / 180;
+    const visH = 2 * Math.tan(vFov / 2) * this._camZOffset;
+    const visW = visH * this.camera.aspect;
+    return { visW, visH };
+  }
+
+  _centerCamera() {
+    const { visW, visH } = this._getVisibleSize();
+    // Center on the middle of the aquarium
+    this.camX = Math.max(0, Math.min(MENU_WORLD_W / 2 - visW / 2, MENU_WORLD_W - visW));
+    this.camY = Math.max(0, Math.min(MENU_WORLD_H / 2 - visH / 2 - 30, MENU_WORLD_H - visH));
+  }
+
+  // ── Aquarium mode: slow pan ──
+  setAquariumMode(enabled) {
+    this._aquariumMode = enabled;
+    if (enabled) {
+      this._aquariumCamDir = 1;
+    }
+  }
+
+  // ── Resize ──
+  resize(w, h) {
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+  }
+
+  // ── Start / Stop ──
+  start() {
+    if (this._running) return;
+    this._running = true;
+    this._loop();
+  }
+
+  stop() {
+    this._running = false;
+    if (this._animId) {
+      cancelAnimationFrame(this._animId);
+      this._animId = null;
+    }
+  }
+
+  // ── Game loop ──
+  _loop() {
+    if (!this._running) return;
+
+    // Update enemy patrol AI
+    for (const eb of this.enemyBodies) {
+      if (!eb.space) continue;
+      const p = eb._patrol;
+      const px = eb.position.x;
+      if (px >= p.maxX) p._dir = -1;
+      if (px <= p.minX) p._dir = 1;
+      eb.velocity = new Vec2(p._dir * p.speed, 0);
+    }
+
+    for (const sb of this.sharkBodies) {
+      if (!sb.space) continue;
+      const p = sb._patrol;
+      const px = sb.position.x;
+      if (px >= p.maxX) p._dir = -1;
+      if (px <= p.minX) p._dir = 1;
+      sb.velocity = new Vec2(p._dir * p.speed, 0);
+    }
+
+    for (const pf of this.pufferfishBodies) {
+      if (!pf.space) continue;
+      const p = pf._patrol;
+      const py = pf.position.y;
+      if (py >= p.maxY) p._dir = -1;
+      if (py <= p.minY) p._dir = 1;
+      pf.velocity = new Vec2(0, p._dir * p.speed);
+    }
+
+    // Physics step
+    this.space.step(DT, 8, 3);
+
+    // Camera update
+    const { visW, visH } = this._getVisibleSize();
+
+    if (this._aquariumMode) {
+      // Slow pan left/right
+      this.camX += this._aquariumCamDir * this._aquariumCamSpeed * DT;
+      const maxCamX = MENU_WORLD_W - visW;
+      if (this.camX >= maxCamX) { this.camX = maxCamX; this._aquariumCamDir = -1; }
+      if (this.camX <= 0) { this.camX = 0; this._aquariumCamDir = 1; }
+    } else {
+      // Static: centered
+      this._centerCamera();
+    }
+
+    // Clamp camera
+    this.camX = Math.max(0, Math.min(this.camX, MENU_WORLD_W - visW));
+    this.camY = Math.max(0, Math.min(this.camY, MENU_WORLD_H - visH));
+
+    // Position Three.js camera
+    const lookX = this.camX + visW / 2;
+    const lookY = -(this.camY + visH / 2);
+    this.camera.position.set(lookX, lookY - this._camYOffset, this._camZOffset);
+    this.camera.lookAt(lookX, lookY, 0);
+
+    // Sync voxel renderer — pass null for player fish (no player in menu)
+    // We create a fake body at a convenient position for ambient bubbles
+    const fakeFishState = { inWater: true, swimSpeed: 0, facingRight: true, dashing: false };
+    const fakeFishBody = { position: { x: lookX, y: this.camY + visH / 2 } };
+    this.voxelRenderer.syncFrame(fakeFishBody, fakeFishState, this.enemyBodies, DT, {
+      sharkBodies: this.sharkBodies,
+      pufferfishBodies: this.pufferfishBodies,
+      crabBodies: [],
+      toxicFishBodies: [],
+      projectileBodies: [],
+    });
+
+    // Render
+    this.renderer.render(this.scene, this.camera);
+
+    this._animId = requestAnimationFrame(() => this._loop());
+  }
+}
