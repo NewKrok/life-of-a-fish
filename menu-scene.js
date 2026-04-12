@@ -76,6 +76,7 @@ export class MenuScene {
     this.voxelRenderer.buildBackgroundWaves();
     this.voxelRenderer.buildAmbientBubbles();
     this.voxelRenderer.buildGodRays();
+    this.voxelRenderer.buildCurrents();
 
     // ── Physics ──
     this.space = new Space();

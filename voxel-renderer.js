@@ -29,6 +29,16 @@ const BG_WAVE_AMPLITUDE = 6;        // px, wave height
 // ── Ambient Bubble Constants ──
 const AMBIENT_BUBBLE_COUNT = 30;    // number of ambient bubbles in water
 
+// ── Underwater Current Constants ──
+const CURRENT_STREAK_COUNT = 48;    // number of flowing streaks
+const CURRENT_MIN_SPEED = 15;       // px/s, slowest streak
+const CURRENT_MAX_SPEED = 55;       // px/s, fastest streak
+const CURRENT_MIN_LENGTH = 40;      // px, shortest streak
+const CURRENT_MAX_LENGTH = 160;     // px, longest streak
+const CURRENT_MIN_HEIGHT = 2;       // px, thinnest streak
+const CURRENT_MAX_HEIGHT = 5;       // px, thickest streak
+const CURRENT_OPACITY = 0.15;       // base opacity
+
 // ── Cave Background Constants ──
 const CAVE_BG_Z_OFFSET = -TILE_SIZE;       // how far behind terrain the cave layer sits
 const CAVE_BG_DARKEN = 0.35;               // base brightness multiplier (0 = black, 1 = full)
@@ -78,6 +88,7 @@ export class VoxelRenderer {
     this.bgLayers = [];
     this.bgWaves = [];
     this.ambientBubbles = [];
+    this.currentStreaks = [];
     this._textureCache = {};
     this._surfaceDisturbances = []; // { x, amplitude, age, decay, spread }
     this.splashDroplets = [];        // { mesh, vx, vy, life } — airborne water droplets
@@ -1883,6 +1894,71 @@ export class VoxelRenderer {
     });
   }
 
+  // ── Build underwater current streaks (purely visual flowing planes) ──
+  buildCurrents() {
+    const THREE = this.THREE;
+    const waterTop = -WATER_SURFACE_Y;
+    const waterBottom = -WORLD_H + TILE_SIZE;
+
+    // Shared gradient texture — fades to transparent at both ends horizontally
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 1;
+    const ctx = canvas.getContext('2d');
+    const grad = ctx.createLinearGradient(0, 0, 64, 0);
+    grad.addColorStop(0, 'rgba(140, 210, 255, 0.0)');
+    grad.addColorStop(0.2, 'rgba(140, 210, 255, 1.0)');
+    grad.addColorStop(0.5, 'rgba(180, 230, 255, 1.0)');
+    grad.addColorStop(0.8, 'rgba(140, 210, 255, 1.0)');
+    grad.addColorStop(1.0, 'rgba(140, 210, 255, 0.0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 64, 1);
+    const streakTexture = new THREE.CanvasTexture(canvas);
+
+    for (let i = 0; i < CURRENT_STREAK_COUNT; i++) {
+      const len = CURRENT_MIN_LENGTH + Math.random() * (CURRENT_MAX_LENGTH - CURRENT_MIN_LENGTH);
+      const h = CURRENT_MIN_HEIGHT + Math.random() * (CURRENT_MAX_HEIGHT - CURRENT_MIN_HEIGHT);
+      const speed = CURRENT_MIN_SPEED + Math.random() * (CURRENT_MAX_SPEED - CURRENT_MIN_SPEED);
+      const dir = 1; // all currents flow rightward
+      // Random Y within water column
+      const y = waterTop - 40 - Math.random() * (waterTop - waterBottom - 80);
+      // Random start X spread across the world
+      const x = Math.random() * (WORLD_W + len * 2) - len;
+      const z = -10 - Math.random() * 40;
+
+      const geo = new THREE.PlaneGeometry(len, h);
+
+      // Deeper streaks are slightly dimmer
+      const depthFactor = 1 - (waterTop - y) / (waterTop - waterBottom);
+      const opacity = CURRENT_OPACITY * (0.5 + depthFactor * 0.5) + Math.random() * 0.03;
+
+      const mat = new THREE.MeshBasicMaterial({
+        map: streakTexture,
+        transparent: true,
+        opacity,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+      });
+
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(x, y, z);
+      mesh.renderOrder = -70;
+      this.scene.add(mesh);
+
+      this.currentStreaks.push({
+        mesh,
+        speed: speed * dir,
+        baseY: y,
+        waveMag: 2 + Math.random() * 6,       // px, vertical wave magnitude
+        waveFreq: 0.3 + Math.random() * 0.8,   // wave frequency
+        phase: Math.random() * Math.PI * 2,
+        len,
+        baseOpacity: opacity,
+      });
+    }
+  }
+
   // ── Build god rays (volumetric light beams from above) ──
   buildGodRays() {
     const THREE = this.THREE;
@@ -2729,6 +2805,24 @@ export class VoxelRenderer {
       positions.needsUpdate = true;
     }
 
+    // ── Animate underwater current streaks ──
+    for (const cs of this.currentStreaks) {
+      // Drift horizontally
+      cs.mesh.position.x += cs.speed * dt;
+      // Gentle vertical wave
+      cs.mesh.position.y = cs.baseY + Math.sin(this._time * cs.waveFreq + cs.phase) * cs.waveMag;
+
+      // Wrap around when streak fully exits the world
+      if (cs.speed > 0 && cs.mesh.position.x > WORLD_W + cs.len) {
+        cs.mesh.position.x = -cs.len;
+      } else if (cs.speed < 0 && cs.mesh.position.x < -cs.len) {
+        cs.mesh.position.x = WORLD_W + cs.len;
+      }
+
+      // Subtle opacity pulse
+      cs.mesh.material.opacity = cs.baseOpacity * (0.6 + 0.4 * Math.sin(this._time * 0.5 + cs.phase));
+    }
+
     // ── Ambient bubbles around the player ──
     if (fishBody && fishBody.position.y > WATER_SURFACE_Y) {
       // Spawn new bubbles periodically
@@ -2814,6 +2908,11 @@ export class VoxelRenderer {
       this.scene.remove(ab.mesh);
       ab.mesh.geometry.dispose();
       ab.mesh.material.dispose();
+    }
+    for (const cs of this.currentStreaks) {
+      this.scene.remove(cs.mesh);
+      cs.mesh.geometry.dispose();
+      cs.mesh.material.dispose();
     }
     for (const d of this.splashDroplets) {
       this.scene.remove(d.mesh);

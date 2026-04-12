@@ -698,6 +698,7 @@ function startGame() {
   voxelRenderer.buildBackgroundWaves();
   voxelRenderer.buildAmbientBubbles();
   voxelRenderer.buildGodRays();
+  voxelRenderer.buildCurrents();
   const playerFishMesh = voxelRenderer.buildFish();
 
 // ── Nape-js Physics setup ──

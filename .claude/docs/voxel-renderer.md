@@ -89,6 +89,14 @@ Voxel groups built from hardcoded coordinate arrays:
 - Built with `LineBasicMaterial`, animated sine-wave vertex displacement in `syncFrame()`
 - Each line has unique amplitude, speed, and frequency; opacity fades with depth (0.06 → 0.02)
 
+### Underwater Currents (Visual Only)
+- `CURRENT_STREAK_COUNT` (40) thin horizontal line streaks drifting through the water
+- Built with `LineBasicMaterial` + `AdditiveBlending`, blue-cyan hue range
+- Each streak has random length (30–120px), speed (15–55 px/s), and direction (70% rightward)
+- Vertical sine-wave wobble for organic feel; opacity pulses subtly
+- Wraps around at world edges for infinite flow effect
+- Constants: `CURRENT_OPACITY` 0.06, speed/length ranges defined per-streak
+
 ### God Rays (Volumetric Light)
 - `GOD_RAY_COUNT` (12) trapezoid-shaped beams from the water surface downward
 - Narrow at top, wider at bottom; uses `AdditiveBlending`
@@ -220,3 +228,4 @@ Called every frame after physics step. Updates:
 10. Surface sparkle flash pattern
 11. Background wave vertex animation
 12. Ambient bubble rise, wobble, and respawn
+13. Underwater current streak drift, wave wobble, opacity pulse, and edge wrapping
