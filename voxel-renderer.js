@@ -1401,6 +1401,14 @@ export class VoxelRenderer {
 
   // ── Build pearl collectible meshes ──
   buildPearls(pearlBodies) {
+    // Clean up existing pearl meshes before rebuilding
+    for (const p of this.pearlMeshes) {
+      this.scene.remove(p.mesh);
+      if (p.mesh.geometry) p.mesh.geometry.dispose();
+      if (p.mesh.material) p.mesh.material.dispose();
+    }
+    this.pearlMeshes.length = 0;
+
     const THREE = this.THREE;
     const pearlGeo = new THREE.BoxGeometry(10, 10, 10);
     const pearlMat = new THREE.MeshStandardMaterial({
@@ -1481,8 +1489,23 @@ export class VoxelRenderer {
     }
   }
 
+  // ── Restore visibility for all enemy/creature meshes after restart ──
+  resetEnemyVisibility() {
+    for (const g of this.enemyGroups) g.visible = true;
+    for (const g of this.sharkGroups) g.visible = true;
+    for (const g of this.pufferfishGroups) g.visible = true;
+    for (const g of this.crabGroups) g.visible = true;
+    for (const g of this.toxicFishGroups) g.visible = true;
+  }
+
   // ── Build boulder meshes ──
   buildBoulders(boulderBodies) {
+    // Clean up existing boulder meshes before rebuilding
+    for (const b of this.boulderMeshes) {
+      this.scene.remove(b.mesh);
+    }
+    this.boulderMeshes.length = 0;
+
     const THREE = this.THREE;
     const V = 2;
 

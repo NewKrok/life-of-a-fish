@@ -260,6 +260,65 @@
       font-size: 11px;
     }
 
+    /* ── Game Over / Victory Modal ── */
+    .result-title {
+      font: bold 28px 'Silkscreen', monospace;
+      letter-spacing: 2px;
+      margin-bottom: 8px;
+    }
+    .result-title.gameover { color: #ff4060; }
+    .result-title.victory { color: #ffd93d; }
+    .result-subtitle {
+      font: 11px 'Silkscreen', monospace;
+      color: rgba(200, 230, 255, 0.5);
+      margin-bottom: 20px;
+    }
+    .result-stats {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    .result-stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 12px;
+    }
+    .result-stat-label {
+      font: 11px 'Silkscreen', monospace;
+      color: rgba(200, 230, 255, 0.6);
+    }
+    .result-stat-value {
+      font: bold 13px 'Silkscreen', monospace;
+      color: #ffffff;
+    }
+    .result-divider {
+      height: 1px;
+      background: rgba(100, 180, 255, 0.2);
+      margin: 8px 0;
+    }
+    .result-score-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+    }
+    .result-score-label {
+      font: bold 13px 'Silkscreen', monospace;
+      color: #ffd93d;
+    }
+    .result-score-value {
+      font: bold 18px 'Silkscreen', monospace;
+      color: #ffd93d;
+    }
+    .result-highscore {
+      font: bold 11px 'Silkscreen', monospace;
+      color: #ff8c42;
+      margin-bottom: 16px;
+      min-height: 16px;
+    }
+
     /* ── Settings controls ── */
     .settings-row {
       display: flex;
@@ -343,13 +402,13 @@
       <div class="panel-title">Settings</div>
       <div class="settings-row">
         <label class="settings-label" for="musicVolume">Music</label>
-        <input type="range" id="musicVolume" class="settings-slider" min="0" max="100" value="60">
-        <span class="settings-value" id="musicVolumeVal">60%</span>
+        <input type="range" id="musicVolume" class="settings-slider" min="0" max="100" value="30">
+        <span class="settings-value" id="musicVolumeVal">30%</span>
       </div>
       <div class="settings-row">
         <label class="settings-label" for="sfxVolume">SFX</label>
-        <input type="range" id="sfxVolume" class="settings-slider" min="0" max="100" value="40">
-        <span class="settings-value" id="sfxVolumeVal">40%</span>
+        <input type="range" id="sfxVolume" class="settings-slider" min="0" max="100" value="50">
+        <span class="settings-value" id="sfxVolumeVal">50%</span>
       </div>
       <button class="panel-back-btn" id="settingsBack">Back</button>
     </div>
@@ -364,18 +423,64 @@
       <div class="panel-title">Paused</div>
       <div class="settings-row">
         <label class="settings-label" for="pauseMusicVol">Music</label>
-        <input type="range" id="pauseMusicVol" class="settings-slider" min="0" max="100" value="60">
-        <span class="settings-value" id="pauseMusicVolVal">60%</span>
+        <input type="range" id="pauseMusicVol" class="settings-slider" min="0" max="100" value="30">
+        <span class="settings-value" id="pauseMusicVolVal">30%</span>
       </div>
       <div class="settings-row">
         <label class="settings-label" for="pauseSfxVol">SFX</label>
-        <input type="range" id="pauseSfxVol" class="settings-slider" min="0" max="100" value="40">
-        <span class="settings-value" id="pauseSfxVolVal">40%</span>
+        <input type="range" id="pauseSfxVol" class="settings-slider" min="0" max="100" value="50">
+        <span class="settings-value" id="pauseSfxVolVal">50%</span>
       </div>
       <div class="pause-actions">
         <button class="menu-btn" id="pauseResume">Resume</button>
         <button class="menu-btn" id="pauseRestart">Restart</button>
         <button class="menu-btn" id="pauseExit">Exit to Menu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Game Over Modal -->
+  <div class="menu-panel" id="gameOverPanel">
+    <div class="panel-box">
+      <div class="result-title gameover">Game Over</div>
+      <div class="result-subtitle">Better luck next time!</div>
+      <div class="result-stats">
+        <div class="result-stat-row">
+          <span class="result-stat-label">Pearls</span>
+          <span class="result-stat-value" id="goStatPearls">0 / 0</span>
+        </div>
+      </div>
+      <div class="pause-actions">
+        <button class="menu-btn" id="goRestart">Restart</button>
+        <button class="menu-btn" id="goExit">Exit to Menu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Victory Modal -->
+  <div class="menu-panel" id="victoryPanel">
+    <div class="panel-box">
+      <div class="result-title victory">Victory!</div>
+      <div class="result-subtitle">All pearls collected!</div>
+      <div class="result-stats">
+        <div class="result-stat-row">
+          <span class="result-stat-label">Lives</span>
+          <span class="result-stat-value" id="vicStatLives">3 / 3</span>
+        </div>
+        <div class="result-stat-row">
+          <span class="result-stat-label">Time Left</span>
+          <span class="result-stat-value" id="vicStatTime">0:00</span>
+        </div>
+        <div class="result-divider"></div>
+        <div class="result-score-row">
+          <span class="result-score-label">Score</span>
+          <span class="result-score-value" id="vicStatScore">0</span>
+        </div>
+      </div>
+      <div class="result-highscore" id="vicHighScore"></div>
+      <div class="pause-actions">
+        <button class="menu-btn" id="vicRestart">Restart</button>
+        <button class="menu-btn" id="vicExit">Exit to Menu</button>
       </div>
     </div>
   </div>
@@ -404,7 +509,7 @@
   <script>
     // Volume settings with localStorage persistence
     const STORAGE_KEY = 'loaf_settings';
-    const defaults = { musicVol: 60, sfxVol: 40 };
+    const defaults = { musicVol: 30, sfxVol: 50 };
 
     function loadSettings() {
       try {

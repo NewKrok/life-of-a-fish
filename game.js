@@ -121,6 +121,10 @@ const aquariumCloseBtn = document.getElementById('aquariumClose');
 const settingsPanel = document.getElementById('settingsPanel');
 const aboutPanel = document.getElementById('aboutPanel');
 
+// ── Game Over / Victory UI Elements ──
+const gameOverPanel = document.getElementById('gameOverPanel');
+const victoryPanel = document.getElementById('victoryPanel');
+
 // ── Pause UI Elements ──
 const pauseBtn = document.getElementById('pauseBtn');
 const pausePanel = document.getElementById('pausePanel');
@@ -137,6 +141,8 @@ function showMenu() {
   aboutPanel.classList.remove('visible');
   pauseBtn.classList.remove('visible');
   pausePanel.classList.remove('visible');
+  gameOverPanel.classList.remove('visible');
+  victoryPanel.classList.remove('visible');
   hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
   menuScene.setAquariumMode(false);
   if (!menuScene._running) menuScene.start();
@@ -170,6 +176,7 @@ let irisCy = 0;
 let irisOpenCx = 0;                     // open center (may differ from close)
 let irisOpenCy = 0;
 let _irisOnBlack = null;                // callback when black phase starts
+let _irisHoldBlack = false;             // true = stay black, don't open
 let _irisAnimId = null;                 // rAF id for standalone loop
 
 function _irisMaxRadius() {
@@ -235,6 +242,7 @@ function _irisStep(dt) {
     return true;
   }
   if (irisState === 'black') {
+    if (_irisHoldBlack) return true; // stay black indefinitely
     if (irisTimer >= IRIS_BLACK) { irisState = 'open_small'; irisTimer = 0; }
     return true;
   }
@@ -287,6 +295,17 @@ function irisCloseOpen(closeCx, closeCy, openCx, openCy, onBlack) {
   irisCy = closeCy;
   irisOpenCx = openCx;
   irisOpenCy = openCy;
+  _irisHoldBlack = false;
+  _irisOnBlack = onBlack;
+}
+
+// Close-only iris: zoom into center, stay black, call onBlack when done.
+function irisCloseOnly(closeCx, closeCy, onBlack) {
+  irisState = 'close_fast';
+  irisTimer = 0;
+  irisCx = closeCx;
+  irisCy = closeCy;
+  _irisHoldBlack = true;
   _irisOnBlack = onBlack;
 }
 
@@ -435,6 +454,26 @@ document.getElementById('pauseRestart').addEventListener('click', () => {
 });
 
 document.getElementById('pauseExit').addEventListener('click', () => {
+  sfx.buttonClick();
+  if (window._exitToMenu) window._exitToMenu();
+});
+
+// ── Game Over buttons ──
+document.getElementById('goRestart').addEventListener('click', () => {
+  sfx.buttonClick();
+  if (window._restartGame) window._restartGame();
+});
+document.getElementById('goExit').addEventListener('click', () => {
+  sfx.buttonClick();
+  if (window._exitToMenu) window._exitToMenu();
+});
+
+// ── Victory buttons ──
+document.getElementById('vicRestart').addEventListener('click', () => {
+  sfx.buttonClick();
+  if (window._restartGame) window._restartGame();
+});
+document.getElementById('vicExit').addEventListener('click', () => {
   sfx.buttonClick();
   if (window._exitToMenu) window._exitToMenu();
 });
@@ -1157,6 +1196,7 @@ function getVisibleSize() {
 }
 
 const CAM_INSET = TILE_SIZE * 2;  // 2 tile inset to avoid seeing behind level edges (perspective camera needs more)
+const CAM_TOP_INSET = CAM_INSET - 50;  // px — allow camera 50px higher than default
 
 function updateGameCamera() {
   const { visW, visH } = getVisibleSize();
@@ -1165,20 +1205,20 @@ function updateGameCamera() {
 
   // Clamp to world bounds with inset
   const goalX = Math.max(CAM_INSET, Math.min(targetX, WORLD_W - visW - CAM_INSET));
-  const goalY = Math.max(CAM_INSET, Math.min(targetY, WORLD_H - visH - CAM_INSET));
+  const goalY = Math.max(CAM_TOP_INSET, Math.min(targetY, WORLD_H - visH - CAM_INSET));
 
   // Smooth lerp
   camX += (goalX - camX) * 0.1;
   camY += (goalY - camY) * 0.1;
   camX = Math.max(CAM_INSET, Math.min(camX, WORLD_W - visW - CAM_INSET));
-  camY = Math.max(CAM_INSET, Math.min(camY, WORLD_H - visH - CAM_INSET));
+  camY = Math.max(CAM_TOP_INSET, Math.min(camY, WORLD_H - visH - CAM_INSET));
 }
 
 // Snap camera on first frame
 {
   const { visW, visH } = getVisibleSize();
   camX = Math.max(CAM_INSET, Math.min(player.position.x - visW / 2, WORLD_W - visW - CAM_INSET));
-  camY = Math.max(CAM_INSET, Math.min(player.position.y - visH / 2 - 30, WORLD_H - visH - CAM_INSET));
+  camY = Math.max(CAM_TOP_INSET, Math.min(player.position.y - visH / 2 - 30, WORLD_H - visH - CAM_INSET));
 }
 
 // ── Physics Debug Toggle (F3) ──
@@ -1294,6 +1334,74 @@ let lives = MAX_LIVES;
 const LEVEL_TIME = 5 * 60;              // s — 5 minute countdown
 let timeRemaining = LEVEL_TIME;          // s — seconds left
 
+let gameOverActive = false;
+let victoryActive = false;
+
+// ── Scoring & High Score ──
+const HIGHSCORE_KEY = 'loaf_highscore';
+
+function calculateScore(livesLeft, timeLeft) {
+  const livesScore = livesLeft * 1000;                        // 1000 pts per life
+  const timeScore = Math.floor(timeLeft) * 10;                // 10 pts per second
+  const pearlScore = TOTAL_PEARLS * 50;                       // 50 pts per pearl
+  return livesScore + timeScore + pearlScore;
+}
+
+function getHighScore() {
+  try {
+    return parseInt(localStorage.getItem(HIGHSCORE_KEY)) || 0;
+  } catch (_) { return 0; }
+}
+
+function saveHighScore(score) {
+  try { localStorage.setItem(HIGHSCORE_KEY, String(score)); } catch (_) {}
+}
+
+// ── Game Over / Victory Modals ──
+
+function showGameOver() {
+  gameOverActive = true;
+  gamePaused = true;
+  pauseBtn.classList.remove('visible');
+  document.getElementById('goStatPearls').textContent = `${pearlCount} / ${TOTAL_PEARLS}`;
+  gameOverPanel.classList.add('visible');
+}
+
+function hideGameOver() {
+  gameOverActive = false;
+  gameOverPanel.classList.remove('visible');
+}
+
+function showVictory() {
+  victoryActive = true;
+  gamePaused = true;
+  pauseBtn.classList.remove('visible');
+
+  const mins = Math.floor(timeRemaining / 60);
+  const secs = Math.floor(timeRemaining % 60);
+  document.getElementById('vicStatLives').textContent = `${lives} / ${MAX_LIVES}`;
+  document.getElementById('vicStatTime').textContent = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+
+  const score = calculateScore(lives, timeRemaining);
+  document.getElementById('vicStatScore').textContent = String(score);
+
+  const highScore = getHighScore();
+  const highScoreEl = document.getElementById('vicHighScore');
+  if (score > highScore) {
+    saveHighScore(score);
+    highScoreEl.textContent = 'New High Score!';
+  } else {
+    highScoreEl.textContent = `High Score: ${highScore}`;
+  }
+
+  victoryPanel.classList.add('visible');
+}
+
+function hideVictory() {
+  victoryActive = false;
+  victoryPanel.classList.remove('visible');
+}
+
 // ── Death State ──
 // Uses the shared iris system for circle wipe. Adds a freeze phase before.
 const DEATH_FREEZE_TIME = 0.3;          // s — game frozen before iris starts
@@ -1301,7 +1409,7 @@ let deathActive = false;
 let deathFreezeTimer = 0;
 
 function triggerDeath() {
-  if (deathActive || irisState !== 'none') return;
+  if (deathActive || irisState !== 'none' || gameOverActive || victoryActive) return;
   sfx.playerDeath();
   deathActive = true;
   deathFreezeTimer = DEATH_FREEZE_TIME;
@@ -1315,28 +1423,30 @@ function updateDeathState(dt) {
   if (deathActive && deathFreezeTimer > 0) {
     deathFreezeTimer -= dt;
     if (deathFreezeTimer <= 0) {
-      // Start iris close → open
       const { visW, visH } = getVisibleSize();
       const fishSx = (player.position.x - camX) / visW * hudCanvas.width;
       const fishSy = (player.position.y - camY) / visH * hudCanvas.height;
 
-      irisCloseOpen(fishSx, fishSy, 0, 0, () => {
-        // onBlack: respawn
-        lives--;
-        if (lives <= 0) {
-          lives = MAX_LIVES;
-          pearlCount = 0;
-          timeRemaining = LEVEL_TIME;
-        }
-        fishCtrl.respawn(entities.playerSpawn.x, entities.playerSpawn.y);
-        const { visW: sw, visH: sh } = getVisibleSize();
-        camX = Math.max(CAM_INSET, Math.min(entities.playerSpawn.x - sw / 2, WORLD_W - sw - CAM_INSET));
-        camY = Math.max(CAM_INSET, Math.min(entities.playerSpawn.y - sh / 2 - 30, WORLD_H - sh - CAM_INSET));
-        // Update open center to spawn screen position
-        irisOpenCx = (entities.playerSpawn.x - camX) / sw * hudCanvas.width;
-        irisOpenCy = (entities.playerSpawn.y - camY) / sh * hudCanvas.height;
-        deathActive = false;
-      });
+      if (lives <= 1) {
+        // Last life — close-only iris, stay black, show game over
+        irisCloseOnly(fishSx, fishSy, () => {
+          lives = 0;
+          deathActive = false;
+          showGameOver();
+        });
+      } else {
+        // Still have lives — close→open iris, respawn
+        irisCloseOpen(fishSx, fishSy, 0, 0, () => {
+          lives--;
+          fishCtrl.respawn(entities.playerSpawn.x, entities.playerSpawn.y);
+          const { visW: sw, visH: sh } = getVisibleSize();
+          camX = Math.max(CAM_INSET, Math.min(entities.playerSpawn.x - sw / 2, WORLD_W - sw - CAM_INSET));
+          camY = Math.max(CAM_TOP_INSET, Math.min(entities.playerSpawn.y - sh / 2 - 30, WORLD_H - sh - CAM_INSET));
+          irisOpenCx = (entities.playerSpawn.x - camX) / sw * hudCanvas.width;
+          irisOpenCy = (entities.playerSpawn.y - camY) / sh * hudCanvas.height;
+          deathActive = false;
+        });
+      }
     }
     return true; // freeze during pre-iris pause
   }
@@ -1358,7 +1468,7 @@ function renderDeathOverlay() {
 let gamePaused = false;
 
 function pauseGame() {
-  if (deathActive || irisState !== 'none') return;
+  if (deathActive || irisState !== 'none' || gameOverActive || victoryActive) return;
   gamePaused = true;
   _showPauseModal();
 }
@@ -1368,36 +1478,185 @@ function resumeGame() {
   _hidePauseModal();
 }
 
+function _resetEntities() {
+  // ── Pearls ──
+  for (let i = 0; i < pearlBodies.length; i++) {
+    const b = pearlBodies[i];
+    const p = entities.pearls[i];
+    b.position = new Vec2(p.x, p.y);
+    if (!b.space) b.space = space;
+  }
+  voxelRenderer.buildPearls(pearlBodies);
+
+  // ── Enemies ──
+  for (let i = 0; i < enemyBodies.length; i++) {
+    const b = enemyBodies[i];
+    const en = entities.enemies[i];
+    b.position = new Vec2(en.x, en.y);
+    b.velocity = new Vec2(0, 0);
+    b._patrol._dir = 1;
+    if (!b.space) b.space = space;
+  }
+
+  // ── Sharks ──
+  for (let i = 0; i < sharkBodies.length; i++) {
+    const b = sharkBodies[i];
+    const sh = entities.sharks[i];
+    b.position = new Vec2(sh.x, sh.y);
+    b.velocity = new Vec2(0, 0);
+    b._patrol._dir = 1;
+    b._chase.chasing = false;
+    if (!b.space) b.space = space;
+  }
+
+  // ── Pufferfish ──
+  for (let i = 0; i < pufferfishBodies.length; i++) {
+    const b = pufferfishBodies[i];
+    const pf = entities.pufferfish[i];
+    b.position = new Vec2(pf.x, pf.y);
+    b.velocity = new Vec2(0, 0);
+    b._patrol._dir = 1;
+    if (!b.space) b.space = space;
+  }
+
+  // ── Crabs ──
+  for (let i = 0; i < crabBodies.length; i++) {
+    const b = crabBodies[i];
+    const cr = entities.crabs[i];
+    b.position = new Vec2(cr.x, cr.y);
+    b.velocity = new Vec2(0, 0);
+    b._patrol._dir = 1;
+    if (!b.space) b.space = space;
+  }
+
+  // ── Toxic fish ──
+  for (let i = 0; i < toxicFishBodies.length; i++) {
+    const b = toxicFishBodies[i];
+    const tf = entities.toxicFish[i];
+    b.position = new Vec2(tf.x, tf.y);
+    b.velocity = new Vec2(0, 0);
+    b._patrol._dir = 1;
+    b._shoot.cooldown = 0;
+    if (!b.space) b.space = space;
+  }
+
+  // ── Projectiles — remove all active ──
+  for (const pb of projectileBodies) {
+    if (pb.space) pb.space = null;
+  }
+  projectileBodies.length = 0;
+
+  // ── Boulders ──
+  for (let i = 0; i < boulderBodies.length; i++) {
+    const b = boulderBodies[i];
+    const br = entities.boulders[i];
+    b.position = new Vec2(br.x, br.y);
+    b.velocity = new Vec2(0, 0);
+    b.rotation = 0;
+    b.angularVel = 0;
+    if (!b.space) b.space = space;
+  }
+  grabbedBoulder = null;
+  voxelRenderer.buildBoulders(boulderBodies);
+
+  // ── Buoys ──
+  for (let i = 0; i < buoyBodies.length; i++) {
+    const b = buoyBodies[i];
+    b.position = new Vec2(entities.buoys[i].x, WATER_SURFACE_Y);
+    b.velocity = new Vec2(0, 0);
+    b.rotation = 0;
+    b.angularVel = 0;
+  }
+
+  // ── Rafts ──
+  for (let i = 0; i < raftBodies.length; i++) {
+    const b = raftBodies[i];
+    b.position = new Vec2(entities.rafts[i].x, WATER_SURFACE_Y);
+    b.velocity = new Vec2(0, 0);
+    b.rotation = 0;
+    b.angularVel = 0;
+  }
+
+  // ── Restore visibility for all enemy meshes ──
+  voxelRenderer.resetEnemyVisibility();
+}
+
 function restartGame() {
-  if (irisState !== 'none') return;
+  if (irisState !== 'none' && !_irisHoldBlack) return;
+  const wasGameOver = gameOverActive;
   gamePaused = false;
   _hidePauseModal();
-  // Close iris on current fish position, open on spawn
-  const { visW, visH } = getVisibleSize();
-  const fishSx = (player.position.x - camX) / visW * hudCanvas.width;
-  const fishSy = (player.position.y - camY) / visH * hudCanvas.height;
-  irisCloseOpen(fishSx, fishSy, 0, 0, () => {
+  hideGameOver();
+  hideVictory();
+
+  if (wasGameOver) {
+    // Already black — just open from spawn
+    _irisHoldBlack = false;
     lives = MAX_LIVES;
     pearlCount = 0;
+    _resetEntities();
     timeRemaining = LEVEL_TIME;
     fishCtrl.respawn(entities.playerSpawn.x, entities.playerSpawn.y);
     const { visW: sw, visH: sh } = getVisibleSize();
     camX = Math.max(CAM_INSET, Math.min(entities.playerSpawn.x - sw / 2, WORLD_W - sw - CAM_INSET));
-    camY = Math.max(CAM_INSET, Math.min(entities.playerSpawn.y - sh / 2 - 30, WORLD_H - sh - CAM_INSET));
+    camY = Math.max(CAM_TOP_INSET, Math.min(entities.playerSpawn.y - sh / 2 - 30, WORLD_H - sh - CAM_INSET));
     irisOpenCx = (entities.playerSpawn.x - camX) / sw * hudCanvas.width;
     irisOpenCy = (entities.playerSpawn.y - camY) / sh * hudCanvas.height;
-  });
+    // Transition from held black → open
+    irisState = 'open_small';
+    irisTimer = 0;
+    pauseBtn.classList.add('visible');
+  } else {
+    // Normal restart: close→open iris
+    const { visW, visH } = getVisibleSize();
+    const fishSx = (player.position.x - camX) / visW * hudCanvas.width;
+    const fishSy = (player.position.y - camY) / visH * hudCanvas.height;
+    irisCloseOpen(fishSx, fishSy, 0, 0, () => {
+      lives = MAX_LIVES;
+      pearlCount = 0;
+      _resetEntities();
+      timeRemaining = LEVEL_TIME;
+      fishCtrl.respawn(entities.playerSpawn.x, entities.playerSpawn.y);
+      const { visW: sw, visH: sh } = getVisibleSize();
+      camX = Math.max(CAM_INSET, Math.min(entities.playerSpawn.x - sw / 2, WORLD_W - sw - CAM_INSET));
+      camY = Math.max(CAM_TOP_INSET, Math.min(entities.playerSpawn.y - sh / 2 - 30, WORLD_H - sh - CAM_INSET));
+      irisOpenCx = (entities.playerSpawn.x - camX) / sw * hudCanvas.width;
+      irisOpenCy = (entities.playerSpawn.y - camY) / sh * hudCanvas.height;
+      pauseBtn.classList.add('visible');
+    });
+  }
 }
 
 let _exitPending = false;
 
 function exitToMenu() {
-  if (irisState !== 'none') return;
+  if (irisState !== 'none' && !_irisHoldBlack) return;
+  const wasGameOver = gameOverActive;
   gamePaused = false;
   // Get button rect BEFORE hiding (hidden elements return 0,0,0,0)
-  const exitBtn = document.getElementById('pauseExit');
+  const exitBtn = gameOverActive ? document.getElementById('goExit')
+    : victoryActive ? document.getElementById('vicExit')
+    : document.getElementById('pauseExit');
   const exitRect = exitBtn.getBoundingClientRect();
   _hidePauseModal();
+  hideGameOver();
+  hideVictory();
+
+  if (wasGameOver) {
+    // Already black — go straight to menu with open iris from center
+    _irisHoldBlack = false;
+    const startCx = hudCanvas.width / 2;
+    const startCy = hudCanvas.height / 2;
+    irisOpenCx = startCx;
+    irisOpenCy = startCy;
+    irisState = 'open_small';
+    irisTimer = 0;
+    _exitPending = true;
+    gameInitialized = false;
+    showMenu();
+    return;
+  }
+
   const exitCx = exitRect.left + exitRect.width / 2;
   const exitCy = exitRect.top + exitRect.height / 2;
   // Open center: screen center (Start button is hidden during game)
@@ -1422,6 +1681,7 @@ if (window._escHandler) window.removeEventListener('keydown', window._escHandler
 window._escHandler = (e) => {
   if (e.code === 'Escape' && appState === 'game' && !editorActive) {
     e.preventDefault();
+    if (gameOverActive || victoryActive) return; // can't ESC out of result screens
     if (gamePaused) resumeGame();
     else pauseGame();
   }
@@ -1622,8 +1882,13 @@ function gameLoop() {
   // ── Paused ──
   if (gamePaused) {
     // Keep rendering the scene but skip game logic
+    // Still step iris if it's playing (game over/victory triggered during iris)
+    if (irisState !== 'none') {
+      _irisStep(DT);
+    }
     renderer.render(scene, camera);
     renderHUD();
+    if (irisState !== 'none') _irisDraw();
     gameAnimId = requestAnimationFrame(gameLoop);
     return;
   }
@@ -1670,8 +1935,13 @@ function gameLoop() {
     grab: kbInput.grab,
   };
 
+  // ── Victory check ──
+  if (!victoryActive && !deathActive && pearlCount >= TOTAL_PEARLS) {
+    showVictory();
+  }
+
   // ── Countdown timer ──
-  if (!deathActive && irisState === 'none') {
+  if (!deathActive && irisState === 'none' && !victoryActive) {
     timeRemaining -= DT;
     if (timeRemaining <= 0) {
       timeRemaining = 0;
