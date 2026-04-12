@@ -14,12 +14,18 @@ import {
   getLevelEntities, getMergedSolidBodies, getWaterZones,
 } from './level-data.js';
 
+import {
+  MENU_COLS, MENU_ROWS, MENU_WORLD_W, MENU_WORLD_H, MENU_WATER_SURFACE_Y,
+  MENU_TILES,
+} from './menu-level-data.js';
+
 import { FishController } from './fish-controller.js';
 import { VoxelRenderer } from './voxel-renderer.js';
 import { TouchControls } from './touch-controls.js';
 import { MenuScene } from './menu-scene.js';
 import { MusicSystem } from './music-system.js';
 import { SfxSystem } from './sfx-system.js';
+import { LevelEditor } from './level-editor.js';
 
 // ── Three.js import ──
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js";
@@ -75,6 +81,14 @@ let gameAnimId = null;
 
 // Menu scene (created immediately — runs as menu background)
 const menuScene = new MenuScene(THREE, renderer);
+
+// ── Level Editor ──
+let editorActive = false;
+let gameEditor = null;    // LevelEditor for game level
+let menuEditor = null;    // LevelEditor for menu level
+let _capturedEntities = null;  // snapshot of game entities for editor init
+let _gameCamX = 0;       // exposed camera X from game loop
+let _gameCamY = 0;       // exposed camera Y from game loop
 
 // ── Music & SFX ──
 const music = new MusicSystem();
@@ -172,6 +186,154 @@ document.getElementById('aboutBack').addEventListener('click', () => {
   showMenu();
 });
 
+// ── Level Editor Toggle (F4) ──
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'F4') {
+    e.preventDefault();
+    if (editorActive) {
+      // Deactivate editor
+      _deactivateEditor();
+    } else {
+      // Activate editor for current context
+      _activateEditor();
+    }
+  }
+});
+
+function _activateEditor() {
+  editorActive = true;
+
+  if (appState === 'game' && gameInitialized) {
+    // Game level editor
+    if (!gameEditor) {
+      const entityList = LevelEditor.buildEntityList(
+        TILES, LEVEL_COLS, LEVEL_ROWS, _capturedEntities
+      );
+      gameEditor = new LevelEditor(
+        hudCtx, hudCanvas, TILES, LEVEL_COLS, LEVEL_ROWS, WORLD_W, WORLD_H
+      );
+      // Wire up 3D rebuild callbacks
+      gameEditor.onTerrainChange = () => {
+        if (voxelRenderer) voxelRenderer.rebuildTerrain();
+      };
+      gameEditor.onEntityChange = (entities) => {
+        _rebuildGameEntityVisuals(entities);
+      };
+      gameEditor.activate(_gameCamX, _gameCamY, entityList);
+    } else {
+      gameEditor.activate(_gameCamX, _gameCamY, gameEditor.entities);
+    }
+    // Detach from menu
+    menuScene.setEditor(null);
+  } else {
+    // Menu level editor
+    if (!menuEditor) {
+      const menuEntities = LevelEditor.buildEntityList(
+        MENU_TILES, MENU_COLS, MENU_ROWS, menuScene.getEntityData()
+      );
+      menuEditor = new LevelEditor(
+        hudCtx, hudCanvas, MENU_TILES, MENU_COLS, MENU_ROWS, MENU_WORLD_W, MENU_WORLD_H
+      );
+      // Wire up 3D rebuild callbacks for menu
+      menuEditor.onTerrainChange = () => {
+        const mr = menuScene.voxelRenderer;
+        if (mr) mr.rebuildTerrainFrom(MENU_TILES, MENU_COLS, MENU_ROWS, MENU_WORLD_H, MENU_WATER_SURFACE_Y);
+      };
+      menuEditor.onEntityChange = (entities) => {
+        _rebuildMenuEntityVisuals(entities);
+      };
+      menuEditor.activate(menuScene.camX, menuScene.camY, menuEntities);
+    } else {
+      menuEditor.activate(menuScene.camX, menuScene.camY, menuEditor.entities);
+    }
+    // Attach to menu scene for rendering in its loop
+    menuScene.setEditor(menuEditor);
+    // Hide menu UI while editing
+    menuOverlay.classList.add('hidden');
+    aquariumCloseBtn.classList.remove('visible');
+    settingsPanel.classList.remove('visible');
+    aboutPanel.classList.remove('visible');
+  }
+}
+
+// Rebuild entity visuals from editor entity list (game level)
+function _rebuildGameEntityVisuals(entities) {
+  if (!voxelRenderer) return;
+  voxelRenderer.clearEntityVisuals();
+  for (const ent of entities) {
+    if (ent.tileId === 6)  voxelRenderer.buildEnemyFish();
+    if (ent.tileId === 12) voxelRenderer.buildShark();
+    if (ent.tileId === 13) voxelRenderer.buildPufferfish();
+    if (ent.tileId === 14) voxelRenderer.buildCrab();
+    if (ent.tileId === 15) voxelRenderer.buildToxicFish();
+  }
+  // Position the newly created visuals at the entity positions
+  _positionEditorEntities(voxelRenderer, entities);
+}
+
+// Rebuild entity visuals for menu level
+function _rebuildMenuEntityVisuals(entities) {
+  const mr = menuScene.voxelRenderer;
+  if (!mr) return;
+  mr.clearEntityVisuals();
+  for (const ent of entities) {
+    if (ent.tileId === 6)  mr.buildEnemyFish();
+    if (ent.tileId === 12) mr.buildShark();
+    if (ent.tileId === 13) mr.buildPufferfish();
+    if (ent.tileId === 14) mr.buildCrab();
+    if (ent.tileId === 15) mr.buildToxicFish();
+  }
+  _positionEditorEntities(mr, entities);
+}
+
+// Position editor entity visuals at their world positions
+function _positionEditorEntities(vr, entities) {
+  let ei = 0, si = 0, pi = 0, ci = 0, ti = 0;
+  for (const ent of entities) {
+    const x = ent.x;
+    const y = -ent.y; // Three.js Y is flipped
+    if (ent.tileId === 6 && ei < vr.enemyGroups.length) {
+      vr.enemyGroups[ei].position.set(x, y, 0);
+      vr.enemyGroups[ei].visible = true;
+      ei++;
+    } else if (ent.tileId === 12 && si < vr.sharkGroups.length) {
+      vr.sharkGroups[si].position.set(x, y, 0);
+      vr.sharkGroups[si].visible = true;
+      si++;
+    } else if (ent.tileId === 13 && pi < vr.pufferfishGroups.length) {
+      vr.pufferfishGroups[pi].position.set(x, y, 0);
+      vr.pufferfishGroups[pi].visible = true;
+      pi++;
+    } else if (ent.tileId === 14 && ci < vr.crabGroups.length) {
+      vr.crabGroups[ci].position.set(x, y, 0);
+      vr.crabGroups[ci].visible = true;
+      ci++;
+    } else if (ent.tileId === 15 && ti < vr.toxicFishGroups.length) {
+      vr.toxicFishGroups[ti].position.set(x, y, 0);
+      vr.toxicFishGroups[ti].visible = true;
+      ti++;
+    }
+  }
+}
+
+function _deactivateEditor() {
+  editorActive = false;
+  if (gameEditor) gameEditor.deactivate();
+  if (menuEditor) menuEditor.deactivate();
+  menuScene.setEditor(null);
+  hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
+  // Restore menu UI if we were in menu state
+  if (appState === 'menu') {
+    menuOverlay.classList.remove('hidden');
+  }
+}
+
+function _getActiveEditor() {
+  if (!editorActive) return null;
+  if (appState === 'game' && gameInitialized) return gameEditor;
+  return menuEditor;
+}
+
 // Start the menu scene immediately
 menuScene.start();
 
@@ -254,6 +416,21 @@ for (const wz of waterZones) {
 
 // ── Level entities ──
 const entities = getLevelEntities();
+
+// Capture entity data for editor (before physics bodies consume them)
+_capturedEntities = {
+  playerSpawn: { ...entities.playerSpawn },
+  enemies: entities.enemies.map(e => ({ ...e })),
+  pearls: entities.pearls.map(e => ({ ...e })),
+  hazards: entities.hazards.map(e => ({ ...e })),
+  buoys: entities.buoys.map(e => ({ ...e })),
+  boulders: entities.boulders.map(e => ({ ...e })),
+  rafts: entities.rafts.map(e => ({ ...e })),
+  sharks: entities.sharks.map(e => ({ ...e })),
+  pufferfish: entities.pufferfish.map(e => ({ ...e })),
+  crabs: entities.crabs.map(e => ({ ...e })),
+  toxicFish: entities.toxicFish.map(e => ({ ...e })),
+};
 
 // ── Hazard bodies (seaweed/spiky plants) ──
 for (const hz of entities.hazards) {
@@ -711,27 +888,29 @@ function getVisibleSize() {
   return { visW, visH };
 }
 
+const CAM_INSET = TILE_SIZE * 2;  // 2 tile inset to avoid seeing behind level edges (perspective camera needs more)
+
 function updateGameCamera() {
   const { visW, visH } = getVisibleSize();
   const targetX = player.position.x - visW / 2;
   const targetY = player.position.y - visH / 2 - 30;
 
-  // Clamp to world bounds
-  const goalX = Math.max(0, Math.min(targetX, WORLD_W - visW));
-  const goalY = Math.max(0, Math.min(targetY, WORLD_H - visH));
+  // Clamp to world bounds with inset
+  const goalX = Math.max(CAM_INSET, Math.min(targetX, WORLD_W - visW - CAM_INSET));
+  const goalY = Math.max(CAM_INSET, Math.min(targetY, WORLD_H - visH - CAM_INSET));
 
   // Smooth lerp
   camX += (goalX - camX) * 0.1;
   camY += (goalY - camY) * 0.1;
-  camX = Math.max(0, Math.min(camX, WORLD_W - visW));
-  camY = Math.max(0, Math.min(camY, WORLD_H - visH));
+  camX = Math.max(CAM_INSET, Math.min(camX, WORLD_W - visW - CAM_INSET));
+  camY = Math.max(CAM_INSET, Math.min(camY, WORLD_H - visH - CAM_INSET));
 }
 
 // Snap camera on first frame
 {
   const { visW, visH } = getVisibleSize();
-  camX = Math.max(0, Math.min(player.position.x - visW / 2, WORLD_W - visW));
-  camY = Math.max(0, Math.min(player.position.y - visH / 2 - 30, WORLD_H - visH));
+  camX = Math.max(CAM_INSET, Math.min(player.position.x - visW / 2, WORLD_W - visW - CAM_INSET));
+  camY = Math.max(CAM_INSET, Math.min(player.position.y - visH / 2 - 30, WORLD_H - visH - CAM_INSET));
 }
 
 // ── Physics Debug Toggle (F3) ──
@@ -880,6 +1059,40 @@ function renderHUD() {
 
 // ── Game Loop ──
 function gameLoop() {
+
+  // ── Editor Mode ──
+  if (editorActive && gameEditor) {
+    // Editor: free camera, no physics, render overlay
+    gameEditor.update(DT, getVisibleSize);
+    gameEditor.processPendingActions(getVisibleSize);
+
+    // Use editor camera
+    camX = gameEditor.camX;
+    camY = gameEditor.camY;
+    _gameCamX = camX;
+    _gameCamY = camY;
+
+    const { visW: camVisW, visH: camVisH } = getVisibleSize();
+    const lookX = camX + camVisW / 2;
+    const lookY = -(camY + camVisH / 2);
+    camera.position.set(lookX, lookY - CAM_Y_OFFSET, CAM_Z_OFFSET);
+    camera.lookAt(lookX, lookY, 0);
+
+    // In editor mode, skip syncFrame (entities are positioned by editor callbacks).
+    // Only update time-based animations (water, bubbles, etc.)
+    voxelRenderer._time += DT;
+
+    renderer.render(scene, camera);
+
+    // Editor HUD
+    hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
+    gameEditor.render(getVisibleSize);
+    gameEditor.renderToast(DT);
+
+    gameAnimId = requestAnimationFrame(gameLoop);
+    return;
+  }
+
   // ── Input ──
   const kbInput = getKeyboardInput();
   const touchInput = touchControls.getInput();
@@ -1082,6 +1295,8 @@ function gameLoop() {
 
   // ── Camera ──
   updateGameCamera();
+  _gameCamX = camX;
+  _gameCamY = camY;
 
   // ── Render Three.js ──
   // Position perspective camera: follow player with pitch offset

@@ -48,6 +48,9 @@ export class MenuScene {
     this._easeElapsed = 0;
     this._easeDuration = 0.5;       // seconds
 
+    // ── Editor reference ──
+    this._editor = null;
+
     // ── Scene ──
     this.scene = new THREE.Scene();
 
@@ -373,6 +376,21 @@ export class MenuScene {
     }
   }
 
+  // ── Entity data for level editor ──
+  getEntityData() {
+    const data = { enemies: [], sharks: [], pufferfish: [] };
+    for (const eb of this.enemyBodies) {
+      data.enemies.push({ x: eb.position.x, y: eb.position.y });
+    }
+    for (const sb of this.sharkBodies) {
+      data.sharks.push({ x: sb.position.x, y: sb.position.y });
+    }
+    for (const pf of this.pufferfishBodies) {
+      data.pufferfish.push({ x: pf.position.x, y: pf.position.y });
+    }
+    return data;
+  }
+
   // ── Camera helpers ──
   _getVisibleSize() {
     const vFov = CAM_FOV * Math.PI / 180;
@@ -383,9 +401,15 @@ export class MenuScene {
 
   _centerCamera() {
     const { visW, visH } = this._getVisibleSize();
+    const inset = TILE_SIZE * 2;
     // Center on the middle of the aquarium
-    this.camX = Math.max(0, Math.min(MENU_WORLD_W / 2 - visW / 2, MENU_WORLD_W - visW));
-    this.camY = Math.max(0, Math.min(MENU_WORLD_H / 2 - visH / 2 - 30, MENU_WORLD_H - visH));
+    this.camX = Math.max(inset, Math.min(MENU_WORLD_W / 2 - visW / 2, MENU_WORLD_W - visW - inset));
+    this.camY = Math.max(inset, Math.min(MENU_WORLD_H / 2 - visH / 2 - 30, MENU_WORLD_H - visH - inset));
+  }
+
+  // ── Editor integration ──
+  setEditor(editor) {
+    this._editor = editor;
   }
 
   // ── Aquarium mode: slow pan ──
@@ -400,8 +424,9 @@ export class MenuScene {
       this._easingBack = true;
       this._easeStartX = this.camX;
       this._easeStartY = this.camY;
-      this._easeTargetX = Math.max(0, Math.min(MENU_WORLD_W / 2 - visW / 2, MENU_WORLD_W - visW));
-      this._easeTargetY = Math.max(0, Math.min(MENU_WORLD_H / 2 - visH / 2 - 30, MENU_WORLD_H - visH));
+      const inset = TILE_SIZE * 2;
+      this._easeTargetX = Math.max(inset, Math.min(MENU_WORLD_W / 2 - visW / 2, MENU_WORLD_W - visW - inset));
+      this._easeTargetY = Math.max(inset, Math.min(MENU_WORLD_H / 2 - visH / 2 - 30, MENU_WORLD_H - visH - inset));
       this._easeElapsed = 0;
     }
   }
@@ -431,41 +456,53 @@ export class MenuScene {
   _loop() {
     if (!this._running) return;
 
-    // Update enemy patrol AI
-    for (const eb of this.enemyBodies) {
-      if (!eb.space) continue;
-      const p = eb._patrol;
-      const px = eb.position.x;
-      if (px >= p.maxX) p._dir = -1;
-      if (px <= p.minX) p._dir = 1;
-      eb.velocity = new Vec2(p._dir * p.speed, 0);
-    }
+    const editorMode = this._editor && this._editor.active;
 
-    for (const sb of this.sharkBodies) {
-      if (!sb.space) continue;
-      const p = sb._patrol;
-      const px = sb.position.x;
-      if (px >= p.maxX) p._dir = -1;
-      if (px <= p.minX) p._dir = 1;
-      sb.velocity = new Vec2(p._dir * p.speed, 0);
-    }
+    // Skip AI + physics when editor is active
+    if (!editorMode) {
+      // Update enemy patrol AI
+      for (const eb of this.enemyBodies) {
+        if (!eb.space) continue;
+        const p = eb._patrol;
+        const px = eb.position.x;
+        if (px >= p.maxX) p._dir = -1;
+        if (px <= p.minX) p._dir = 1;
+        eb.velocity = new Vec2(p._dir * p.speed, 0);
+      }
 
-    for (const pf of this.pufferfishBodies) {
-      if (!pf.space) continue;
-      const p = pf._patrol;
-      const py = pf.position.y;
-      if (py >= p.maxY) p._dir = -1;
-      if (py <= p.minY) p._dir = 1;
-      pf.velocity = new Vec2(0, p._dir * p.speed);
-    }
+      for (const sb of this.sharkBodies) {
+        if (!sb.space) continue;
+        const p = sb._patrol;
+        const px = sb.position.x;
+        if (px >= p.maxX) p._dir = -1;
+        if (px <= p.minX) p._dir = 1;
+        sb.velocity = new Vec2(p._dir * p.speed, 0);
+      }
 
-    // Physics step
-    this.space.step(DT, 8, 3);
+      for (const pf of this.pufferfishBodies) {
+        if (!pf.space) continue;
+        const p = pf._patrol;
+        const py = pf.position.y;
+        if (py >= p.maxY) p._dir = -1;
+        if (py <= p.minY) p._dir = 1;
+        pf.velocity = new Vec2(0, p._dir * p.speed);
+      }
+
+      // Physics step
+      this.space.step(DT, 8, 3);
+    }
 
     // Camera update
-    const { visW, visH } = this._getVisibleSize();
+    const getVis = () => this._getVisibleSize();
+    const { visW, visH } = getVis();
 
-    if (this._aquariumMode) {
+    if (editorMode) {
+      // Editor controls the camera
+      this._editor.update(DT, getVis);
+      this._editor.processPendingActions(getVis);
+      this.camX = this._editor.camX;
+      this.camY = this._editor.camY;
+    } else if (this._aquariumMode) {
       // Slow pan left/right with 10% margin on each side
       const margin = MENU_WORLD_W * 0.10;
       const minCamX = margin;
@@ -486,9 +523,10 @@ export class MenuScene {
       this._centerCamera();
     }
 
-    // Clamp camera
-    this.camX = Math.max(0, Math.min(this.camX, MENU_WORLD_W - visW));
-    this.camY = Math.max(0, Math.min(this.camY, MENU_WORLD_H - visH));
+    // Clamp camera (1 tile inset to avoid seeing behind level edges)
+    const camInset = TILE_SIZE * 2;
+    this.camX = Math.max(camInset, Math.min(this.camX, MENU_WORLD_W - visW - camInset));
+    this.camY = Math.max(camInset, Math.min(this.camY, MENU_WORLD_H - visH - camInset));
 
     // Position Three.js camera
     const lookX = this.camX + visW / 2;
@@ -496,20 +534,31 @@ export class MenuScene {
     this.camera.position.set(lookX, lookY - this._camYOffset, this._camZOffset);
     this.camera.lookAt(lookX, lookY, 0);
 
-    // Sync voxel renderer — pass null for player fish (no player in menu)
-    // We create a fake body at a convenient position for ambient bubbles
-    const fakeFishState = { inWater: true, swimSpeed: 0, facingRight: true, dashing: false };
-    const fakeFishBody = { position: { x: lookX, y: this.camY + visH / 2 } };
-    this.voxelRenderer.syncFrame(fakeFishBody, fakeFishState, this.enemyBodies, DT, {
-      sharkBodies: this.sharkBodies,
-      pufferfishBodies: this.pufferfishBodies,
-      crabBodies: [],
-      toxicFishBodies: [],
-      projectileBodies: [],
-    });
+    // Sync voxel renderer (skip in editor mode — entities positioned by editor callbacks)
+    if (!editorMode) {
+      const fakeFishState = { inWater: true, swimSpeed: 0, facingRight: true, dashing: false };
+      const fakeFishBody = { position: { x: lookX, y: this.camY + visH / 2 } };
+      this.voxelRenderer.syncFrame(fakeFishBody, fakeFishState, this.enemyBodies, DT, {
+        sharkBodies: this.sharkBodies,
+        pufferfishBodies: this.pufferfishBodies,
+        crabBodies: [],
+        toxicFishBodies: [],
+        projectileBodies: [],
+      });
+    } else {
+      this.voxelRenderer._time += DT;
+    }
 
     // Render
     this.renderer.render(this.scene, this.camera);
+
+    // Editor overlay (drawn on shared HUD canvas)
+    if (editorMode && this._editor.hudCtx) {
+      const hud = this._editor.hudCanvas;
+      this._editor.hudCtx.clearRect(0, 0, hud.width, hud.height);
+      this._editor.render(getVis);
+      this._editor.renderToast(DT);
+    }
 
     this._animId = requestAnimationFrame(() => this._loop());
   }

@@ -83,6 +83,43 @@ export class VoxelRenderer {
     this.splashDroplets = [];        // { mesh, vx, vy, life } — airborne water droplets
   }
 
+  // ── Remove all enemy/entity visuals (used by editor rebuild) ──
+  clearEntityVisuals() {
+    const remove = (arr) => {
+      for (const g of arr) this.scene.remove(g);
+      arr.length = 0;
+    };
+    remove(this.enemyGroups);
+    this.enemyTailPivots.length = 0;
+    this._enemyFlipAngles.length = 0;
+    remove(this.sharkGroups);
+    this.sharkTailPivots.length = 0;
+    this._sharkFlipAngles.length = 0;
+    remove(this.pufferfishGroups);
+    this._pufferfishFlipAngles.length = 0;
+    remove(this.crabGroups);
+    this._crabFlipAngles.length = 0;
+    remove(this.toxicFishGroups);
+    this.toxicFishTailPivots.length = 0;
+    this._toxicFlipAngles.length = 0;
+    // Pearls
+    for (const p of this.pearlMeshes) {
+      this.scene.remove(p.mesh);
+      if (p.mesh.geometry) p.mesh.geometry.dispose();
+      if (p.mesh.material) p.mesh.material.dispose();
+    }
+    this.pearlMeshes.length = 0;
+    // Buoys
+    for (const b of this.buoyMeshes) this.scene.remove(b.mesh);
+    this.buoyMeshes.length = 0;
+    // Boulders
+    for (const b of this.boulderMeshes) this.scene.remove(b.mesh);
+    this.boulderMeshes.length = 0;
+    // Rafts
+    for (const r of this.raftMeshes) this.scene.remove(r.mesh);
+    this.raftMeshes.length = 0;
+  }
+
   // ── Generate procedural Minecraft-style texture for a tile type ──
   _generateTileTexture(type) {
     if (this._textureCache[type]) return this._textureCache[type];
@@ -443,6 +480,130 @@ export class VoxelRenderer {
           caveColor.setRGB(depthFactor, depthFactor, depthFactor);
           caveMesh.setColorAt(caveIdx, caveColor);
 
+          caveIdx++;
+        }
+      }
+      caveMesh.instanceMatrix.needsUpdate = true;
+      caveMesh.instanceColor.needsUpdate = true;
+      this.scene.add(caveMesh);
+      this.terrainMeshes.push(caveMesh);
+    }
+  }
+
+  // ── Dispose terrain meshes (keep texture cache intact for reuse) ──
+  _disposeTerrainMeshes() {
+    for (const mesh of this.terrainMeshes) {
+      this.scene.remove(mesh);
+      if (mesh.geometry) mesh.geometry.dispose();
+      if (mesh.material) mesh.material.dispose(); // don't dispose .map — it's cached
+    }
+    this.terrainMeshes = [];
+  }
+
+  // ── Rebuild terrain from current TILES array (used by level editor) ──
+  rebuildTerrain() {
+    this._disposeTerrainMeshes();
+    this.buildTerrain();
+  }
+
+  // ── Rebuild terrain from custom tile data (used by menu editor) ──
+  rebuildTerrainFrom(tiles, cols, rows, worldH, waterSurfaceY) {
+    this._disposeTerrainMeshes();
+
+    const THREE = this.THREE;
+    const boxGeo = new THREE.BoxGeometry(TILE_SIZE, TILE_SIZE, VOXEL_DEPTH);
+    const dummy = new THREE.Object3D();
+
+    // Count tiles per type
+    const tileCounts = {};
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const t = tiles[row][col];
+        if ((t >= 1 && t <= 4) || t === 8) {
+          tileCounts[t] = (tileCounts[t] || 0) + 1;
+        }
+      }
+    }
+
+    for (const [typeStr, count] of Object.entries(tileCounts)) {
+      const type = parseInt(typeStr);
+      const texture = this._generateTileTexture(type);
+      const mat = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.9, metalness: 0.0 });
+      const mesh = new THREE.InstancedMesh(boxGeo, mat, count);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
+
+      let idx = 0;
+      const color = new THREE.Color();
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          if (tiles[row][col] !== type) continue;
+          const x = col * TILE_SIZE + TILE_SIZE / 2;
+          const y = -(row * TILE_SIZE + TILE_SIZE / 2);
+          dummy.position.set(x, y, 0);
+          dummy.updateMatrix();
+          mesh.setMatrixAt(idx, dummy.matrix);
+          const worldY = row * TILE_SIZE + TILE_SIZE / 2;
+          const depthBelow = Math.max(0, worldY - waterSurfaceY);
+          const maxDepth = worldH - waterSurfaceY;
+          const depthFactor = 1.0 - (depthBelow / maxDepth) * 0.55;
+          color.setRGB(depthFactor, depthFactor, depthFactor);
+          mesh.setColorAt(idx, color);
+          idx++;
+        }
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.instanceColor.needsUpdate = true;
+      this.scene.add(mesh);
+      this.terrainMeshes.push(mesh);
+    }
+
+    // Cave background
+    const SOLID_TYPES = new Set([1, 2, 3]);
+    const NON_EMPTY = new Set([1, 2, 3, 4, 8]);
+    const caveBg = Array.from({ length: rows }, () => new Array(cols).fill(false));
+    const radius = CAVE_BG_NEIGHBOR_RADIUS;
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        if (NON_EMPTY.has(tiles[row][col])) continue;
+        let nearSolid = false;
+        for (let dr = -radius; dr <= radius && !nearSolid; dr++) {
+          for (let dc = -radius; dc <= radius && !nearSolid; dc++) {
+            if (dr === 0 && dc === 0) continue;
+            const nr = row + dr, nc = col + dc;
+            if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) {
+              if (SOLID_TYPES.has(tiles[nr][nc])) nearSolid = true;
+            }
+          }
+        }
+        caveBg[row][col] = nearSolid;
+      }
+    }
+    let caveCount = 0;
+    for (let row = 0; row < rows; row++)
+      for (let col = 0; col < cols; col++)
+        if (caveBg[row][col]) caveCount++;
+    if (caveCount > 0) {
+      const caveTexture = this._generateTileTexture('cave_bg');
+      const caveMat = new THREE.MeshStandardMaterial({ map: caveTexture, roughness: 1.0, metalness: 0.0 });
+      const caveMesh = new THREE.InstancedMesh(boxGeo, caveMat, caveCount);
+      caveMesh.receiveShadow = true;
+      caveMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(caveCount * 3), 3);
+      let caveIdx = 0;
+      const caveColor = new THREE.Color();
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          if (!caveBg[row][col]) continue;
+          dummy.position.set(col * TILE_SIZE + TILE_SIZE / 2, -(row * TILE_SIZE + TILE_SIZE / 2), CAVE_BG_Z_OFFSET);
+          dummy.updateMatrix();
+          caveMesh.setMatrixAt(caveIdx, dummy.matrix);
+          const worldY = row * TILE_SIZE + TILE_SIZE / 2;
+          const depthBelow = Math.max(0, worldY - waterSurfaceY);
+          const maxDepth = worldH - waterSurfaceY;
+          const depthFactor = CAVE_BG_DARKEN - (depthBelow / maxDepth) * 0.15;
+          caveColor.setRGB(depthFactor, depthFactor, depthFactor);
+          caveMesh.setColorAt(caveIdx, caveColor);
           caveIdx++;
         }
       }

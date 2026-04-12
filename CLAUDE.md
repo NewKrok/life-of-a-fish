@@ -27,6 +27,7 @@ game.js               — Main game loop, physics setup, camera, collision liste
 fish-controller.js    — Player movement: swim/dash/jump states, water detection
 voxel-renderer.js     — Three.js voxel rendering: terrain, fish models, bubbles, water
 level-data.js         — Tile map definition (125×25), entity parsing, body merging
+level-editor.js       — In-game level editor (F4): tile palette, entity placement, patrol editing
 touch-controls.js     — Mobile virtual joystick + dash button (pointer events)
 menu-scene.js         — Main menu background: aquarium scene with AI fish, camera pan
 menu-level-data.js    — Dedicated tile map for menu aquarium (60×25)
@@ -43,6 +44,19 @@ App starts in menu state. `MenuScene` creates its own Three.js scene, physics sp
 - **Start Game**: stops menu scene, initializes and starts the game loop
 - **Aquarium**: hides menu UI, enables slow camera pan across the level, shows close (×) button
 - **Settings / About**: placeholder panels overlaid on the menu background
+
+### Level Editor (level-editor.js)
+
+In-game editor activated with **F4**. Works in both menu and game states. Pauses physics/AI while active.
+
+- **Free camera**: WASD/Arrows to pan, Shift for fast scroll
+- **Tile palette**: bottom bar with all 16 tile types, click or scroll wheel to select, 0-9 hotkeys
+- **Placement**: click to place selected tile/entity, hold to paint terrain
+- **Deletion**: double-click to remove entity or erase terrain tile
+- **Patrol editing**: enemies show patrol range lines with draggable min/max handles
+- **Grid overlay**: toggle with G key
+- **Export**: Ctrl+C copies LEVEL_STRINGS + patrol data to clipboard
+- **Entity overlay**: colored circles with labels for all entities (pearls, enemies, spawn, etc.)
 
 ### Game Loop (game.js, 60 FPS)
 
