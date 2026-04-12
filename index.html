@@ -305,8 +305,13 @@
       <div class="panel-title">Settings</div>
       <div class="settings-row">
         <label class="settings-label" for="musicVolume">Music</label>
-        <input type="range" id="musicVolume" class="settings-slider" min="0" max="100" value="50">
-        <span class="settings-value" id="musicVolumeVal">50%</span>
+        <input type="range" id="musicVolume" class="settings-slider" min="0" max="100" value="60">
+        <span class="settings-value" id="musicVolumeVal">60%</span>
+      </div>
+      <div class="settings-row">
+        <label class="settings-label" for="sfxVolume">SFX</label>
+        <input type="range" id="sfxVolume" class="settings-slider" min="0" max="100" value="40">
+        <span class="settings-value" id="sfxVolumeVal">40%</span>
       </div>
       <button class="panel-back-btn" id="settingsBack">Back</button>
     </div>
@@ -334,13 +339,58 @@
 
   <script type="module" src="game.js"></script>
   <script>
-    // Music volume slider
-    const slider = document.getElementById('musicVolume');
-    const valLabel = document.getElementById('musicVolumeVal');
-    slider.addEventListener('input', () => {
-      const v = parseInt(slider.value);
-      valLabel.textContent = v + '%';
+    // Volume settings with localStorage persistence
+    const STORAGE_KEY = 'loaf_settings';
+    const defaults = { musicVol: 60, sfxVol: 40 };
+
+    function loadSettings() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+        if (saved) return { ...defaults, ...saved };
+      } catch (_) {}
+      return defaults;
+    }
+
+    function saveSettings(s) {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch (_) {}
+    }
+
+    const settings = loadSettings();
+    const musicSlider = document.getElementById('musicVolume');
+    const musicLabel = document.getElementById('musicVolumeVal');
+    const sfxSlider = document.getElementById('sfxVolume');
+    const sfxLabel = document.getElementById('sfxVolumeVal');
+
+    // Apply saved values to sliders and audio systems
+    musicSlider.value = settings.musicVol;
+    musicLabel.textContent = settings.musicVol + '%';
+    sfxSlider.value = settings.sfxVol;
+    sfxLabel.textContent = settings.sfxVol + '%';
+
+    // Apply to audio systems once they exist
+    function applySavedVolumes() {
+      if (window._music) window._music.setVolume(settings.musicVol / 100);
+      if (window._sfx) window._sfx.setVolume(settings.sfxVol / 100);
+    }
+    // Retry until audio systems are ready (module loads async)
+    const _volInterval = setInterval(() => {
+      if (window._music && window._sfx) { applySavedVolumes(); clearInterval(_volInterval); }
+    }, 100);
+
+    musicSlider.addEventListener('input', () => {
+      const v = parseInt(musicSlider.value);
+      musicLabel.textContent = v + '%';
+      settings.musicVol = v;
+      saveSettings(settings);
       if (window._music) window._music.setVolume(v / 100);
+    });
+
+    sfxSlider.addEventListener('input', () => {
+      const v = parseInt(sfxSlider.value);
+      sfxLabel.textContent = v + '%';
+      settings.sfxVol = v;
+      saveSettings(settings);
+      if (window._sfx) window._sfx.setVolume(v / 100);
     });
   </script>
 </body>

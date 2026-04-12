@@ -24,10 +24,11 @@ const ENTRY_SINK_FORCE = 350;    // downward force to counteract buoyancy during
 const DT = 1 / 60;
 
 export class FishController {
-  constructor(space, body, cc, gravityY) {
+  constructor(space, body, cc, gravityY, sfx) {
     this.space = space;
     this.body = body;
     this.cc = cc;
+    this.sfx = sfx || null;
     this.gravityY = gravityY;
 
     // State
@@ -78,6 +79,11 @@ export class FishController {
     if (this.justEnteredWater) {
       body.velocity = new Vec2(vx * WATER_ENTRY_DAMPING, vy * WATER_ENTRY_DAMPING);
       this.entryMomentum = ENTRY_MOMENTUM_FRAMES;
+      if (this.sfx) this.sfx.splash();
+    }
+
+    if (this.justLeftWater) {
+      if (this.sfx) this.sfx.splash();
     }
 
     // Tick down entry momentum
@@ -169,6 +175,7 @@ export class FishController {
         this.dashing = true;
         this.dashTimer = DASH_DURATION_MS;
         this.dashCooldown = DASH_COOLDOWN_MS;
+        if (this.sfx) this.sfx.dash();
         // Dash in input direction, or facing direction if no input
         if (Math.abs(input.dirX) > 0.1 || Math.abs(input.dirY) > 0.1) {
           const mag = Math.sqrt(input.dirX * input.dirX + input.dirY * input.dirY);

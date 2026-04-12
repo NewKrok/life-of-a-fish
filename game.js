@@ -19,6 +19,7 @@ import { VoxelRenderer } from './voxel-renderer.js';
 import { TouchControls } from './touch-controls.js';
 import { MenuScene } from './menu-scene.js';
 import { MusicSystem } from './music-system.js';
+import { SfxSystem } from './sfx-system.js';
 
 // ── Three.js import ──
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js";
@@ -75,9 +76,11 @@ let gameAnimId = null;
 // Menu scene (created immediately — runs as menu background)
 const menuScene = new MenuScene(THREE, renderer);
 
-// ── Music ──
+// ── Music & SFX ──
 const music = new MusicSystem();
+const sfx = new SfxSystem();
 window._music = music; // exposed for settings panel volume control
+window._sfx = sfx;
 
 // Start menu music on first user interaction (browser autoplay policy)
 function initMenuMusic() {
@@ -123,6 +126,7 @@ function hideMenuUI() {
 }
 
 document.getElementById('btnStartGame').addEventListener('click', () => {
+  sfx.gameStart();
   hideMenuUI();
   aquariumCloseBtn.classList.remove('visible');
   menuScene.stop();
@@ -132,6 +136,7 @@ document.getElementById('btnStartGame').addEventListener('click', () => {
 });
 
 document.getElementById('btnAquarium').addEventListener('click', () => {
+  sfx.buttonClick();
   appState = 'aquarium';
   hideMenuUI();
   aquariumCloseBtn.classList.add('visible');
@@ -139,26 +144,31 @@ document.getElementById('btnAquarium').addEventListener('click', () => {
 });
 
 aquariumCloseBtn.addEventListener('click', () => {
+  sfx.buttonClick();
   showMenu();
 });
 
 document.getElementById('btnSettings').addEventListener('click', () => {
+  sfx.buttonClick();
   appState = 'settings';
   menuOverlay.classList.add('hidden');
   settingsPanel.classList.add('visible');
 });
 
 document.getElementById('settingsBack').addEventListener('click', () => {
+  sfx.buttonClick();
   showMenu();
 });
 
 document.getElementById('btnAbout').addEventListener('click', () => {
+  sfx.buttonClick();
   appState = 'about';
   menuOverlay.classList.add('hidden');
   aboutPanel.classList.add('visible');
 });
 
 document.getElementById('aboutBack').addEventListener('click', () => {
+  sfx.buttonClick();
   showMenu();
 });
 
@@ -429,7 +439,7 @@ const cc = new CharacterController(space, player, {
   characterTag: playerTag,
 });
 
-const fishCtrl = new FishController(space, player, cc, GRAVITY);
+const fishCtrl = new FishController(space, player, cc, GRAVITY, sfx);
 
 // ── Collision listeners ──
 // Pearl pickup
@@ -444,6 +454,7 @@ const pearlListener = new InteractionListener(
       const cy = pearlBody.position.y;
       pearlBody.space = null;
       pearlCount++;
+      sfx.pearlPickup();
     }
   },
 );
@@ -453,6 +464,7 @@ pearlListener.space = space;
 const enemyListener = new InteractionListener(
   CbEvent.BEGIN, InteractionType.SENSOR, playerTag, enemyTag,
   () => {
+    sfx.playerDeath();
     fishCtrl.respawn(entities.playerSpawn.x, entities.playerSpawn.y);
   },
 );
@@ -462,6 +474,7 @@ enemyListener.space = space;
 const hazardListener = new InteractionListener(
   CbEvent.BEGIN, InteractionType.SENSOR, playerTag, hazardTag,
   () => {
+    sfx.playerDeath();
     fishCtrl.respawn(entities.playerSpawn.x, entities.playerSpawn.y);
   },
 );
@@ -481,6 +494,7 @@ const boulderEnemyListener = new InteractionListener(
       const cx = enemyBody.position.x;
       const cy = enemyBody.position.y;
       enemyBody.space = null;
+      sfx.enemyDeath();
       if (boulderBody && boulderBody.space) {
         if (grabbedBoulder === boulderBody) grabbedBoulder = null;
         boulderBody.space = null;
@@ -502,6 +516,7 @@ boulderPlayerPre.space = space;
 const sharkListener = new InteractionListener(
   CbEvent.BEGIN, InteractionType.SENSOR, playerTag, sharkTag,
   () => {
+    sfx.playerDeath();
     fishCtrl.respawn(entities.playerSpawn.x, entities.playerSpawn.y);
   },
 );
@@ -511,6 +526,7 @@ sharkListener.space = space;
 const pufferfishListener = new InteractionListener(
   CbEvent.BEGIN, InteractionType.SENSOR, playerTag, pufferfishTag,
   () => {
+    sfx.playerDeath();
     fishCtrl.respawn(entities.playerSpawn.x, entities.playerSpawn.y);
   },
 );
@@ -527,6 +543,7 @@ const crabListener = new InteractionListener(
       const dx = player.position.x - crabBody.position.x;
       const pushDirX = dx >= 0 ? 1 : -1;
       fishCtrl.knockback(pushDirX * CRAB_PUSH_FORCE, -CRAB_PUSH_FORCE * 0.5);
+      sfx.crabPush();
     }
   },
 );
@@ -541,6 +558,7 @@ const projectileListener = new InteractionListener(
     const projBody = projectileBodies.find(p => p === b1 || p === b2);
     if (projBody && projBody.space) {
       projBody.space = null;
+      sfx.playerDeath();
       fishCtrl.respawn(entities.playerSpawn.x, entities.playerSpawn.y);
     }
   },
@@ -551,6 +569,7 @@ projectileListener.space = space;
 const toxicFishListener = new InteractionListener(
   CbEvent.BEGIN, InteractionType.SENSOR, playerTag, toxicFishTag,
   () => {
+    sfx.playerDeath();
     fishCtrl.respawn(entities.playerSpawn.x, entities.playerSpawn.y);
   },
 );
@@ -569,6 +588,7 @@ const boulderSharkListener = new InteractionListener(
       const cx = sharkBody.position.x;
       const cy = sharkBody.position.y;
       sharkBody.space = null;
+      sfx.enemyDeath();
       if (boulderBody && boulderBody.space) {
         if (grabbedBoulder === boulderBody) grabbedBoulder = null;
         boulderBody.space = null;
@@ -592,6 +612,7 @@ const boulderPufferfishListener = new InteractionListener(
       const cx = pfBody.position.x;
       const cy = pfBody.position.y;
       pfBody.space = null;
+      sfx.enemyDeath();
       if (boulderBody && boulderBody.space) {
         if (grabbedBoulder === boulderBody) grabbedBoulder = null;
         boulderBody.space = null;
@@ -615,6 +636,7 @@ const boulderCrabListener = new InteractionListener(
       const cx = crabBody.position.x;
       const cy = crabBody.position.y;
       crabBody.space = null;
+      sfx.enemyDeath();
       if (boulderBody && boulderBody.space) {
         if (grabbedBoulder === boulderBody) grabbedBoulder = null;
         boulderBody.space = null;
@@ -638,6 +660,7 @@ const boulderToxicListener = new InteractionListener(
       const cx = tfBody.position.x;
       const cy = tfBody.position.y;
       tfBody.space = null;
+      sfx.enemyDeath();
       if (boulderBody && boulderBody.space) {
         if (grabbedBoulder === boulderBody) grabbedBoulder = null;
         boulderBody.space = null;
@@ -888,6 +911,7 @@ function gameLoop() {
 
     if (!ch.chasing && dist < SHARK_DETECT_RADIUS) {
       ch.chasing = true;
+      sfx.sharkAlert();
     } else if (ch.chasing && dist > SHARK_LOSE_RADIUS) {
       ch.chasing = false;
     }
@@ -957,6 +981,7 @@ function gameLoop() {
       pb._life = TOXIC_PROJECTILE_LIFE;
       projectileBodies.push(pb);
       voxelRenderer.buildProjectile(pb);
+      sfx.toxicSpit();
     }
   }
 
@@ -997,6 +1022,7 @@ function gameLoop() {
       const throwDirY = Math.abs(input.dirY) > 0.1 ? input.dirY * 0.7 : 0;
       grabbedBoulder.velocity = new Vec2(throwDirX * 350, throwDirY * 350);
       grabbedBoulder = null;
+      sfx.stoneThrow();
     } else {
       // ── Grab: find nearest boulder within range ──
       let closest = null;
@@ -1014,6 +1040,7 @@ function gameLoop() {
       if (closest) {
         grabbedBoulder = closest;
         grabSide = fishCtrl.facingRight ? 1 : -1;
+        sfx.stonePickup();
       }
     }
   }

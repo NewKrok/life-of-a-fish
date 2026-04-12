@@ -69,7 +69,7 @@ export class MusicSystem {
   constructor() {
     this._ctx = null;
     this._masterGain = null;
-    this._volume = 0.5;
+    this._volume = 0.6;
     this._mode = null;                 // 'menu' | 'game'
     this._playing = false;
     this._schedulerTimer = null;
