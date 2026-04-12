@@ -149,6 +149,21 @@ export class MenuScene {
       this.voxelRenderer.buildPufferfish();
     }
 
+    this.crabBodies = [];
+    for (const cr of (fish.crabs || [])) {
+      const b = new Body(BodyType.KINEMATIC, new Vec2(cr.x, cr.y));
+      b.shapes.add(new Capsule(16, 10));
+      b.space = this.space;
+      b._patrol = {
+        minX: Math.max(TILE_SIZE * 2, cr.x - 50 - Math.random() * 30),
+        maxX: Math.min(MENU_WORLD_W - TILE_SIZE * 2, cr.x + 50 + Math.random() * 30),
+        speed: 25 + (Math.random() - 0.5) * 10,
+        _dir: Math.random() < 0.5 ? 1 : -1,
+      };
+      this.crabBodies.push(b);
+      this.voxelRenderer.buildCrab();
+    }
+
     // ── Center camera on aquarium ──
     this._centerCamera();
   }
@@ -379,7 +394,7 @@ export class MenuScene {
 
   // ── Entity data for level editor ──
   getEntityData() {
-    const data = { enemies: [], sharks: [], pufferfish: [] };
+    const data = { enemies: [], sharks: [], pufferfish: [], crabs: [] };
     for (const eb of this.enemyBodies) {
       data.enemies.push({ x: eb.position.x, y: eb.position.y });
     }
@@ -388,6 +403,9 @@ export class MenuScene {
     }
     for (const pf of this.pufferfishBodies) {
       data.pufferfish.push({ x: pf.position.x, y: pf.position.y });
+    }
+    for (const cb of this.crabBodies) {
+      data.crabs.push({ x: cb.position.x, y: cb.position.y });
     }
     return data;
   }
@@ -489,6 +507,15 @@ export class MenuScene {
         pf.velocity = new Vec2(0, p._dir * p.speed);
       }
 
+      for (const cb of this.crabBodies) {
+        if (!cb.space) continue;
+        const p = cb._patrol;
+        const px = cb.position.x;
+        if (px >= p.maxX) p._dir = -1;
+        if (px <= p.minX) p._dir = 1;
+        cb.velocity = new Vec2(p._dir * p.speed, 0);
+      }
+
       // Physics step
       this.space.step(DT, 8, 3);
     }
@@ -542,7 +569,7 @@ export class MenuScene {
       this.voxelRenderer.syncFrame(fakeFishBody, fakeFishState, this.enemyBodies, DT, {
         sharkBodies: this.sharkBodies,
         pufferfishBodies: this.pufferfishBodies,
-        crabBodies: [],
+        crabBodies: this.crabBodies,
         toxicFishBodies: [],
         projectileBodies: [],
       });
