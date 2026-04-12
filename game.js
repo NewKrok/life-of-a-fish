@@ -11,7 +11,7 @@ import {
 import {
   TILE_SIZE, LEVEL_COLS, LEVEL_ROWS, WORLD_W, WORLD_H,
   WATER_SURFACE_Y, TILES,
-  getLevelEntities, getMergedSolidBodies, getWaterZones,
+  getLevelEntities, getMergedSolidBodies, getWaterZones, resetTiles,
 } from './level-data.js';
 
 import {
@@ -121,12 +121,22 @@ const aquariumCloseBtn = document.getElementById('aquariumClose');
 const settingsPanel = document.getElementById('settingsPanel');
 const aboutPanel = document.getElementById('aboutPanel');
 
+// ── Pause UI Elements ──
+const pauseBtn = document.getElementById('pauseBtn');
+const pausePanel = document.getElementById('pausePanel');
+const pauseMusicSlider = document.getElementById('pauseMusicVol');
+const pauseMusicLabel = document.getElementById('pauseMusicVolVal');
+const pauseSfxSlider = document.getElementById('pauseSfxVol');
+const pauseSfxLabel = document.getElementById('pauseSfxVolVal');
+
 function showMenu() {
   appState = 'menu';
   menuOverlay.classList.remove('hidden');
   aquariumCloseBtn.classList.remove('visible');
   settingsPanel.classList.remove('visible');
   aboutPanel.classList.remove('visible');
+  pauseBtn.classList.remove('visible');
+  pausePanel.classList.remove('visible');
   hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
   menuScene.setAquariumMode(false);
   if (!menuScene._running) menuScene.start();
@@ -139,15 +149,215 @@ function hideMenuUI() {
   aboutPanel.classList.remove('visible');
 }
 
+// ── Iris Transition System ──
+// Unified circle-wipe for all scene transitions (menu load, start game, death, restart, exit).
+// Phases: close_fast → close_linger → close_final → black → open_small → open_linger → open_full
+// Can run standalone (own rAF loop) or be driven by game loop.
+const IRIS_R = 100;                     // px — linger radius
+const IRIS_CLOSE_FAST = 0.4;            // s — full → IRIS_R
+const IRIS_CLOSE_LINGER = 0.5;          // s — hold at IRIS_R
+const IRIS_CLOSE_FINAL = 0.3;           // s — IRIS_R → 0
+const IRIS_BLACK = 0.2;                 // s — full black
+const IRIS_OPEN_SMALL = 0.3;            // s — 0 → IRIS_R
+const IRIS_OPEN_LINGER = 0.5;           // s — hold at IRIS_R
+const IRIS_OPEN_FULL = 0.4;             // s — IRIS_R → full
+
+// Shared iris state (used by both standalone loop and game loop)
+let irisState = 'none';
+let irisTimer = 0;
+let irisCx = 0;                         // close center
+let irisCy = 0;
+let irisOpenCx = 0;                     // open center (may differ from close)
+let irisOpenCy = 0;
+let _irisOnBlack = null;                // callback when black phase starts
+let _irisAnimId = null;                 // rAF id for standalone loop
+
+function _irisMaxRadius() {
+  const W = hudCanvas.width;
+  const H = hudCanvas.height;
+  return Math.sqrt(W * W + H * H);
+}
+
+// Compute current iris radius (returns null if no overlay should be drawn)
+function _irisRadius() {
+  const maxR = _irisMaxRadius();
+  if (irisState === 'close_fast') {
+    const t = Math.min(irisTimer / IRIS_CLOSE_FAST, 1);
+    const e = t * (2 - t);
+    return IRIS_R + (maxR - IRIS_R) * (1 - e);
+  }
+  if (irisState === 'close_linger') return IRIS_R;
+  if (irisState === 'close_final') {
+    const t = Math.min(irisTimer / IRIS_CLOSE_FINAL, 1);
+    return IRIS_R * (1 - t);
+  }
+  if (irisState === 'black') return 0;
+  if (irisState === 'open_small') {
+    const t = Math.min(irisTimer / IRIS_OPEN_SMALL, 1);
+    return IRIS_R * t;
+  }
+  if (irisState === 'open_linger') return IRIS_R;
+  if (irisState === 'open_full') {
+    const t = Math.min(irisTimer / IRIS_OPEN_FULL, 1);
+    const e = t * (2 - t);
+    return IRIS_R + (maxR - IRIS_R) * e;
+  }
+  return null;
+}
+
+// Current center for the iris circle
+function _irisCenter() {
+  if (irisState === 'close_fast' || irisState === 'close_linger' || irisState === 'close_final' || irisState === 'black') {
+    return { x: irisCx, y: irisCy };
+  }
+  return { x: irisOpenCx, y: irisOpenCy };
+}
+
+// Advance iris state machine by dt seconds. Returns true if game should freeze.
+function _irisStep(dt) {
+  if (irisState === 'none') return false;
+  irisTimer += dt;
+
+  if (irisState === 'close_fast') {
+    if (irisTimer >= IRIS_CLOSE_FAST) { irisState = 'close_linger'; irisTimer = 0; }
+    return true;
+  }
+  if (irisState === 'close_linger') {
+    if (irisTimer >= IRIS_CLOSE_LINGER) { irisState = 'close_final'; irisTimer = 0; }
+    return true;
+  }
+  if (irisState === 'close_final') {
+    if (irisTimer >= IRIS_CLOSE_FINAL) {
+      irisState = 'black';
+      irisTimer = 0;
+      if (_irisOnBlack) { _irisOnBlack(); _irisOnBlack = null; }
+    }
+    return true;
+  }
+  if (irisState === 'black') {
+    if (irisTimer >= IRIS_BLACK) { irisState = 'open_small'; irisTimer = 0; }
+    return true;
+  }
+  if (irisState === 'open_small') {
+    if (irisTimer >= IRIS_OPEN_SMALL) { irisState = 'open_linger'; irisTimer = 0; }
+    return false;
+  }
+  if (irisState === 'open_linger') {
+    if (irisTimer >= IRIS_OPEN_LINGER) { irisState = 'open_full'; irisTimer = 0; }
+    return false;
+  }
+  if (irisState === 'open_full') {
+    if (irisTimer >= IRIS_OPEN_FULL) { irisState = 'none'; irisTimer = 0; }
+    return false;
+  }
+  return false;
+}
+
+// Draw the iris mask onto hudCtx
+function _irisDraw() {
+  if (irisState === 'none') return;
+  const r = _irisRadius();
+  if (r === null) return;
+  const c = _irisCenter();
+  const W = hudCanvas.width;
+  const H = hudCanvas.height;
+  hudCtx.save();
+  hudCtx.fillStyle = '#000000';
+  hudCtx.beginPath();
+  hudCtx.rect(0, 0, W, H);
+  hudCtx.arc(c.x, c.y, Math.max(0, r), 0, Math.PI * 2, true);
+  hudCtx.fill();
+  hudCtx.restore();
+}
+
+// Start an "open-only" iris (from black → open). Used for menu load-in.
+function irisOpenFrom(cx, cy) {
+  irisState = 'open_small';
+  irisTimer = 0;
+  irisOpenCx = cx;
+  irisOpenCy = cy;
+  _irisOnBlack = null;
+}
+
+// Start a full close→open iris. onBlack is called when fully black.
+function irisCloseOpen(closeCx, closeCy, openCx, openCy, onBlack) {
+  irisState = 'close_fast';
+  irisTimer = 0;
+  irisCx = closeCx;
+  irisCy = closeCy;
+  irisOpenCx = openCx;
+  irisOpenCy = openCy;
+  _irisOnBlack = onBlack;
+}
+
+// Standalone rAF loop for iris outside game loop (menu transitions)
+function _irisStandaloneLoop() {
+  _irisStep(1 / 60);
+
+  // During black phase: if start-game is pending, init the game and hand off
+  if (_startGamePending && irisState === 'black') {
+    _startGamePending = false;
+    _irisAnimId = null;
+    // Init game — its game loop will drive the remaining open phases
+    menuScene.stop();
+    appState = 'game';
+    music.play('game');
+    pauseBtn.classList.add('visible');
+    _startWithExpand = true;
+    startGame();
+    return;
+  }
+
+  hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
+  _irisDraw();
+
+  if (irisState === 'none') {
+    _irisAnimId = null;
+    return;
+  }
+  _irisAnimId = requestAnimationFrame(_irisStandaloneLoop);
+}
+
+function _irisStartStandalone() {
+  if (_irisAnimId) cancelAnimationFrame(_irisAnimId);
+  _irisAnimId = requestAnimationFrame(_irisStandaloneLoop);
+}
+
+function _irisStopStandalone() {
+  if (_irisAnimId) { cancelAnimationFrame(_irisAnimId); _irisAnimId = null; }
+}
+
+// ── Menu load-in: black → open from Start button ──
+{
+  const btn = document.getElementById('btnStartGame');
+  const rect = btn.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+  irisOpenFrom(cx, cy);
+  _irisStartStandalone();
+}
+
+// ── Start Game: close to Start button → black → game inits → open from player spawn ──
+let _startGamePending = false;
+
 document.getElementById('btnStartGame').addEventListener('click', () => {
+  if (irisState !== 'none') return;
   sfx.gameStart();
+  // Get button rect BEFORE hiding (hidden elements return 0,0,0,0)
+  const btn = document.getElementById('btnStartGame');
+  const rect = btn.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
   hideMenuUI();
   aquariumCloseBtn.classList.remove('visible');
-  menuScene.stop();
-  appState = 'game';
-  music.play('game');
-  startGame();
+  _startGamePending = true;
+  // Close to button; onBlack just sets a flag
+  irisCloseOpen(cx, cy, cx, cy, () => { /* standalone loop handles init */ });
+  _irisStartStandalone();
 });
+
+// Signal: startGame should set iris open center to player spawn
+let _startWithExpand = true; // true on first load too
 
 document.getElementById('btnAquarium').addEventListener('click', () => {
   sfx.buttonClick();
@@ -184,6 +394,77 @@ document.getElementById('btnAbout').addEventListener('click', () => {
 document.getElementById('aboutBack').addEventListener('click', () => {
   sfx.buttonClick();
   showMenu();
+});
+
+// ── Pause UI Handlers ──
+function _syncPauseSliders() {
+  // Sync pause modal sliders with current settings
+  const stored = JSON.parse(localStorage.getItem('loaf_settings') || '{}');
+  const mv = stored.musicVol ?? 60;
+  const sv = stored.sfxVol ?? 40;
+  pauseMusicSlider.value = mv;
+  pauseMusicLabel.textContent = mv + '%';
+  pauseSfxSlider.value = sv;
+  pauseSfxLabel.textContent = sv + '%';
+}
+
+function _showPauseModal() {
+  _syncPauseSliders();
+  pausePanel.classList.add('visible');
+  pauseBtn.classList.remove('visible');
+}
+
+function _hidePauseModal() {
+  pausePanel.classList.remove('visible');
+  if (appState === 'game') pauseBtn.classList.add('visible');
+}
+
+pauseBtn.addEventListener('click', () => {
+  sfx.buttonClick();
+  if (window._pauseGame) window._pauseGame();
+});
+
+document.getElementById('pauseResume').addEventListener('click', () => {
+  sfx.buttonClick();
+  if (window._resumeGame) window._resumeGame();
+});
+
+document.getElementById('pauseRestart').addEventListener('click', () => {
+  sfx.buttonClick();
+  if (window._restartGame) window._restartGame();
+});
+
+document.getElementById('pauseExit').addEventListener('click', () => {
+  sfx.buttonClick();
+  if (window._exitToMenu) window._exitToMenu();
+});
+
+pauseMusicSlider.addEventListener('input', () => {
+  const v = parseInt(pauseMusicSlider.value);
+  pauseMusicLabel.textContent = v + '%';
+  const stored = JSON.parse(localStorage.getItem('loaf_settings') || '{}');
+  stored.musicVol = v;
+  localStorage.setItem('loaf_settings', JSON.stringify(stored));
+  if (window._music) window._music.setVolume(v / 100);
+  // Sync main settings slider too
+  const mainSlider = document.getElementById('musicVolume');
+  const mainLabel = document.getElementById('musicVolumeVal');
+  if (mainSlider) mainSlider.value = v;
+  if (mainLabel) mainLabel.textContent = v + '%';
+});
+
+pauseSfxSlider.addEventListener('input', () => {
+  const v = parseInt(pauseSfxSlider.value);
+  pauseSfxLabel.textContent = v + '%';
+  const stored = JSON.parse(localStorage.getItem('loaf_settings') || '{}');
+  stored.sfxVol = v;
+  localStorage.setItem('loaf_settings', JSON.stringify(stored));
+  if (window._sfx) window._sfx.setVolume(v / 100);
+  // Sync main settings slider too
+  const mainSlider = document.getElementById('sfxVolume');
+  const mainLabel = document.getElementById('sfxVolumeVal');
+  if (mainSlider) mainSlider.value = v;
+  if (mainLabel) mainLabel.textContent = v + '%';
 });
 
 // ── Level Editor Toggle (F4) ──
@@ -360,6 +641,9 @@ function startGame() {
     return;
   }
   gameInitialized = true;
+
+  // Reset tile data so entities are re-extracted cleanly on re-start
+  resetTiles();
 
   camera = new THREE.PerspectiveCamera(
     CAM_FOV, window.innerWidth / window.innerHeight, 1, 3000
@@ -637,23 +921,17 @@ const pearlListener = new InteractionListener(
 );
 pearlListener.space = space;
 
-// Enemy collision -> respawn
+// Enemy collision -> death
 const enemyListener = new InteractionListener(
   CbEvent.BEGIN, InteractionType.SENSOR, playerTag, enemyTag,
-  () => {
-    sfx.playerDeath();
-    fishCtrl.respawn(entities.playerSpawn.x, entities.playerSpawn.y);
-  },
+  () => { triggerDeath(); },
 );
 enemyListener.space = space;
 
-// Hazard collision -> respawn
+// Hazard collision -> death
 const hazardListener = new InteractionListener(
   CbEvent.BEGIN, InteractionType.SENSOR, playerTag, hazardTag,
-  () => {
-    sfx.playerDeath();
-    fishCtrl.respawn(entities.playerSpawn.x, entities.playerSpawn.y);
-  },
+  () => { triggerDeath(); },
 );
 hazardListener.space = space;
 
@@ -689,23 +967,17 @@ const boulderPlayerPre = new PreListener(
 );
 boulderPlayerPre.space = space;
 
-// Shark collision -> respawn (same as regular enemy)
+// Shark collision -> death
 const sharkListener = new InteractionListener(
   CbEvent.BEGIN, InteractionType.SENSOR, playerTag, sharkTag,
-  () => {
-    sfx.playerDeath();
-    fishCtrl.respawn(entities.playerSpawn.x, entities.playerSpawn.y);
-  },
+  () => { triggerDeath(); },
 );
 sharkListener.space = space;
 
-// Pufferfish collision -> respawn
+// Pufferfish collision -> death
 const pufferfishListener = new InteractionListener(
   CbEvent.BEGIN, InteractionType.SENSOR, playerTag, pufferfishTag,
-  () => {
-    sfx.playerDeath();
-    fishCtrl.respawn(entities.playerSpawn.x, entities.playerSpawn.y);
-  },
+  () => { triggerDeath(); },
 );
 pufferfishListener.space = space;
 
@@ -726,7 +998,7 @@ const crabListener = new InteractionListener(
 );
 crabListener.space = space;
 
-// Poison projectile collision -> respawn
+// Poison projectile collision -> death
 const projectileListener = new InteractionListener(
   CbEvent.BEGIN, InteractionType.SENSOR, playerTag, projectileTag,
   (cb) => {
@@ -735,20 +1007,16 @@ const projectileListener = new InteractionListener(
     const projBody = projectileBodies.find(p => p === b1 || p === b2);
     if (projBody && projBody.space) {
       projBody.space = null;
-      sfx.playerDeath();
-      fishCtrl.respawn(entities.playerSpawn.x, entities.playerSpawn.y);
+      triggerDeath();
     }
   },
 );
 projectileListener.space = space;
 
-// Toxic fish body collision -> respawn
+// Toxic fish body collision -> death
 const toxicFishListener = new InteractionListener(
   CbEvent.BEGIN, InteractionType.SENSOR, playerTag, toxicFishTag,
-  () => {
-    sfx.playerDeath();
-    fishCtrl.respawn(entities.playerSpawn.x, entities.playerSpawn.y);
-  },
+  () => { triggerDeath(); },
 );
 toxicFishListener.space = space;
 
@@ -1018,43 +1286,301 @@ function renderPhysicsDebug() {
   hudCtx.restore();
 }
 
+// ── Game State ──
+const TOTAL_PEARLS = entities.pearls.length;
+const MAX_LIVES = 3;
+let lives = MAX_LIVES;
+
+const LEVEL_TIME = 5 * 60;              // s — 5 minute countdown
+let timeRemaining = LEVEL_TIME;          // s — seconds left
+
+// ── Death State ──
+// Uses the shared iris system for circle wipe. Adds a freeze phase before.
+const DEATH_FREEZE_TIME = 0.3;          // s — game frozen before iris starts
+let deathActive = false;
+let deathFreezeTimer = 0;
+
+function triggerDeath() {
+  if (deathActive || irisState !== 'none') return;
+  sfx.playerDeath();
+  deathActive = true;
+  deathFreezeTimer = DEATH_FREEZE_TIME;
+}
+
+// Called each frame from game loop. Returns true if game logic should freeze.
+function updateDeathState(dt) {
+  if (!deathActive && irisState === 'none') return false;
+
+  // Freeze phase: wait before starting iris
+  if (deathActive && deathFreezeTimer > 0) {
+    deathFreezeTimer -= dt;
+    if (deathFreezeTimer <= 0) {
+      // Start iris close → open
+      const { visW, visH } = getVisibleSize();
+      const fishSx = (player.position.x - camX) / visW * hudCanvas.width;
+      const fishSy = (player.position.y - camY) / visH * hudCanvas.height;
+
+      irisCloseOpen(fishSx, fishSy, 0, 0, () => {
+        // onBlack: respawn
+        lives--;
+        if (lives <= 0) {
+          lives = MAX_LIVES;
+          pearlCount = 0;
+          timeRemaining = LEVEL_TIME;
+        }
+        fishCtrl.respawn(entities.playerSpawn.x, entities.playerSpawn.y);
+        const { visW: sw, visH: sh } = getVisibleSize();
+        camX = Math.max(CAM_INSET, Math.min(entities.playerSpawn.x - sw / 2, WORLD_W - sw - CAM_INSET));
+        camY = Math.max(CAM_INSET, Math.min(entities.playerSpawn.y - sh / 2 - 30, WORLD_H - sh - CAM_INSET));
+        // Update open center to spawn screen position
+        irisOpenCx = (entities.playerSpawn.x - camX) / sw * hudCanvas.width;
+        irisOpenCy = (entities.playerSpawn.y - camY) / sh * hudCanvas.height;
+        deathActive = false;
+      });
+    }
+    return true; // freeze during pre-iris pause
+  }
+
+  // During iris: step and return freeze state
+  if (irisState !== 'none') {
+    return _irisStep(dt);
+  }
+
+  return false;
+}
+
+// Draw iris overlay (called after HUD each frame)
+function renderDeathOverlay() {
+  _irisDraw();
+}
+
+// ── Pause State ──
+let gamePaused = false;
+
+function pauseGame() {
+  if (deathActive || irisState !== 'none') return;
+  gamePaused = true;
+  _showPauseModal();
+}
+
+function resumeGame() {
+  gamePaused = false;
+  _hidePauseModal();
+}
+
+function restartGame() {
+  if (irisState !== 'none') return;
+  gamePaused = false;
+  _hidePauseModal();
+  // Close iris on current fish position, open on spawn
+  const { visW, visH } = getVisibleSize();
+  const fishSx = (player.position.x - camX) / visW * hudCanvas.width;
+  const fishSy = (player.position.y - camY) / visH * hudCanvas.height;
+  irisCloseOpen(fishSx, fishSy, 0, 0, () => {
+    lives = MAX_LIVES;
+    pearlCount = 0;
+    timeRemaining = LEVEL_TIME;
+    fishCtrl.respawn(entities.playerSpawn.x, entities.playerSpawn.y);
+    const { visW: sw, visH: sh } = getVisibleSize();
+    camX = Math.max(CAM_INSET, Math.min(entities.playerSpawn.x - sw / 2, WORLD_W - sw - CAM_INSET));
+    camY = Math.max(CAM_INSET, Math.min(entities.playerSpawn.y - sh / 2 - 30, WORLD_H - sh - CAM_INSET));
+    irisOpenCx = (entities.playerSpawn.x - camX) / sw * hudCanvas.width;
+    irisOpenCy = (entities.playerSpawn.y - camY) / sh * hudCanvas.height;
+  });
+}
+
+let _exitPending = false;
+
+function exitToMenu() {
+  if (irisState !== 'none') return;
+  gamePaused = false;
+  // Get button rect BEFORE hiding (hidden elements return 0,0,0,0)
+  const exitBtn = document.getElementById('pauseExit');
+  const exitRect = exitBtn.getBoundingClientRect();
+  _hidePauseModal();
+  const exitCx = exitRect.left + exitRect.width / 2;
+  const exitCy = exitRect.top + exitRect.height / 2;
+  // Open center: screen center (Start button is hidden during game)
+  const startCx = hudCanvas.width / 2;
+  const startCy = hudCanvas.height / 2;
+  _exitPending = true;
+  irisCloseOpen(exitCx, exitCy, startCx, startCy, () => {
+    // onBlack: switch to menu, game loop will detect _exitPending and self-terminate
+    gameInitialized = false;
+    showMenu();
+  });
+}
+
+// Expose pause functions for UI buttons (these closures reference startGame scope)
+window._pauseGame = pauseGame;
+window._resumeGame = resumeGame;
+window._restartGame = restartGame;
+window._exitToMenu = exitToMenu;
+
+// Escape key: toggle pause (use named fn to prevent duplicates on re-init)
+if (window._escHandler) window.removeEventListener('keydown', window._escHandler);
+window._escHandler = (e) => {
+  if (e.code === 'Escape' && appState === 'game' && !editorActive) {
+    e.preventDefault();
+    if (gamePaused) resumeGame();
+    else pauseGame();
+  }
+};
+window.addEventListener('keydown', window._escHandler);
+
 // ── HUD Rendering ──
+
 function renderHUD() {
   const W = hudCanvas.width;
   const H = hudCanvas.height;
   hudCtx.clearRect(0, 0, W, H);
 
-  const state = fishCtrl.getState();
+  // ── Pearl progress bar (top-center) ──
+  const barW = 340;
+  const barH = 28;
+  const barX = (W - barW) / 2;
+  const barY = 12;
+  const progress = TOTAL_PEARLS > 0 ? pearlCount / TOTAL_PEARLS : 0;
 
-  // Controls hint
-  hudCtx.fillStyle = 'rgba(255,255,255,0.5)';
-  hudCtx.font = "10px 'Silkscreen', monospace";
-  hudCtx.fillText('WASD / Arrows = swim, Space = dash, E = grab/throw rock', 10, 20);
+  // Bar background
+  hudCtx.fillStyle = 'rgba(0, 20, 40, 0.65)';
+  hudCtx.beginPath();
+  hudCtx.roundRect(barX, barY, barW, barH, 14);
+  hudCtx.fill();
 
-  // Pearl counter
-  hudCtx.fillStyle = '#ffd93d';
-  hudCtx.font = "bold 12px 'Silkscreen', monospace";
-  hudCtx.fillText(`Pearl: ${pearlCount}`, W - 120, 20);
+  // Bar border
+  hudCtx.strokeStyle = 'rgba(255, 217, 61, 0.45)';
+  hudCtx.lineWidth = 2;
+  hudCtx.beginPath();
+  hudCtx.roundRect(barX, barY, barW, barH, 14);
+  hudCtx.stroke();
 
-  // State indicator
-  let stateText = 'SWIMMING';
-  let stateColor = '#4dc9f6';
-  if (!state.inWater) { stateText = 'IN AIR'; stateColor = '#f85149'; }
-  if (state.dashing) { stateText = 'DASH!'; stateColor = '#ff8c42'; }
-  hudCtx.fillStyle = stateColor;
-  hudCtx.font = "bold 10px 'Silkscreen', monospace";
-  hudCtx.fillText(stateText, 10, 40);
-
-  // Depth meter
-  const depthPx = Math.max(0, player.position.y - WATER_SURFACE_Y);
-  const depthM = (depthPx / TILE_SIZE).toFixed(1);
-  if (state.inWater) {
-    hudCtx.fillStyle = 'rgba(100,200,255,0.6)';
-    hudCtx.font = "10px 'Silkscreen', monospace";
-    hudCtx.fillText(`Depth: ${depthM}m`, 10, 58);
+  // Bar fill
+  if (progress > 0) {
+    const fillW = Math.max(8, barW * progress);
+    hudCtx.fillStyle = '#ffd93d';
+    hudCtx.globalAlpha = 0.85;
+    hudCtx.beginPath();
+    hudCtx.roundRect(barX, barY, fillW, barH, 14);
+    hudCtx.fill();
+    hudCtx.globalAlpha = 1.0;
   }
 
+  // Pearl icon — blocky cube with highlight (matches in-game BoxGeometry)
+  const iconS = 18; // square size
+  const iconX = barX - iconS - 10;
+  const iconY = barY + (barH - iconS) / 2;
+  // Main cube face
+  hudCtx.fillStyle = '#ffd93d';
+  hudCtx.fillRect(iconX, iconY, iconS, iconS);
+  // Dark edge (bottom-right)
+  hudCtx.fillStyle = 'rgba(180, 140, 20, 0.6)';
+  hudCtx.fillRect(iconX + iconS - 3, iconY + 3, 3, iconS - 3);
+  hudCtx.fillRect(iconX + 3, iconY + iconS - 3, iconS - 3, 3);
+  // Shine (top-left)
+  hudCtx.fillStyle = '#fff8e0';
+  hudCtx.fillRect(iconX + 3, iconY + 3, 5, 5);
+
+  // Count text
+  hudCtx.fillStyle = '#ffffff';
+  hudCtx.font = "bold 16px 'Silkscreen', monospace";
+  hudCtx.textAlign = 'center';
+  hudCtx.fillText(`${pearlCount} / ${TOTAL_PEARLS}`, barX + barW / 2, barY + barH - 7);
+
+  // ── Lives (hearts) — top-left ──
+  const heartSize = 28;
+  const heartGap = 10;
+  const heartY = 25;
+  const heartStartX = 22;
+  for (let i = 0; i < MAX_LIVES; i++) {
+    const hx = heartStartX + i * (heartSize + heartGap);
+    const hy = heartY;
+    _drawHeart(hx, hy, heartSize, i < lives);
+  }
+
+  // ── Timer (top-right, left of pause button) ──
+  const mins = Math.floor(timeRemaining / 60);
+  const secs = Math.floor(timeRemaining % 60);
+  const timeStr = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  const timerX = W - 58;
+  const timerY = 32;
+
+  // Clock icon
+  _drawClock(timerX - 74, timerY - 6, 8);
+
+  // Timer text
+  if (timeRemaining <= 30) {
+    const flash = Math.sin(Date.now() * 0.008) > 0;
+    hudCtx.fillStyle = flash ? '#ff4060' : '#ff8090';
+  } else if (timeRemaining <= 60) {
+    hudCtx.fillStyle = '#ff8c42';
+  } else {
+    hudCtx.fillStyle = 'rgba(200, 230, 255, 0.8)';
+  }
+  hudCtx.font = "bold 18px 'Silkscreen', monospace";
+  hudCtx.textAlign = 'right';
+  hudCtx.fillText(timeStr, timerX, timerY);
+
   hudCtx.textAlign = 'left';
+}
+
+// Draw a pixel-art style heart
+function _drawHeart(cx, cy, size, filled) {
+  const r = size / 2;
+  hudCtx.save();
+  hudCtx.translate(cx, cy);
+  hudCtx.beginPath();
+  hudCtx.moveTo(0, r * 0.35);
+  hudCtx.bezierCurveTo(-r * 0.1, -r * 0.3, -r, -r * 0.3, -r, r * 0.1);
+  hudCtx.bezierCurveTo(-r, r * 0.55, -r * 0.2, r * 0.8, 0, r);
+  hudCtx.bezierCurveTo(r * 0.2, r * 0.8, r, r * 0.55, r, r * 0.1);
+  hudCtx.bezierCurveTo(r, -r * 0.3, r * 0.1, -r * 0.3, 0, r * 0.35);
+  hudCtx.closePath();
+
+  if (filled) {
+    hudCtx.fillStyle = '#ff4060';
+    hudCtx.fill();
+    hudCtx.strokeStyle = 'rgba(255, 100, 120, 0.6)';
+    hudCtx.lineWidth = 1;
+    hudCtx.stroke();
+    // Highlight
+    hudCtx.fillStyle = 'rgba(255, 200, 200, 0.5)';
+    hudCtx.beginPath();
+    hudCtx.arc(-r * 0.3, -r * 0.05, r * 0.2, 0, Math.PI * 2);
+    hudCtx.fill();
+  } else {
+    hudCtx.fillStyle = 'rgba(60, 20, 30, 0.5)';
+    hudCtx.fill();
+    hudCtx.strokeStyle = 'rgba(255, 64, 96, 0.3)';
+    hudCtx.lineWidth = 1;
+    hudCtx.stroke();
+  }
+  hudCtx.restore();
+}
+
+// Draw a simple clock icon (circle + two hands)
+function _drawClock(cx, cy, r) {
+  const col = 'rgba(200, 230, 255, 0.7)';
+  hudCtx.save();
+  // Circle
+  hudCtx.strokeStyle = col;
+  hudCtx.lineWidth = 3;
+  hudCtx.beginPath();
+  hudCtx.arc(cx, cy, r, 0, Math.PI * 2);
+  hudCtx.stroke();
+  // Minute hand (up)
+  hudCtx.strokeStyle = 'rgba(200, 230, 255, 0.9)';
+  hudCtx.lineWidth = 2;
+  hudCtx.beginPath();
+  hudCtx.moveTo(cx, cy);
+  hudCtx.lineTo(cx, cy - r * 0.6);
+  hudCtx.stroke();
+  // Hour hand (right-ish)
+  hudCtx.beginPath();
+  hudCtx.moveTo(cx, cy);
+  hudCtx.lineTo(cx + r * 0.45, cy + r * 0.2);
+  hudCtx.stroke();
+  hudCtx.restore();
 }
 
 // ── Game Loop ──
@@ -1093,6 +1619,47 @@ function gameLoop() {
     return;
   }
 
+  // ── Paused ──
+  if (gamePaused) {
+    // Keep rendering the scene but skip game logic
+    renderer.render(scene, camera);
+    renderHUD();
+    gameAnimId = requestAnimationFrame(gameLoop);
+    return;
+  }
+
+  // ── Exit to menu: iris still playing after menu is shown ──
+  if (_exitPending) {
+    if (irisState === 'none') {
+      // Iris finished — stop game loop, menu scene is already running
+      _exitPending = false;
+      gameAnimId = null;
+      return;
+    }
+    // Still animating — step iris, draw overlay on top of menu scene
+    _irisStep(DT);
+    hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
+    _irisDraw();
+    gameAnimId = requestAnimationFrame(gameLoop);
+    return;
+  }
+
+  // ── Death / Respawn Animation ──
+  const deathFrozen = updateDeathState(DT);
+  if (deathFrozen) {
+    // Update Three.js camera position (camX/camY may have changed during respawn)
+    const { visW: dVisW, visH: dVisH } = getVisibleSize();
+    const dLookX = camX + dVisW / 2;
+    const dLookY = -(camY + dVisH / 2);
+    camera.position.set(dLookX, dLookY - CAM_Y_OFFSET, CAM_Z_OFFSET);
+    camera.lookAt(dLookX, dLookY, 0);
+    renderer.render(scene, camera);
+    renderHUD();
+    renderDeathOverlay();
+    gameAnimId = requestAnimationFrame(gameLoop);
+    return;
+  }
+
   // ── Input ──
   const kbInput = getKeyboardInput();
   const touchInput = touchControls.getInput();
@@ -1102,6 +1669,15 @@ function gameLoop() {
     dash: kbInput.dash || touchInput.dash,
     grab: kbInput.grab,
   };
+
+  // ── Countdown timer ──
+  if (!deathActive && irisState === 'none') {
+    timeRemaining -= DT;
+    if (timeRemaining <= 0) {
+      timeRemaining = 0;
+      triggerDeath();  // time's up = death
+    }
+  }
 
   // ── Update enemy patrol ──
   for (const eb of enemyBodies) {
@@ -1316,9 +1892,18 @@ function gameLoop() {
 
   // ── HUD ──
   renderHUD();
+  renderDeathOverlay();
   renderPhysicsDebug();
 
   gameAnimId = requestAnimationFrame(gameLoop);
+}
+
+// Update iris open center to player spawn position (for start-game transition)
+if (_startWithExpand) {
+  _startWithExpand = false;
+  const { visW: sw, visH: sh } = getVisibleSize();
+  irisOpenCx = (player.position.x - camX) / sw * hudCanvas.width;
+  irisOpenCy = (player.position.y - camY) / sh * hudCanvas.height;
 }
 
 // Kick off the game loop inside startGame

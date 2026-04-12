@@ -222,6 +222,44 @@
       text-decoration: underline;
     }
 
+    /* ── Pause Button (in-game) ── */
+    #pauseBtn {
+      position: absolute;
+      top: 12px; right: 16px;
+      width: 36px; height: 36px;
+      border-radius: 8px;
+      background: rgba(10, 30, 60, 0.5);
+      border: 1.5px solid rgba(100, 180, 255, 0.3);
+      color: rgba(200, 230, 255, 0.7);
+      font: bold 16px 'Silkscreen', monospace;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 12;
+      transition: all 0.2s ease;
+      line-height: 1;
+      padding: 0;
+    }
+    #pauseBtn:hover {
+      background: rgba(20, 50, 90, 0.8);
+      border-color: rgba(100, 200, 255, 0.6);
+      color: #ffffff;
+    }
+    #pauseBtn.visible { display: flex; }
+
+    .pause-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .pause-actions .menu-btn {
+      min-width: 200px;
+      padding: 10px 32px;
+      font-size: 11px;
+    }
+
     /* ── Settings controls ── */
     .settings-row {
       display: flex;
@@ -314,6 +352,31 @@
         <span class="settings-value" id="sfxVolumeVal">40%</span>
       </div>
       <button class="panel-back-btn" id="settingsBack">Back</button>
+    </div>
+  </div>
+
+  <!-- Pause Button (in-game) -->
+  <button id="pauseBtn">&#9646;&#9646;</button>
+
+  <!-- Pause Modal -->
+  <div class="menu-panel" id="pausePanel">
+    <div class="panel-box">
+      <div class="panel-title">Paused</div>
+      <div class="settings-row">
+        <label class="settings-label" for="pauseMusicVol">Music</label>
+        <input type="range" id="pauseMusicVol" class="settings-slider" min="0" max="100" value="60">
+        <span class="settings-value" id="pauseMusicVolVal">60%</span>
+      </div>
+      <div class="settings-row">
+        <label class="settings-label" for="pauseSfxVol">SFX</label>
+        <input type="range" id="pauseSfxVol" class="settings-slider" min="0" max="100" value="40">
+        <span class="settings-value" id="pauseSfxVolVal">40%</span>
+      </div>
+      <div class="pause-actions">
+        <button class="menu-btn" id="pauseResume">Resume</button>
+        <button class="menu-btn" id="pauseRestart">Restart</button>
+        <button class="menu-btn" id="pauseExit">Exit to Menu</button>
+      </div>
     </div>
   </div>
 

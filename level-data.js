@@ -82,13 +82,21 @@ const LEVEL_STRINGS = [
 
 // Parse the string map into a 2D number array
 export const TILES = [];
-for (let row = 0; row < LEVEL_ROWS; row++) {
-  TILES[row] = [];
-  const str = LEVEL_STRINGS[row] || '';
-  for (let col = 0; col < LEVEL_COLS; col++) {
-    const ch = str[col] || '.';
-    TILES[row][col] = KEY[ch] ?? 0;
+function _parseTiles() {
+  for (let row = 0; row < LEVEL_ROWS; row++) {
+    TILES[row] = [];
+    const str = LEVEL_STRINGS[row] || '';
+    for (let col = 0; col < LEVEL_COLS; col++) {
+      const ch = str[col] || '.';
+      TILES[row][col] = KEY[ch] ?? 0;
+    }
   }
+}
+_parseTiles();
+
+// Reset TILES to original state (re-parse from LEVEL_STRINGS)
+export function resetTiles() {
+  _parseTiles();
 }
 
 // Extract spawn points and special positions
