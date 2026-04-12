@@ -2100,6 +2100,48 @@ export class VoxelRenderer {
     });
   }
 
+  // ── Spawn pearl collect particles (golden sparkles radiating outward) ──
+  spawnPearlCollect(x, y) {
+    const THREE = this.THREE;
+    const colors = [0xffd93d, 0xffe066, 0xffcc00, 0xfff0c0, 0xffffff];
+    const count = 14;
+
+    for (let i = 0; i < count; i++) {
+      const size = 2 + Math.random() * 3;
+      const geo = new THREE.BoxGeometry(size, size, size);
+      const mat = new THREE.MeshStandardMaterial({
+        color: colors[Math.floor(Math.random() * colors.length)],
+        emissive: 0xffd93d,
+        emissiveIntensity: 0.6,
+        roughness: 0.2,
+        metalness: 0.5,
+        transparent: true,
+        opacity: 1.0,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.5;
+      const speed = 40 + Math.random() * 60;
+      mesh.position.set(
+        x + (Math.random() - 0.5) * 8,
+        -y + (Math.random() - 0.5) * 8,
+        (Math.random() - 0.5) * 10
+      );
+      mesh.rotation.set(
+        Math.random() * Math.PI,
+        Math.random() * Math.PI,
+        Math.random() * Math.PI
+      );
+      this.scene.add(mesh);
+      this.bubbles.push({
+        mesh,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed * 0.7,
+        life: 0.5 + Math.random() * 0.5,
+        _isPearlSparkle: true,
+      });
+    }
+  }
+
   // ── Spawn boulder break particles (rock-colored cubes flying outward) ──
   spawnBoulderBreak(x, y) {
     const THREE = this.THREE;
@@ -2212,7 +2254,8 @@ export class VoxelRenderer {
     for (let i = this.pearlMeshes.length - 1; i >= 0; i--) {
       const p = this.pearlMeshes[i];
       if (!p.body.space) {
-        // Pearl was collected — remove mesh
+        // Pearl was collected — spawn sparkle particles, then remove mesh
+        this.spawnPearlCollect(p.mesh.position.x, -p.mesh.position.y);
         this.scene.remove(p.mesh);
         p.mesh.geometry.dispose();
         p.mesh.material.dispose();
@@ -2367,11 +2410,22 @@ export class VoxelRenderer {
     for (let i = this.bubbles.length - 1; i >= 0; i--) {
       const b = this.bubbles[i];
       b.mesh.position.y += b.vy * dt;
-      b.mesh.position.x += (b.vx || 0) * dt + (b._isRock ? 0 : Math.sin(this._time * 3 + i) * 0.5);
-      if (b.vx) b.vx *= 0.96;
+      const wobble = (b._isRock || b._isPearlSparkle) ? 0 : Math.sin(this._time * 3 + i) * 0.5;
+      b.mesh.position.x += (b.vx || 0) * dt + wobble;
+      if (b.vx && !b._isPearlSparkle) b.vx *= 0.96;
       b.life -= dt;
 
-      if (b._isRock) {
+      if (b._isPearlSparkle) {
+        // Pearl sparkle: shrink + fade, slight drag, no gravity
+        b.vx *= 0.93;
+        b.vy *= 0.93;
+        const t = Math.max(0, b.life);
+        b.mesh.material.opacity = t * 1.5;
+        const s = 0.3 + t * 0.7;
+        b.mesh.scale.set(s, s, s);
+        b.mesh.rotation.x += 5 * dt;
+        b.mesh.rotation.z += 4 * dt;
+      } else if (b._isRock) {
         // Rock debris: fade by lifetime, gravity pulls down, no surface kill
         b.vy -= 150 * dt;
         b.mesh.material.opacity = Math.max(0, b.life * 0.9);
@@ -2387,7 +2441,7 @@ export class VoxelRenderer {
         }
       }
 
-      if (b.life <= 0 || (!b._isRock && b.mesh.position.y > waterSurfaceThreeY)) {
+      if (b.life <= 0 || (!b._isRock && !b._isPearlSparkle && b.mesh.position.y > waterSurfaceThreeY)) {
         this.scene.remove(b.mesh);
         b.mesh.geometry.dispose();
         b.mesh.material.dispose();

@@ -156,7 +156,6 @@ for (const hz of entities.hazards) {
 
 // ── Pearl collectibles ──
 let pearlCount = 0;
-let pearlPopups = [];
 const pearlBodies = [];
 for (const p of entities.pearls) {
   const b = new Body(BodyType.STATIC, new Vec2(p.x, p.y));
@@ -344,7 +343,6 @@ const pearlListener = new InteractionListener(
       const cy = pearlBody.position.y;
       pearlBody.space = null;
       pearlCount++;
-      pearlPopups.push({ x: cx, y: cy - 10, timer: 1.2 });
     }
   },
 );
@@ -753,25 +751,6 @@ function renderHUD() {
     hudCtx.fillText(`Depth: ${depthM}m`, 10, 58);
   }
 
-  // Pearl popup animations (world space -> screen space)
-  const { visW: popVisW, visH: popVisH } = getVisibleSize();
-  for (let i = pearlPopups.length - 1; i >= 0; i--) {
-    const p = pearlPopups[i];
-    p.timer -= DT;
-    p.y -= 25 * DT;
-    if (p.timer <= 0) {
-      pearlPopups.splice(i, 1);
-      continue;
-    }
-    // Map world coords to screen pixels
-    const sx = (p.x - camX) / popVisW * W;
-    const sy = (p.y - camY) / popVisH * H;
-    const alpha = Math.min(1, p.timer * 2);
-    hudCtx.fillStyle = `rgba(255,217,61,${alpha})`;
-    hudCtx.font = 'bold 16px monospace';
-    hudCtx.textAlign = 'center';
-    hudCtx.fillText('+1', sx, sy);
-  }
   hudCtx.textAlign = 'left';
 }
 
