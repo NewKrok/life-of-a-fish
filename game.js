@@ -134,6 +134,9 @@ const pauseMusicLabel = document.getElementById('pauseMusicVolVal');
 const pauseSfxSlider = document.getElementById('pauseSfxVol');
 const pauseSfxLabel = document.getElementById('pauseSfxVolVal');
 
+// ── Touch Controls (module-level so menu/pause helpers can access) ──
+const touchControls = new TouchControls();
+
 function showMenu() {
   appState = 'menu';
   menuOverlay.classList.remove('hidden');
@@ -144,6 +147,7 @@ function showMenu() {
   settingsPanel.classList.remove('visible');
   aboutPanel.classList.remove('visible');
   pauseBtn.classList.remove('visible');
+  touchControls.hide();
   pausePanel.classList.remove('visible');
   gameOverPanel.classList.remove('visible');
   victoryPanel.classList.remove('visible');
@@ -259,7 +263,10 @@ function _irisStep(dt) {
     return false;
   }
   if (irisState === 'open_full') {
-    if (irisTimer >= IRIS_OPEN_FULL) { irisState = 'none'; irisTimer = 0; }
+    if (irisTimer >= IRIS_OPEN_FULL) {
+      irisState = 'none'; irisTimer = 0;
+      if (appState === 'game') touchControls.show();
+    }
     return false;
   }
   return false;
@@ -481,6 +488,7 @@ function _showPauseModal() {
   _syncPauseSliders();
   pausePanel.classList.add('visible');
   pauseBtn.classList.remove('visible');
+  touchControls.hide();
 }
 
 function _hidePauseModal() {
@@ -1206,9 +1214,6 @@ const boulderToxicListener = new InteractionListener(
 );
 boulderToxicListener.space = space;
 
-// ── Touch Controls ──
-const touchControls = new TouchControls();
-
 // ── Keyboard Input ──
 const keys = {};
 let prevSpace = false;
@@ -1414,6 +1419,7 @@ function showGameOver() {
   gameOverActive = true;
   gamePaused = true;
   pauseBtn.classList.remove('visible');
+  touchControls.hide();
   document.getElementById('goStatPearls').textContent = `${pearlCount} / ${TOTAL_PEARLS}`;
   gameOverPanel.classList.add('visible');
 }
@@ -1427,6 +1433,7 @@ function showVictory() {
   victoryActive = true;
   gamePaused = true;
   pauseBtn.classList.remove('visible');
+  touchControls.hide();
 
   const mins = Math.floor(timeRemaining / 60);
   const secs = Math.floor(timeRemaining % 60);
@@ -1527,6 +1534,7 @@ function pauseGame() {
 function resumeGame() {
   gamePaused = false;
   _hidePauseModal();
+  touchControls.show();
 }
 
 function _resetEntities() {
@@ -1983,7 +1991,7 @@ function gameLoop() {
     dirX: Math.abs(kbInput.dirX) > Math.abs(touchInput.dirX) ? kbInput.dirX : touchInput.dirX,
     dirY: Math.abs(kbInput.dirY) > Math.abs(touchInput.dirY) ? kbInput.dirY : touchInput.dirY,
     dash: kbInput.dash || touchInput.dash,
-    grab: kbInput.grab,
+    grab: kbInput.grab || touchInput.grab,
   };
 
   // ── Victory check ──

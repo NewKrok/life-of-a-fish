@@ -7,10 +7,13 @@ export class TouchControls {
     this.dirX = 0;
     this.dirY = 0;
     this.dash = false;
+    this.grab = false;
 
+    this._container = document.querySelector('.touch-controls');
     this._joystickZone = document.getElementById('joystickZone');
     this._joystickInner = document.getElementById('joystickInner');
     this._dashBtn = document.getElementById('dashBtn');
+    this._grabBtn = document.getElementById('grabBtn');
 
     this._joystickActive = false;
     this._joystickPointerId = null;
@@ -19,9 +22,11 @@ export class TouchControls {
     this._maxRadius = 50; // max offset from center in px
 
     this._dashPointerId = null;
+    this._grabPointerId = null;
 
     if (this._joystickZone) this._initJoystick();
     if (this._dashBtn) this._initDash();
+    if (this._grabBtn) this._initGrab();
   }
 
   _initJoystick() {
@@ -108,14 +113,46 @@ export class TouchControls {
     btn.addEventListener('pointercancel', endDash);
   }
 
+  _initGrab() {
+    const btn = this._grabBtn;
+
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      btn.setPointerCapture(e.pointerId);
+      this._grabPointerId = e.pointerId;
+      this.grab = true;
+      btn.classList.add('active');
+    });
+
+    const endGrab = (e) => {
+      if (e.pointerId !== this._grabPointerId) return;
+      this._grabPointerId = null;
+      btn.classList.remove('active');
+    };
+
+    btn.addEventListener('pointerup', endGrab);
+    btn.addEventListener('pointercancel', endGrab);
+  }
+
+  // ── Show / Hide (for menu vs game state) ──
+  show() {
+    if (this._container) this._container.classList.add('game-active');
+  }
+
+  hide() {
+    if (this._container) this._container.classList.remove('game-active');
+  }
+
   getInput() {
     const result = {
       dirX: this.dirX,
       dirY: this.dirY,
       dash: this.dash,
+      grab: this.grab,
     };
-    // Dash is consumed after one read (single-frame trigger)
+    // Dash and grab are consumed after one read (single-frame trigger)
     this.dash = false;
+    this.grab = false;
     return result;
   }
 }
