@@ -1278,7 +1278,7 @@ const keyChestListener = new InteractionListener(
     // Particle effect
     voxelRenderer.spawnChestOpen(cx, cy, chestEntry.colorIndex);
     voxelRenderer.removeChest(chestEntry.body);
-    sfx.pearlPickup();
+    sfx.chestOpen();
 
     // Spawn a pearl at chest location
     const pb = new Body(BodyType.STATIC, new Vec2(cx, cy));

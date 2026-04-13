@@ -283,7 +283,45 @@ export class SfxSystem {
     noise.stop(t + 0.11);
   }
 
-  // ── 11. Shark chase alert — ominous stinger ──
+  // ── 11. Chest open — wooden creak + metallic click + sparkle ──
+  chestOpen() {
+    if (!this._ensureCtx()) return;
+    const t = this._ctx.currentTime;
+    // Wooden creak (low filtered noise sweep)
+    const noise1 = this._noise(0.2);
+    const n1Gain = this._ctx.createGain();
+    const bpf = this._ctx.createBiquadFilter();
+    bpf.type = 'bandpass';
+    bpf.frequency.setValueAtTime(300, t);
+    bpf.frequency.exponentialRampToValueAtTime(800, t + 0.15);
+    bpf.Q.value = 3;
+    noise1.connect(bpf);
+    bpf.connect(n1Gain);
+    n1Gain.connect(this._masterGain);
+    n1Gain.gain.setValueAtTime(0.18, t);
+    n1Gain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+    noise1.start(t);
+    noise1.stop(t + 0.22);
+    // Metallic click/latch
+    const click = this._osc('square', 1800, t + 0.05);
+    const cGain = this._env(click, t + 0.05, 0.002, 0.04, 0.3);
+    click.frequency.exponentialRampToValueAtTime(600, t + 0.09);
+    click.stop(t + 0.1);
+    // Sparkle reveal (ascending bright tones)
+    const notes = [880, 1175, 1480, 1760]; // A5, D6, F#6, A6
+    notes.forEach((freq, i) => {
+      const start = t + 0.1 + i * 0.06;
+      const osc = this._osc('sine', freq, start);
+      const g = this._env(osc, start, 0.005, 0.14, 0.2);
+      osc.stop(start + 0.16);
+    });
+    // Shimmer tail
+    const shimmer = this._osc('sine', 2600, t + 0.3);
+    const sGain = this._env(shimmer, t + 0.3, 0.01, 0.25, 0.1);
+    shimmer.stop(t + 0.58);
+  }
+
+  // ── 12. Shark chase alert — ominous stinger ──
   sharkAlert() {
     if (!this._ensureCtx()) return;
     const t = this._ctx.currentTime;
