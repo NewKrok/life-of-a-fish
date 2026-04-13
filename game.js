@@ -13,6 +13,7 @@ import {
   WATER_SURFACE_Y, TILES,
   getLevelEntities, getMergedSolidBodies, getWaterZones, resetTiles,
   getLevels, setCurrentLevel, getCurrentLevelIndex,
+  KEY_CHEST_COLORS,
 } from './level-data.js';
 
 import {
@@ -776,6 +777,8 @@ const pufferfishTag = new CbType();
 const crabTag = new CbType();
 const toxicFishTag = new CbType();
 const projectileTag = new CbType();
+const keyTag = new CbType();
+const chestTag = new CbType();
 
 // ── Build terrain bodies from merged tiles ──
 const mergedBodies = getMergedSolidBodies();
@@ -967,6 +970,41 @@ for (const br of entities.boulders) {
   boulderBodies.push(b);
 }
 
+// ── Keys (carriable colored keys, no damage) ──
+const KEY_GRAB_DIST = 36;        // px — how close the fish must be to grab
+const KEY_CARRY_OFFSET = 22;     // px — distance from fish center when carried
+const KEY_SNAP_DIST = 55;        // px — auto-release if key stuck behind wall
+const keyBodies = [];             // { body, colorIndex }
+let grabbedKey = null;            // currently grabbed key body (or null)
+let keyGrabSide = 1;             // 1 = right, -1 = left
+for (const k of entities.keys) {
+  const b = new Body(BodyType.DYNAMIC, new Vec2(k.x, k.y));
+  const shape = new Polygon(Polygon.box(8, 22), undefined, new Material(0.6, 0.1, 0.1, 1.5));
+  shape.cbTypes.add(keyTag);
+  b.shapes.add(shape);
+  b.allowRotation = false;
+  b.space = space;
+  b._colorIndex = k.colorIndex;
+  keyBodies.push({ body: b, colorIndex: k.colorIndex });
+}
+
+// ── Chests (static, opened by matching key) ──
+const chestBodies = [];           // { body, colorIndex }
+for (const ch of entities.chests) {
+  const b = new Body(BodyType.STATIC, new Vec2(ch.x, ch.y));
+  // Solid shape — player and objects collide with the chest
+  const solid = new Polygon(Polygon.box(27, 18));
+  b.shapes.add(solid);
+  // Sensor shape — detects key collision for unlocking
+  const sensor = new Polygon(Polygon.box(30, 22));
+  sensor.sensorEnabled = true;
+  sensor.cbTypes.add(chestTag);
+  b.shapes.add(sensor);
+  b.space = space;
+  b._colorIndex = ch.colorIndex;
+  chestBodies.push({ body: b, colorIndex: ch.colorIndex });
+}
+
 // ── Rafts (floating platforms) ──
 const raftBodies = [];
 for (const rf of entities.rafts) {
@@ -982,6 +1020,8 @@ for (const rf of entities.rafts) {
 // Build dynamic object meshes
 voxelRenderer.buildBuoys(buoyBodies);
 voxelRenderer.buildBoulders(boulderBodies);
+voxelRenderer.buildKeys(keyBodies);
+voxelRenderer.buildChests(chestBodies);
 voxelRenderer.buildRafts(raftBodies);
 
 // ── Player fish ──
@@ -1214,6 +1254,52 @@ const boulderToxicListener = new InteractionListener(
 );
 boulderToxicListener.space = space;
 
+// ── Key-Chest collision: matching color opens chest, spawns pearl ──
+const keyChestListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, keyTag, chestTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const keyEntry = keyBodies.find(k => k.body === b1 || k.body === b2);
+    const chestEntry = chestBodies.find(c => c.body === b1 || c.body === b2);
+    if (!keyEntry || !chestEntry) return;
+    // Only open if colors match and key is not currently held
+    if (keyEntry.body === grabbedKey) return;
+    if (keyEntry.colorIndex !== chestEntry.colorIndex) return;
+    if (!keyEntry.body.space || !chestEntry.body.space) return;
+
+    const cx = chestEntry.body.position.x;
+    const cy = chestEntry.body.position.y;
+
+    // Remove key and chest from physics
+    keyEntry.body.space = null;
+    chestEntry.body.space = null;
+
+    // Particle effect
+    voxelRenderer.spawnChestOpen(cx, cy, chestEntry.colorIndex);
+    voxelRenderer.removeChest(chestEntry.body);
+    sfx.pearlPickup();
+
+    // Spawn a pearl at chest location
+    const pb = new Body(BodyType.STATIC, new Vec2(cx, cy));
+    const ps = new Circle(6);
+    ps.sensorEnabled = true;
+    ps.cbTypes.add(pearlTag);
+    pb.shapes.add(ps);
+    pb.space = space;
+    pearlBodies.push(pb);
+    voxelRenderer.buildPearlAt(pb);
+  },
+);
+keyChestListener.space = space;
+
+// Player-key collision: ignored while carrying
+const keyPlayerPre = new PreListener(
+  InteractionType.COLLISION, playerTag, keyTag,
+  () => grabbedKey ? PreFlag.IGNORE : PreFlag.ACCEPT,
+);
+keyPlayerPre.space = space;
+
 // ── Keyboard Input ──
 const keys = {};
 let prevSpace = false;
@@ -1383,7 +1469,7 @@ function renderPhysicsDebug() {
 }
 
 // ── Game State ──
-const TOTAL_PEARLS = entities.pearls.length;
+const TOTAL_PEARLS = entities.pearls.length + entities.chests.length;
 const MAX_LIVES = 3;
 let lives = MAX_LIVES;
 
@@ -1538,6 +1624,13 @@ function resumeGame() {
 }
 
 function _resetEntities() {
+  // ── Remove chest-spawned pearls first (beyond original pearl count) ──
+  const origPearlCount = entities.pearls.length;
+  while (pearlBodies.length > origPearlCount) {
+    const pb = pearlBodies.pop();
+    if (pb.space) pb.space = null;
+  }
+
   // ── Pearls ──
   for (let i = 0; i < pearlBodies.length; i++) {
     const b = pearlBodies[i];
@@ -1617,6 +1710,28 @@ function _resetEntities() {
   }
   grabbedBoulder = null;
   voxelRenderer.buildBoulders(boulderBodies);
+
+  // ── Keys ──
+  for (let i = 0; i < keyBodies.length; i++) {
+    const k = keyBodies[i];
+    const kd = entities.keys[i];
+    k.body.position = new Vec2(kd.x, kd.y);
+    k.body.velocity = new Vec2(0, 0);
+    k.body.rotation = 0;
+    k.body.angularVel = 0;
+    if (!k.body.space) k.body.space = space;
+  }
+  grabbedKey = null;
+  voxelRenderer.buildKeys(keyBodies);
+
+  // ── Chests ──
+  for (let i = 0; i < chestBodies.length; i++) {
+    const c = chestBodies[i];
+    const cd = entities.chests[i];
+    c.body.position = new Vec2(cd.x, cd.y);
+    if (!c.body.space) c.body.space = space;
+  }
+  voxelRenderer.buildChests(chestBodies);
 
   // ── Buoys ──
   for (let i = 0; i < buoyBodies.length; i++) {
@@ -2128,23 +2243,34 @@ function gameLoop() {
     rb.angularVel *= 0.95;
   }
 
-  // ── Boulder grab / carry / throw mechanic (E key) ──
+  // ── Boulder / Key grab / carry / throw mechanic (E key) ──
   if (grabbedBoulder && !grabbedBoulder.space) {
     grabbedBoulder = null;
+  }
+  if (grabbedKey && !grabbedKey.space) {
+    grabbedKey = null;
   }
 
   if (input.grab) {
     if (grabbedBoulder) {
-      // ── Throw: fling boulder in facing direction ──
+      // ── Throw boulder ──
       const throwDirX = fishCtrl.facingRight ? 1 : -1;
       const throwDirY = Math.abs(input.dirY) > 0.1 ? input.dirY * 0.7 : 0;
       grabbedBoulder.velocity = new Vec2(throwDirX * 350, throwDirY * 350);
       grabbedBoulder = null;
       sfx.stoneThrow();
+    } else if (grabbedKey) {
+      // ── Throw key (same arc, no damage) ──
+      const throwDirX = fishCtrl.facingRight ? 1 : -1;
+      const throwDirY = Math.abs(input.dirY) > 0.1 ? input.dirY * 0.7 : 0;
+      grabbedKey.velocity = new Vec2(throwDirX * 300, throwDirY * 300);
+      grabbedKey = null;
+      sfx.stoneThrow();
     } else {
-      // ── Grab: find nearest boulder within range ──
+      // ── Grab: find nearest boulder or key within range ──
       let closest = null;
       let closestDist = BOULDER_GRAB_DIST;
+      let closestType = null; // 'boulder' or 'key'
       for (const br of boulderBodies) {
         if (!br.space) continue;
         const dx = br.position.x - player.position.x;
@@ -2153,17 +2279,34 @@ function gameLoop() {
         if (dist < closestDist) {
           closestDist = dist;
           closest = br;
+          closestType = 'boulder';
+        }
+      }
+      for (const k of keyBodies) {
+        if (!k.body.space) continue;
+        const dx = k.body.position.x - player.position.x;
+        const dy = k.body.position.y - player.position.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < closestDist) {
+          closestDist = dist;
+          closest = k.body;
+          closestType = 'key';
         }
       }
       if (closest) {
-        grabbedBoulder = closest;
-        grabSide = fishCtrl.facingRight ? 1 : -1;
+        if (closestType === 'boulder') {
+          grabbedBoulder = closest;
+          grabSide = fishCtrl.facingRight ? 1 : -1;
+        } else {
+          grabbedKey = closest;
+          keyGrabSide = fishCtrl.facingRight ? 1 : -1;
+        }
         sfx.stonePickup();
       }
     }
   }
 
-  // ── Carry: pull boulder toward fish via velocity (physics still collides with terrain) ──
+  // ── Carry boulder ──
   if (grabbedBoulder) {
     grabSide = fishCtrl.facingRight ? 1 : -1;
     const targetX = player.position.x + grabSide * BOULDER_CARRY_OFFSET;
@@ -2172,13 +2315,30 @@ function gameLoop() {
     const dy = targetY - grabbedBoulder.position.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    // If boulder is stuck behind a wall / too far away, release it
     if (dist > BOULDER_SNAP_DIST) {
       grabbedBoulder = null;
     } else {
       const pull = 12;
       grabbedBoulder.velocity = new Vec2(dx * pull, dy * pull);
       grabbedBoulder.angularVel = 0;
+    }
+  }
+
+  // ── Carry key ──
+  if (grabbedKey) {
+    keyGrabSide = fishCtrl.facingRight ? 1 : -1;
+    const targetX = player.position.x + keyGrabSide * KEY_CARRY_OFFSET;
+    const targetY = player.position.y;
+    const dx = targetX - grabbedKey.position.x;
+    const dy = targetY - grabbedKey.position.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist > KEY_SNAP_DIST) {
+      grabbedKey = null;
+    } else {
+      const pull = 12;
+      grabbedKey.velocity = new Vec2(dx * pull, dy * pull);
+      grabbedKey.angularVel = 0;
     }
   }
 

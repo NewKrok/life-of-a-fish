@@ -77,6 +77,8 @@ In-game editor activated with **F4**. Works in both menu and game states. Pauses
 - Player: dynamic body with `CharacterController` for ground detection
 - Enemies: kinematic bodies — basic (patrol), shark (patrol+chase), pufferfish (vertical), crab (ground push), toxic fish (ranged)
 - Pearls / hazards: sensor shapes with `InteractionListener` callbacks
+- Keys: dynamic bodies like boulders, carriable/throwable, no enemy damage
+- Chests: static sensor bodies, opened by matching-color key collision
 - Each entity class has its own `CbType` for collision filtering
 
 ### Rendering (Three.js)
@@ -113,6 +115,18 @@ Tile map is a string grid (125 cols × 25 rows, 32px tiles):
 | `U`  | Pufferfish  | 13      |
 | `C`  | Crab        | 14      |
 | `F`  | Toxic Fish  | 15      |
+| `1`  | Key Red     | 16      |
+| `2`  | Key Blue    | 17      |
+| `3`  | Key Green   | 18      |
+| `4`  | Key Yellow  | 19      |
+| `5`  | Key Purple  | 20      |
+| `a`  | Chest Red   | 21      |
+| `b`  | Chest Blue  | 22      |
+| `g`  | Chest Green | 23      |
+| `y`  | Chest Yellow| 24      |
+| `q`  | Chest Purple| 25      |
+
+Keys are carriable/throwable like boulders but deal no damage. Throwing a key at its matching-color chest opens the chest with a particle effect and spawns a pearl. Chest pearls are included in `TOTAL_PEARLS` from level start.
 
 Water surface is at row 4 (128px).
 

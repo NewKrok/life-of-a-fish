@@ -24,6 +24,16 @@ const PALETTE = [
   { id: 13, char: 'U', label: 'Pufferfish',  color: '#c0a060' },
   { id: 14, char: 'C', label: 'Crab',        color: '#d04020' },
   { id: 15, char: 'F', label: 'Toxic Fish',  color: '#50c050' },
+  { id: 16, char: '1', label: 'Key Red',     color: '#ff4444' },
+  { id: 17, char: '2', label: 'Key Blue',    color: '#4488ff' },
+  { id: 18, char: '3', label: 'Key Green',   color: '#44cc44' },
+  { id: 19, char: '4', label: 'Key Yellow',  color: '#ffcc00' },
+  { id: 20, char: '5', label: 'Key Purple',  color: '#aa44ff' },
+  { id: 21, char: 'a', label: 'Chest Red',   color: '#cc2222' },
+  { id: 22, char: 'b', label: 'Chest Blue',  color: '#2266cc' },
+  { id: 23, char: 'g', label: 'Chest Green', color: '#22aa22' },
+  { id: 24, char: 'y', label: 'Chest Yellow',color: '#ccaa00' },
+  { id: 25, char: 'q', label: 'Chest Purple',color: '#8822cc' },
 ];
 
 // Reverse lookup: tileId -> char
@@ -31,7 +41,7 @@ const ID_TO_CHAR = {};
 for (const p of PALETTE) ID_TO_CHAR[p.id] = p.char;
 
 // Entity tile IDs (non-terrain — stored as entity positions)
-const ENTITY_IDS = new Set([5, 6, 7, 9, 10, 11, 12, 13, 14, 15]);
+const ENTITY_IDS = new Set([5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25]);
 
 // Enemies with patrol ranges
 const PATROL_DEFAULTS = {
@@ -183,6 +193,12 @@ export class LevelEditor {
       if (knownEntities.pufferfish) addGroup(knownEntities.pufferfish, 13);
       if (knownEntities.crabs) addGroup(knownEntities.crabs, 14);
       if (knownEntities.toxicFish) addGroup(knownEntities.toxicFish, 15);
+      if (knownEntities.keys) {
+        for (const k of knownEntities.keys) list.push({ x: k.x, y: k.y, tileId: 16 + k.colorIndex });
+      }
+      if (knownEntities.chests) {
+        for (const ch of knownEntities.chests) list.push({ x: ch.x, y: ch.y, tileId: 21 + ch.colorIndex });
+      }
       if (knownEntities.playerSpawn) {
         list.push({ x: knownEntities.playerSpawn.x, y: knownEntities.playerSpawn.y, tileId: 7 });
       }

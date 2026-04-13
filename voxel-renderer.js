@@ -3,7 +3,7 @@
 // Uses InstancedMesh for terrain, Group of boxes for fish/enemies.
 // Enhanced with procedural textures, god rays, and underwater atmosphere.
 
-import { TILE_SIZE, LEVEL_COLS, LEVEL_ROWS, TILES, WATER_SURFACE_Y, WORLD_W, WORLD_H } from './level-data.js';
+import { TILE_SIZE, LEVEL_COLS, LEVEL_ROWS, TILES, WATER_SURFACE_Y, WORLD_W, WORLD_H, KEY_CHEST_COLORS } from './level-data.js';
 
 const VOXEL_DEPTH = TILE_SIZE; // Z depth of each voxel
 
@@ -60,6 +60,8 @@ export class VoxelRenderer {
     this.pearlMeshes = [];  // { mesh, body } pairs
     this.buoyMeshes = [];   // { mesh, body } pairs
     this.boulderMeshes = []; // { mesh, body } pairs
+    this.keyMeshes = [];     // { mesh, body, colorIndex } pairs
+    this.chestMeshes = [];   // { mesh, body, colorIndex, opened } pairs
     this.raftMeshes = [];   // { mesh, body } pairs
     this.waterMesh = null;
     this.bubbles = [];
@@ -126,6 +128,12 @@ export class VoxelRenderer {
     // Boulders
     for (const b of this.boulderMeshes) this.scene.remove(b.mesh);
     this.boulderMeshes.length = 0;
+    // Keys
+    for (const k of this.keyMeshes) this.scene.remove(k.mesh);
+    this.keyMeshes.length = 0;
+    // Chests
+    for (const c of this.chestMeshes) this.scene.remove(c.mesh);
+    this.chestMeshes.length = 0;
     // Rafts
     for (const r of this.raftMeshes) this.scene.remove(r.mesh);
     this.raftMeshes.length = 0;
@@ -1438,6 +1446,23 @@ export class VoxelRenderer {
     }
   }
 
+  // ── Build a single pearl at runtime (e.g. from opened chest) ──
+  buildPearlAt(body) {
+    const THREE = this.THREE;
+    const pearlGeo = new THREE.BoxGeometry(10, 10, 10);
+    const pearlMat = new THREE.MeshStandardMaterial({
+      color: 0xfff0c0,
+      emissive: 0xffd93d,
+      emissiveIntensity: 0.5,
+      roughness: 0.3,
+      metalness: 0.4,
+    });
+    const mesh = new THREE.Mesh(pearlGeo, pearlMat);
+    mesh.position.set(body.position.x, -body.position.y, 0);
+    this.scene.add(mesh);
+    this.pearlMeshes.push({ mesh, body });
+  }
+
   // ── Build buoy meshes ──
   buildBuoys(buoyBodies) {
     const THREE = this.THREE;
@@ -1563,6 +1588,120 @@ export class VoxelRenderer {
       this.scene.add(group);
       this.boulderMeshes.push({ mesh: group, body });
     }
+  }
+
+  // ── Build key meshes (colored key shapes) ──
+  buildKeys(keyBodies) {
+    for (const k of this.keyMeshes) this.scene.remove(k.mesh);
+    this.keyMeshes.length = 0;
+
+    const THREE = this.THREE;
+    const V = 2.16;
+
+    for (const { body, colorIndex } of keyBodies) {
+      const group = new THREE.Group();
+      const baseColor = KEY_CHEST_COLORS[colorIndex].hex;
+      const darkColor = this._darkenColor(baseColor, 0.6);
+      const lightColor = this._lightenColor(baseColor, 1.4);
+
+      const addVoxel = (x, y, z, color) => {
+        const geo = new THREE.BoxGeometry(V, V, V);
+        const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.6 });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(x * V, y * V, z * V);
+        group.add(mesh);
+      };
+
+      // Key handle (ring) — top part
+      for (const [x, y] of [[-1,4],[0,4],[1,4],[-2,3],[-2,2],[-1,1],[0,1],[1,1],[2,3],[2,2]]) {
+        addVoxel(x, y, 0, baseColor);
+      }
+      // Key shaft — vertical bar going down
+      for (let y = 0; y >= -4; y--) {
+        addVoxel(0, y, 0, lightColor);
+      }
+      // Key teeth
+      addVoxel(1, -2, 0, darkColor);
+      addVoxel(1, -4, 0, darkColor);
+      addVoxel(2, -4, 0, darkColor);
+
+      group.position.set(body.position.x, -body.position.y, 0);
+      this.scene.add(group);
+      this.keyMeshes.push({ mesh: group, body, colorIndex });
+    }
+  }
+
+  // ── Build chest meshes (colored treasure chests, ~block-sized) ──
+  buildChests(chestBodies) {
+    for (const c of this.chestMeshes) this.scene.remove(c.mesh);
+    this.chestMeshes.length = 0;
+
+    const THREE = this.THREE;
+    const V = 4.5; // voxel size — 6 wide × 4.5 = 27px, 5 tall × 4.5 = 22.5px ≈ block
+
+    for (const { body, colorIndex } of chestBodies) {
+      const group = new THREE.Group();
+      const accentColor = KEY_CHEST_COLORS[colorIndex].hex;
+      const WOOD = 0x8B5A2B;
+      const WOOD_DARK = 0x6B3A1B;
+      const WOOD_LIGHT = 0x9B6A3B;
+      const METAL = 0xccccaa;
+
+      const addVoxel = (x, y, z, color) => {
+        const geo = new THREE.BoxGeometry(V, V, V);
+        const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.7, metalness: 0.2 });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(x * V, y * V, z * V);
+        group.add(mesh);
+      };
+
+      // Chest body — 6 wide (-3..2), 4 tall (-2..1), 3 deep (-1..1)
+      for (let x = -3; x <= 2; x++) {
+        for (let z = -1; z <= 1; z++) {
+          // Bottom two rows (base)
+          addVoxel(x, -2, z, WOOD_DARK);
+          addVoxel(x, -1, z, WOOD);
+        }
+      }
+      // Lid (top two rows)
+      for (let x = -3; x <= 2; x++) {
+        for (let z = -1; z <= 1; z++) {
+          addVoxel(x, 0, z, WOOD_LIGHT);
+          addVoxel(x, 1, z, WOOD);
+        }
+      }
+      // Accent band (colored stripe across front, middle height)
+      for (let x = -3; x <= 2; x++) {
+        addVoxel(x, -1, 1, accentColor);
+      }
+      // Lock/clasp (front center)
+      addVoxel(0, 0, 1, accentColor);
+      addVoxel(-1, 0, 1, accentColor);
+      // Metal corners (front face)
+      addVoxel(-3, -2, 1, METAL);
+      addVoxel(2, -2, 1, METAL);
+      addVoxel(-3, 1, 1, METAL);
+      addVoxel(2, 1, 1, METAL);
+
+      group.position.set(body.position.x, -body.position.y, 0);
+      this.scene.add(group);
+      this.chestMeshes.push({ mesh: group, body, colorIndex, opened: false });
+    }
+  }
+
+  // ── Color utility helpers ──
+  _darkenColor(hex, factor) {
+    const r = ((hex >> 16) & 0xff) * factor;
+    const g = ((hex >> 8) & 0xff) * factor;
+    const b = (hex & 0xff) * factor;
+    return (Math.floor(r) << 16) | (Math.floor(g) << 8) | Math.floor(b);
+  }
+
+  _lightenColor(hex, factor) {
+    const r = Math.min(255, ((hex >> 16) & 0xff) * factor);
+    const g = Math.min(255, ((hex >> 8) & 0xff) * factor);
+    const b = Math.min(255, (hex & 0xff) * factor);
+    return (Math.floor(r) << 16) | (Math.floor(g) << 8) | Math.floor(b);
   }
 
   // ── Build raft meshes ──
@@ -2440,6 +2579,58 @@ export class VoxelRenderer {
     }
   }
 
+  // ── Spawn chest open particles (colored sparkles + wood splinters) ──
+  spawnChestOpen(x, y, colorIndex) {
+    const THREE = this.THREE;
+    const accentColor = KEY_CHEST_COLORS[colorIndex].hex;
+    const colors = [accentColor, 0xffd700, 0xffee88, 0x8B5A2B, 0xffffff];
+    const count = 25;
+
+    for (let i = 0; i < count; i++) {
+      const size = 2 + Math.random() * 4;
+      const geo = new THREE.BoxGeometry(size, size, size);
+      const mat = new THREE.MeshStandardMaterial({
+        color: colors[Math.floor(Math.random() * colors.length)],
+        roughness: 0.3,
+        metalness: 0.5,
+        transparent: true,
+        opacity: 1.0,
+        emissive: i < 10 ? 0xffd700 : 0x000000,
+        emissiveIntensity: i < 10 ? 0.5 : 0,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(
+        x + (Math.random() - 0.5) * 24,
+        -y + (Math.random() - 0.5) * 24,
+        (Math.random() - 0.5) * 24
+      );
+      mesh.rotation.set(
+        Math.random() * Math.PI,
+        Math.random() * Math.PI,
+        Math.random() * Math.PI
+      );
+      this.scene.add(mesh);
+      this.bubbles.push({
+        mesh,
+        vy: (Math.random() * 0.6 + 0.4) * 100, // mostly upward
+        vx: (Math.random() - 0.5) * 100,
+        life: 0.6 + Math.random() * 0.8,
+        _isRock: true,
+      });
+    }
+  }
+
+  // ── Mark chest as opened (remove mesh) ──
+  removeChest(body) {
+    for (let i = this.chestMeshes.length - 1; i >= 0; i--) {
+      if (this.chestMeshes[i].body === body) {
+        this.scene.remove(this.chestMeshes[i].mesh);
+        this.chestMeshes.splice(i, 1);
+        break;
+      }
+    }
+  }
+
   // ── Per-frame update ──
   syncFrame(fishBody, fishState, enemyBodies, dt, extras = {}) {
     this._time += dt;
@@ -2544,6 +2735,18 @@ export class VoxelRenderer {
       }
       b.mesh.position.set(b.body.position.x, -b.body.position.y, 0);
       b.mesh.rotation.z = -b.body.rotation;
+    }
+
+    // ── Sync keys (position + rotation, remove destroyed) ──
+    for (let i = this.keyMeshes.length - 1; i >= 0; i--) {
+      const k = this.keyMeshes[i];
+      if (!k.body.space) {
+        this.scene.remove(k.mesh);
+        this.keyMeshes.splice(i, 1);
+        continue;
+      }
+      k.mesh.position.set(k.body.position.x, -k.body.position.y, 0);
+      k.mesh.rotation.z = -k.body.rotation;
     }
 
     // ── Sync rafts (position + rotation from physics) ──
