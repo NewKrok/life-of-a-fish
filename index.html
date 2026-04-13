@@ -711,6 +711,174 @@
         border: 2px solid rgba(200, 230, 255, 0.5);
         cursor: pointer;
       }
+
+      /* ── Mobile Responsive ── */
+      @media (max-width: 600px) {
+        .menu-title {
+          font-size: 28px;
+          letter-spacing: 2px;
+          margin-bottom: 24px;
+        }
+
+        .menu-items {
+          gap: 10px;
+          width: 80%;
+        }
+
+        .menu-btn {
+          min-width: 0;
+          width: 100%;
+          padding: 12px 24px;
+          font-size: 12px;
+          box-sizing: border-box;
+        }
+
+        .pause-actions .menu-btn {
+          min-width: 0;
+          width: 100%;
+          padding: 10px 24px;
+        }
+
+        .panel-box {
+          min-width: 0;
+          width: 85%;
+          max-width: none;
+          padding: 20px 20px;
+          box-sizing: border-box;
+        }
+
+        .panel-title {
+          font-size: 18px;
+          margin-bottom: 14px;
+        }
+
+        .panel-text {
+          font-size: 10px;
+          margin-bottom: 16px;
+        }
+
+        .codex-box {
+          width: 92%;
+          padding: 16px 14px 14px;
+          max-height: 85vh;
+        }
+
+        .codex-title {
+          font-size: 18px;
+        }
+
+        .codex-tabs {
+          gap: 4px;
+          margin-bottom: 10px;
+        }
+
+        .codex-tab {
+          padding: 5px 10px;
+          font-size: 10px;
+        }
+
+        .codex-entry {
+          padding: 10px 12px;
+        }
+
+        .codex-entry-icon {
+          width: 36px;
+          height: 36px;
+        }
+
+        .codex-entry-name {
+          font-size: 12px;
+        }
+
+        .codex-entry-desc {
+          font-size: 11px;
+          padding-left: 46px;
+        }
+
+        .codex-entry-tip {
+          font-size: 10px;
+          padding-left: 46px;
+        }
+
+        .level-cards {
+          max-width: 100%;
+        }
+
+        .level-select-title {
+          font-size: 18px;
+        }
+
+        .result-title {
+          font-size: 22px;
+        }
+
+        .settings-row {
+          gap: 8px;
+          padding: 0 4px;
+        }
+
+        #aquariumClose {
+          top: max(12px, env(safe-area-inset-top, 12px));
+          right: max(12px, env(safe-area-inset-right, 12px));
+        }
+      }
+
+      @media (max-height: 500px) {
+        .menu-title {
+          font-size: 22px;
+          margin-bottom: 12px;
+        }
+
+        #menuMain {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px;
+          width: auto;
+        }
+
+        #menuMain .menu-btn:first-child {
+          grid-column: 1 / -1;
+        }
+
+        #menuMain .menu-btn {
+          min-width: 0;
+          width: 100%;
+          padding: 8px 18px;
+          font-size: 11px;
+          box-sizing: border-box;
+        }
+
+        #levelSelect {
+          gap: 6px;
+        }
+
+        .level-cards {
+          max-width: 100%;
+        }
+
+        .level-select-title {
+          font-size: 16px;
+        }
+
+        .panel-box {
+          padding: 16px 20px;
+          max-height: 90vh;
+          overflow-y: auto;
+        }
+
+        .panel-title {
+          font-size: 16px;
+          margin-bottom: 10px;
+        }
+
+        .codex-box {
+          max-height: 90vh;
+        }
+
+        .result-title {
+          font-size: 20px;
+        }
+      }
     </style>
   </head>
   <body>
