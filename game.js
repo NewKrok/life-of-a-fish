@@ -28,6 +28,7 @@ import { MenuScene } from './menu-scene.js';
 import { MusicSystem } from './music-system.js';
 import { SfxSystem } from './sfx-system.js';
 import { LevelEditor } from './level-editor.js';
+import { generateCodexPreviews } from './codex-renderer.js';
 
 // ── Three.js import ──
 import * as THREE from "three";
@@ -77,7 +78,7 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 // ── App State ──
-let appState = 'menu';  // 'menu' | 'game' | 'aquarium' | 'settings' | 'about'
+let appState = 'menu';  // 'menu' | 'game' | 'aquarium' | 'settings' | 'about' | 'codex'
 let gameInitialized = false;
 let gameAnimId = null;
 
@@ -122,6 +123,7 @@ const menuOverlay = document.getElementById('menuOverlay');
 const aquariumCloseBtn = document.getElementById('aquariumClose');
 const settingsPanel = document.getElementById('settingsPanel');
 const aboutPanel = document.getElementById('aboutPanel');
+const codexPanel = document.getElementById('codexPanel');
 
 // ── Game Over / Victory UI Elements ──
 const gameOverPanel = document.getElementById('gameOverPanel');
@@ -147,6 +149,7 @@ function showMenu() {
   aquariumCloseBtn.classList.remove('visible');
   settingsPanel.classList.remove('visible');
   aboutPanel.classList.remove('visible');
+  codexPanel.classList.remove('visible');
   pauseBtn.classList.remove('visible');
   touchControls.hide();
   pausePanel.classList.remove('visible');
@@ -162,6 +165,7 @@ function hideMenuUI() {
   menuOverlay.classList.add('hidden');
   settingsPanel.classList.remove('visible');
   aboutPanel.classList.remove('visible');
+  codexPanel.classList.remove('visible');
 }
 
 // ── Iris Transition System ──
@@ -473,6 +477,185 @@ document.getElementById('aboutBack').addEventListener('click', () => {
   showMenu();
 });
 
+// ── Codex (Encyclopedia) ──
+const CODEX_DATA = [
+  // ── Player ──
+  {
+    category: 'player', preview: 'player', name: 'You (Clownfish)',
+    tag: 'friendly', tagLabel: 'Player',
+    desc: 'A brave little clownfish on a quest for pearls. Small but surprisingly agile — can swim, dash, and even jump out of the water!',
+    tip: 'Tip: Master the dash to dodge enemies and break through obstacles.',
+  },
+  // ── Enemies ──
+  {
+    category: 'enemies', preview: 'piranha', name: 'Piranha',
+    tag: 'danger', tagLabel: 'Enemy',
+    desc: 'A vicious red predator that patrols its territory relentlessly. One bite is enough to ruin your day.',
+    tip: 'Tip: Dash into it or throw a boulder to defeat it. Timing is everything.',
+  },
+  {
+    category: 'enemies', preview: 'shark', name: 'Shark',
+    tag: 'danger', tagLabel: 'Predator',
+    desc: 'Silent shadow of the deep. It glides through the water with an eerie calm — until it catches your scent. Then there is no calm, only teeth and speed. Nothing can stop it. Nothing... except disappearing.',
+    tip: 'Tip: Hide in seagrass to break the chase. The shark loses sight of you among the swaying blades.',
+  },
+  {
+    category: 'enemies', preview: 'pufferfish', name: 'Pufferfish',
+    tag: 'danger', tagLabel: 'Enemy',
+    desc: 'A spiky ball of pain that bobs up and down. Touching it from any direction hurts — but a well-aimed boulder can pop it.',
+    tip: 'Tip: Watch its rhythm and swim past, or throw a boulder to get rid of it for good.',
+  },
+  {
+    category: 'enemies', preview: 'crab', name: 'Crab',
+    tag: 'danger', tagLabel: 'Enemy',
+    desc: 'A stubborn bottom-dweller guarding narrow passages. Won\'t hurt you directly, but its powerful claws shove you into danger.',
+    tip: 'Tip: It pushes you on contact. Use the momentum or avoid tight spaces near it.',
+  },
+  {
+    category: 'enemies', preview: 'toxicFish', name: 'Toxic Fish',
+    tag: 'danger', tagLabel: 'Ranged',
+    desc: 'A venomous lurker that spits poison projectiles when you get close. Keeps its distance and attacks from afar.',
+    tip: 'Tip: Dash through the projectiles or time your approach between shots.',
+  },
+  // ── Items ──
+  {
+    category: 'items', preview: 'pearl', name: 'Pearl',
+    tag: 'item', tagLabel: 'Collectible',
+    desc: 'Shimmering golden pearls scattered across the ocean floor. Collect them all to complete each level.',
+    tip: 'Tip: Some are hidden behind obstacles or locked inside chests.',
+  },
+  {
+    category: 'items', preview: 'key', name: 'Key',
+    tag: 'item', tagLabel: 'Key Item',
+    desc: 'Colorful keys in five variants — Red, Blue, Green, Yellow, and Purple. Carry one to its matching chest to unlock a hidden pearl.',
+    tip: 'Tip: Grab a key and throw it at the chest with the same color. Keys float, so plan your route!',
+  },
+  {
+    category: 'items', preview: 'chest', name: 'Chest',
+    tag: 'item', tagLabel: 'Locked',
+    desc: 'Mysterious treasure chests sealed with a colorful lock. Each one holds a precious pearl — if you bring the right key.',
+    tip: 'Tip: Match the key color to the chest. You\'ll hear a satisfying click when it opens.',
+  },
+  {
+    category: 'items', preview: 'boulder', name: 'Boulder',
+    tag: 'item', tagLabel: 'Throwable',
+    desc: 'Heavy underwater rocks that can be picked up and thrown. They sink fast and hit hard.',
+    tip: 'Tip: Throw boulders at piranhas to defeat them from a safe distance.',
+  },
+  // ── Terrain ──
+  {
+    category: 'terrain', preview: 'coral', name: 'Coral',
+    tag: 'terrain', tagLabel: 'Block',
+    desc: 'Vibrant coral formations that build the reef landscape. Solid and impassable — the backbone of every level.',
+    tip: '',
+  },
+  {
+    category: 'terrain', preview: 'sand', name: 'Sand',
+    tag: 'terrain', tagLabel: 'Block',
+    desc: 'Soft sandy blocks found on the ocean floor. Just as solid as stone, but with a warmer look.',
+    tip: '',
+  },
+  {
+    category: 'terrain', preview: 'seagrass', name: 'Seagrass',
+    tag: 'terrain', tagLabel: 'Cover',
+    desc: 'Tall swaying seagrass that grows in shallow waters. Its dense blades offer the perfect hiding spot — even the mighty shark loses your trail among the green.',
+    tip: 'Tip: Dive into seagrass when a shark is on your tail. It will give up the chase instantly.',
+  },
+  {
+    category: 'terrain', preview: 'hazard', name: 'Hazard (Spikes)',
+    tag: 'danger', tagLabel: 'Trap',
+    desc: 'Sharp spikes hidden along walls and floors. Instant damage on contact — and dashing won\'t save you. These bite through everything.',
+    tip: 'Tip: There\'s no shortcut past spikes. Find another way around.',
+  },
+  {
+    category: 'terrain', preview: 'buoy', name: 'Buoy',
+    tag: 'terrain', tagLabel: 'Marker',
+    desc: 'Floating buoys bobbing at the surface. They mark boundaries and give you something to rest on above water.',
+    tip: '',
+  },
+  {
+    category: 'terrain', preview: 'raft', name: 'Raft',
+    tag: 'terrain', tagLabel: 'Platform',
+    desc: 'Wooden rafts drifting lazily on the surface. No real use for a fish — but it\'s fun to flop around on them for a moment.',
+    tip: '',
+  },
+  {
+    category: 'terrain', preview: 'water', name: 'Water Surface',
+    tag: 'terrain', tagLabel: 'Zone',
+    desc: 'Where the ocean meets the sky. Cross it to jump into the air — your fish flops around up there, so don\'t stay long!',
+    tip: 'Tip: Jump out for hard-to-reach pearls, but gravity pulls you back fast.',
+  },
+];
+
+// Lazy-generated preview images (rendered on first Codex open)
+let _codexPreviews = null;
+
+function _buildCodexEntries(category) {
+  if (!_codexPreviews) _codexPreviews = generateCodexPreviews(THREE);
+
+  const container = document.getElementById('codexEntries');
+  container.innerHTML = '';
+  const entries = category === 'all'
+    ? CODEX_DATA
+    : CODEX_DATA.filter(e => e.category === category);
+
+  for (const entry of entries) {
+    const tagClass = {
+      danger: 'codex-tag-danger',
+      friendly: 'codex-tag-friendly',
+      item: 'codex-tag-item',
+      terrain: 'codex-tag-terrain',
+    }[entry.tag] || 'codex-tag-terrain';
+
+    const tipHtml = entry.tip
+      ? `<div class="codex-entry-tip">${entry.tip}</div>`
+      : '';
+
+    const previewSrc = _codexPreviews[entry.preview] || '';
+    const iconHtml = previewSrc
+      ? `<img class="codex-entry-icon" src="${previewSrc}" alt="${entry.name}">`
+      : `<span class="codex-entry-icon">?</span>`;
+
+    const el = document.createElement('div');
+    el.className = 'codex-entry';
+    el.innerHTML =
+      `<div class="codex-entry-header">` +
+        iconHtml +
+        `<span class="codex-entry-name">${entry.name}</span>` +
+        `<span class="codex-entry-tag ${tagClass}">${entry.tagLabel}</span>` +
+      `</div>` +
+      `<div class="codex-entry-desc">${entry.desc}</div>` +
+      tipHtml;
+    container.appendChild(el);
+  }
+}
+
+// Tab switching
+document.getElementById('codexTabs').addEventListener('click', (e) => {
+  const tab = e.target.closest('.codex-tab');
+  if (!tab) return;
+  sfx.buttonClick();
+  document.querySelectorAll('.codex-tab').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+  _buildCodexEntries(tab.dataset.category);
+});
+
+document.getElementById('btnCodex').addEventListener('click', () => {
+  sfx.buttonClick();
+  appState = 'codex';
+  menuOverlay.classList.add('hidden');
+  codexPanel.classList.add('visible');
+  // Reset to "All" tab
+  document.querySelectorAll('.codex-tab').forEach(t => t.classList.remove('active'));
+  document.querySelector('.codex-tab[data-category="all"]').classList.add('active');
+  _buildCodexEntries('all');
+});
+
+document.getElementById('codexBack').addEventListener('click', () => {
+  sfx.buttonClick();
+  showMenu();
+});
+
 // ── Pause UI Handlers ──
 function _syncPauseSliders() {
   // Sync pause modal sliders with current settings
@@ -632,6 +815,7 @@ function _activateEditor() {
     aquariumCloseBtn.classList.remove('visible');
     settingsPanel.classList.remove('visible');
     aboutPanel.classList.remove('visible');
+    codexPanel.classList.remove('visible');
   }
 }
 
@@ -1169,30 +1353,6 @@ const toxicFishListener = new InteractionListener(
   () => { triggerDeath(); },
 );
 toxicFishListener.space = space;
-
-// Boulder hits shark -> both die
-const boulderSharkListener = new InteractionListener(
-  CbEvent.BEGIN, InteractionType.SENSOR, boulderTag, sharkTag,
-  (cb) => {
-    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
-    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
-    const boulderBody = boulderBodies.find(br => br === b1 || br === b2);
-    if (boulderBody === grabbedBoulder) return;
-    const sharkBody = sharkBodies.find(s => s === b1 || s === b2);
-    if (sharkBody && sharkBody.space) {
-      const cx = sharkBody.position.x;
-      const cy = sharkBody.position.y;
-      sharkBody.space = null;
-      sfx.enemyDeath();
-      if (boulderBody && boulderBody.space) {
-        if (grabbedBoulder === boulderBody) grabbedBoulder = null;
-        boulderBody.space = null;
-        voxelRenderer.spawnBoulderBreak(cx, cy);
-      }
-    }
-  },
-);
-boulderSharkListener.space = space;
 
 // Boulder hits pufferfish -> both die
 const boulderPufferfishListener = new InteractionListener(
@@ -2167,6 +2327,14 @@ function gameLoop() {
     eb.velocity = new Vec2(p._dir * p.speed, 0);
   }
 
+  // ── Check if player is hidden in seagrass ──
+  const playerCol = Math.floor(player.position.x / TILE_SIZE);
+  const playerRow = Math.floor(player.position.y / TILE_SIZE);
+  const playerInSeagrass =
+    playerRow >= 0 && playerRow < LEVEL_ROWS &&
+    playerCol >= 0 && playerCol < LEVEL_COLS &&
+    TILES[playerRow]?.[playerCol] === 8;
+
   // ── Update shark AI (patrol + chase) ──
   for (const sb of sharkBodies) {
     if (!sb._patrol || !sb.space) continue;
@@ -2176,10 +2344,10 @@ function gameLoop() {
     const dy = player.position.y - sb.position.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    if (!ch.chasing && dist < SHARK_DETECT_RADIUS) {
+    if (!ch.chasing && dist < SHARK_DETECT_RADIUS && !playerInSeagrass) {
       ch.chasing = true;
       sfx.sharkAlert();
-    } else if (ch.chasing && dist > SHARK_LOSE_RADIUS) {
+    } else if (ch.chasing && (dist > SHARK_LOSE_RADIUS || playerInSeagrass)) {
       ch.chasing = false;
     }
 
