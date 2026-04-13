@@ -5,7 +5,7 @@
 import {
   Space, Body, BodyType, Vec2, Capsule, Circle,
   FluidProperties, Polygon,
-} from "https://cdn.jsdelivr.net/npm/@newkrok/nape-js@3.26.0/dist/index.js";
+} from "@newkrok/nape-js";
 
 import { TILE_SIZE } from './level-data.js';
 import {

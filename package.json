@@ -1,0 +1,28 @@
+{
+  "name": "life-of-a-fish",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NewKrok/life-of-a-fish.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/NewKrok/life-of-a-fish/issues"
+  },
+  "homepage": "https://github.com/NewKrok/life-of-a-fish#readme",
+  "devDependencies": {
+    "vite": "^8.0.8"
+  },
+  "dependencies": {
+    "@newkrok/nape-js": "^3.26.0",
+    "three": "^0.170.0"
+  }
+}

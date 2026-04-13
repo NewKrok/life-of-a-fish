@@ -6,7 +6,7 @@ import {
   Material, FluidProperties,
   CbType, CbEvent, InteractionType, InteractionListener, PreListener, PreFlag,
   CharacterController,
-} from "https://cdn.jsdelivr.net/npm/@newkrok/nape-js@3.26.0/dist/index.js";
+} from "@newkrok/nape-js";
 
 import {
   TILE_SIZE, LEVEL_COLS, LEVEL_ROWS, WORLD_W, WORLD_H,
@@ -30,7 +30,7 @@ import { SfxSystem } from './sfx-system.js';
 import { LevelEditor } from './level-editor.js';
 
 // ── Three.js import ──
-import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js";
+import * as THREE from "three";
 
 // ── Constants ──
 const GRAVITY = 200;

@@ -2,7 +2,7 @@
 // Handles fish swimming physics, air/water transitions, and dash mechanic.
 // Works with nape-js Body + CharacterController.
 
-import { Vec2 } from "https://cdn.jsdelivr.net/npm/@newkrok/nape-js@3.26.0/dist/index.js";
+import { Vec2 } from "@newkrok/nape-js";
 
 // ── Constants ──
 const SWIM_THRUST = 400;         // acceleration when input is held (px/s^2)
