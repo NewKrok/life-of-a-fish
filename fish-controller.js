@@ -10,7 +10,7 @@ const SWIM_MAX_SPEED = 200;      // max swimming velocity (px/s)
 const SWIM_DRAG = 0.92;          // per-frame velocity damping in water
 const DASH_SPEED = 450;          // burst speed on dash (px/s)
 const DASH_DURATION_MS = 180;    // dash lock time
-const DASH_COOLDOWN_MS = 600;    // time before next dash
+const DASH_COOLDOWN_MS = 1200;   // time before next dash
 const SURFACE_JUMP_VY = -180;    // upward burst when jumping from surface (px/s)
 const AIR_GRAVITY_MULT = 1.2;    // fish falls slightly faster in air
 const AIR_HORIZONTAL_DRAG = 0.98;
@@ -273,6 +273,8 @@ export class FishController {
     return {
       inWater: this.inWater,
       dashing: this.dashing,
+      dashProgress: this.dashing ? 1 - this.dashTimer / DASH_DURATION_MS : 0, // 0→1 over dash
+      dashCooldownPct: this.dashCooldown / DASH_COOLDOWN_MS, // 1→0 as cooldown expires
       facingRight: this.facingRight,
       swimSpeed: this.swimSpeed,
       visualRotation: this.visualRotation,

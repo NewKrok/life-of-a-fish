@@ -67,6 +67,7 @@ export class VoxelRenderer {
     this.bubbles = [];
     this._time = 0;
     this._fishFlipAngle = 0;       // current Y rotation for 3D flip (0 = right, π = left)
+    this._dashSpinReturn = 0;      // easing multiplier after dash spin ends
     this._enemyFlipAngles = [];    // per-enemy Y rotation for 3D flip
 
     // New enemy types
@@ -2404,7 +2405,7 @@ export class VoxelRenderer {
   // ── Spawn a bubble particle ──
   spawnBubble(x, y) {
     const THREE = this.THREE;
-    if (this.bubbles.length > 60) return; // limit
+    if (this.bubbles.length > 90) return; // limit (raised for dash burst)
 
     const size = 1 + Math.random() * 3;
     const geo = new THREE.BoxGeometry(size, size, size);
@@ -2642,12 +2643,29 @@ export class VoxelRenderer {
         -fishBody.position.y,
         0
       );
-      this.fishGroup.rotation.z = -(fishState?.visualRotation ?? 0);
-
       // 3D flip: lerp Y rotation for smooth turn-around
       const targetFlip = (fishState && !fishState.facingRight) ? Math.PI : 0;
       this._fishFlipAngle += (targetFlip - this._fishFlipAngle) * 0.12;
-      this.fishGroup.rotation.y = this._fishFlipAngle;
+
+      // ── Dash spin: barrel roll around the fish's own forward axis ──
+      let dashRoll = 0;
+      if (fishState?.dashing) {
+        dashRoll = fishState.dashProgress * Math.PI * 2; // full 360° over dash
+      }
+
+      // Build final orientation with quaternions so the roll is in local space
+      const THREE = this.THREE;
+      const qFlip  = this._qFlip  || (this._qFlip  = new THREE.Quaternion());
+      const qPitch = this._qPitch || (this._qPitch = new THREE.Quaternion());
+      const qRoll  = this._qRoll  || (this._qRoll  = new THREE.Quaternion());
+
+      // Order: flip (Y) → pitch (Z) → barrel roll along local forward (X)
+      qFlip.setFromAxisAngle(this._yAxis || (this._yAxis = new THREE.Vector3(0, 1, 0)), this._fishFlipAngle);
+      qPitch.setFromAxisAngle(this._zAxis || (this._zAxis = new THREE.Vector3(0, 0, 1)), -(fishState?.visualRotation ?? 0));
+      qRoll.setFromAxisAngle(this._xAxis || (this._xAxis = new THREE.Vector3(1, 0, 0)), dashRoll);
+
+      // Combine: world = flip * pitch * roll (roll is innermost = local)
+      this.fishGroup.quaternion.copy(qFlip).multiply(qPitch).multiply(qRoll);
 
       // Tail animation — wave based on swim speed
       if (this.fishTailPivot) {
@@ -2657,8 +2675,16 @@ export class VoxelRenderer {
         this.fishTailPivot.rotation.y = Math.sin(this._time * freq) * amp;
       }
 
-      // Spawn bubbles while swimming
-      if (fishState && fishState.inWater && fishState.swimSpeed > 30 && Math.random() < 0.15) {
+      // Spawn bubbles while swimming (extra burst during dash)
+      if (fishState && fishState.inWater && fishState.dashing) {
+        // Dash bubbles: spawn 2-3 per frame in a spread around the fish
+        for (let i = 0; i < 3; i++) {
+          this.spawnBubble(
+            fishBody.position.x + (Math.random() - 0.5) * 20,
+            fishBody.position.y + (Math.random() - 0.5) * 16
+          );
+        }
+      } else if (fishState && fishState.inWater && fishState.swimSpeed > 30 && Math.random() < 0.15) {
         this.spawnBubble(fishBody.position.x, fishBody.position.y);
       }
       // Splash when entering water

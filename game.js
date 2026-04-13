@@ -1956,6 +1956,28 @@ function renderHUD() {
   hudCtx.fillText(timeStr, timerX, timerY);
 
   hudCtx.textAlign = 'left';
+
+  // ── Dash cooldown bar (under the fish) ──
+  const dashState = fishCtrl.getState();
+  if (dashState.dashCooldownPct > 0.01) {
+    const { visW, visH } = getVisibleSize();
+    const fishSx = (player.position.x - camX) / visW * W;
+    const fishSy = (player.position.y - camY) / visH * H;
+
+    const dbW = 28;
+    const dbH = 3;
+    const dbX = fishSx - dbW / 2;
+    const dbY = fishSy + 32;
+
+    // Background
+    hudCtx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+    hudCtx.fillRect(dbX, dbY, dbW, dbH);
+
+    // Fill — countdown: starts full, shrinks to 0 as cooldown expires
+    const fillW = dbW * dashState.dashCooldownPct;
+    hudCtx.fillStyle = 'rgba(100, 220, 255, 0.7)';
+    hudCtx.fillRect(dbX, dbY, fillW, dbH);
+  }
 }
 
 // Draw a pixel-art style heart
