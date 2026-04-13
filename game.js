@@ -841,7 +841,7 @@ for (const p of entities.pearls) {
 }
 voxelRenderer.buildPearls(pearlBodies);
 
-// ── Enemy fish ──
+// ── Piranha enemies ──
 const enemyBodies = [];
 for (const en of entities.enemies) {
   const b = new Body(BodyType.KINEMATIC, new Vec2(en.x, en.y));
@@ -858,7 +858,7 @@ for (const en of entities.enemies) {
   };
   enemyBodies.push(b);
 
-  // Build enemy mesh
+  // Build piranha mesh
   voxelRenderer.buildEnemyFish();
 }
 
@@ -1059,12 +1059,24 @@ const pearlListener = new InteractionListener(
 );
 pearlListener.space = space;
 
-// Enemy collision -> death
-const enemyListener = new InteractionListener(
+// Piranha collision -> kill if dashing, else death
+const piranhaListener = new InteractionListener(
   CbEvent.BEGIN, InteractionType.SENSOR, playerTag, enemyTag,
-  () => { triggerDeath(); },
+  (cb) => {
+    if (fishCtrl.dashing) {
+      const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+      const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+      const enemyBody = enemyBodies.find(e => e === b1 || e === b2);
+      if (enemyBody && enemyBody.space) {
+        enemyBody.space = null;
+        sfx.enemyDeath();
+      }
+    } else {
+      triggerDeath();
+    }
+  },
 );
-enemyListener.space = space;
+piranhaListener.space = space;
 
 // Hazard collision -> death
 const hazardListener = new InteractionListener(
@@ -1073,8 +1085,8 @@ const hazardListener = new InteractionListener(
 );
 hazardListener.space = space;
 
-// Boulder hits enemy -> both die, spawn rock break effect
-const boulderEnemyListener = new InteractionListener(
+// Boulder hits piranha -> both die, spawn rock break effect
+const boulderPiranhaListener = new InteractionListener(
   CbEvent.BEGIN, InteractionType.SENSOR, boulderTag, enemyTag,
   (cb) => {
     const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
@@ -1096,7 +1108,7 @@ const boulderEnemyListener = new InteractionListener(
     }
   },
 );
-boulderEnemyListener.space = space;
+boulderPiranhaListener.space = space;
 
 // Player-boulder collision: ignored only while carrying
 const boulderPlayerPre = new PreListener(
@@ -1640,7 +1652,7 @@ function _resetEntities() {
   }
   voxelRenderer.buildPearls(pearlBodies);
 
-  // ── Enemies ──
+  // ── Piranhas ──
   for (let i = 0; i < enemyBodies.length; i++) {
     const b = enemyBodies[i];
     const en = entities.enemies[i];
@@ -2145,7 +2157,7 @@ function gameLoop() {
     }
   }
 
-  // ── Update enemy patrol ──
+  // ── Update piranha patrol ──
   for (const eb of enemyBodies) {
     if (!eb._patrol || !eb.space) continue;
     const p = eb._patrol;

@@ -27,7 +27,7 @@ The game uses nape-js for all collision detection, rigid body dynamics, and flui
 - Has its own `CbType` for collision filtering
 
 ### Enemies (kinematic)
-- **Basic enemy**: Patrol back and forth between defined bounds (±80px), sensor kills player
+- **Piranha** (`enemyTag`): Patrol back and forth between defined bounds (±80px). Kills player on contact, but player can kill piranha by dashing into it.
 - **Shark** (`sharkTag`): Patrols ±100px, switches to chase mode when player within 150px, stops chasing at 220px. Chase speed 110 px/s vs patrol 50 px/s. Kills player on contact.
 - **Pufferfish** (`pufferfishTag`): Moves vertically up/down (±60px range, 30 px/s). Circle shape (r=14). Kills player on contact.
 - **Crab** (`crabTag`): Walks on ground, patrols ±50px at 25 px/s. Does NOT kill player — pushes them away (840 px/s impulse) from 2x sensor range (44×28 box).
@@ -74,13 +74,13 @@ Each entity class has a named `CbType` for collision filtering:
 
 `InteractionListener` callbacks handle:
 - Player ↔ Pearl → collect pearl, destroy body
-- Player ↔ Enemy → respawn player
+- Player ↔ Piranha → kill piranha if dashing, else respawn player
 - Player ↔ Hazard → respawn player
 - Player ↔ Shark → respawn player
 - Player ↔ Pufferfish → respawn player
 - Player ↔ Crab → push player away (no kill)
 - Player ↔ Projectile → respawn player, destroy projectile
-- Boulder ↔ Enemy (sensor) → kill enemy, remove from space
+- Boulder ↔ Piranha (sensor) → kill piranha, remove from space
 - Boulder ↔ Shark (sensor) → kill shark, remove from space
 - Boulder ↔ Pufferfish (sensor) → kill pufferfish, remove from space
 - Boulder ↔ Crab (sensor) → kill crab, remove from space

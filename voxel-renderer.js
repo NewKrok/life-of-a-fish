@@ -2697,7 +2697,7 @@ export class VoxelRenderer {
       }
     }
 
-    // ── Sync enemy fish ──
+    // ── Sync piranhas ──
     for (let i = 0; i < enemyBodies.length && i < this.enemyGroups.length; i++) {
       const eb = enemyBodies[i];
       const eg = this.enemyGroups[i];
@@ -2887,7 +2887,7 @@ export class VoxelRenderer {
       p.mesh.material.emissiveIntensity = 0.4 + Math.sin(this._time * 8) * 0.3;
     }
 
-    // ── Hide dead enemies ──
+    // ── Hide dead piranhas ──
     for (let i = 0; i < this.enemyGroups.length && i < (enemyBodies?.length ?? 0); i++) {
       if (enemyBodies[i] && !enemyBodies[i].space && this.enemyGroups[i].visible) {
         this.enemyGroups[i].visible = false;

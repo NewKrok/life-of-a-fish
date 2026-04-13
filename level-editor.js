@@ -14,7 +14,7 @@ const PALETTE = [
   { id: 3,  char: 'c', label: 'Coral',       color: '#e06080' },
   { id: 4,  char: 'x', label: 'Hazard',      color: '#40c040' },
   { id: 5,  char: 'p', label: 'Pearl',       color: '#ffd93d' },
-  { id: 6,  char: 'e', label: 'Enemy',       color: '#ff6060' },
+  { id: 6,  char: 'e', label: 'Piranha',     color: '#ff6060' },
   { id: 7,  char: '@', label: 'Spawn',       color: '#00e5ff' },
   { id: 8,  char: 'd', label: 'Seagrass',    color: '#2d8040' },
   { id: 9,  char: 'B', label: 'Buoy',        color: '#ff4444' },

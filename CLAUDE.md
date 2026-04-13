@@ -75,7 +75,7 @@ In-game editor activated with **F4**. Works in both menu and game states. Pauses
 - Terrain: solid bodies built via greedy rectangle merging from tile map
 - Water: `FluidProperties` zone with density & viscosity for buoyancy
 - Player: dynamic body with `CharacterController` for ground detection
-- Enemies: kinematic bodies — basic (patrol), shark (patrol+chase), pufferfish (vertical), crab (ground push), toxic fish (ranged)
+- Enemies: kinematic bodies — piranha (patrol, killable by dash), shark (patrol+chase), pufferfish (vertical), crab (ground push), toxic fish (ranged)
 - Pearls / hazards: sensor shapes with `InteractionListener` callbacks
 - Keys: dynamic bodies like boulders, carriable/throwable, no enemy damage
 - Chests: static sensor bodies, opened by matching-color key collision
@@ -105,7 +105,7 @@ Tile map is a string grid (125 cols × 25 rows, 32px tiles):
 | `c`  | Coral       | 3       |
 | `x`  | Hazard      | 4       |
 | `p`  | Pearl       | 5       |
-| `e`  | Enemy       | 6       |
+| `e`  | Piranha     | 6       |
 | `@`  | Player spawn| 7       |
 | `d`  | Seagrass    | 8       |
 | `B`  | Buoy        | 9       |
