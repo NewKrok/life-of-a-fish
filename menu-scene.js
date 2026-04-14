@@ -522,12 +522,24 @@ export class MenuScene {
 
     // Camera update
     const getVis = () => this._getVisibleSize();
-    const { visW, visH } = getVis();
+    // Editor uses flat camera (no pitch) with viewport offset for sidebar
+    const sidebarPx = 216;  // matches SIDEBAR_W in level-editor.js
+    const canvasW = this.renderer.domElement.clientWidth;
+    const canvasH = this.renderer.domElement.clientHeight;
+    const editorViewW = canvasW - sidebarPx;
+    const editorAspect = editorViewW / canvasH;
+    const getEditorVis = () => {
+      const vFov = CAM_FOV * Math.PI / 180;
+      const visH = 2 * Math.tan(vFov / 2) * CAM_DISTANCE;
+      const visW = visH * editorAspect;
+      return { visW, visH };
+    };
+    const { visW, visH } = editorMode ? getEditorVis() : getVis();
 
     if (editorMode) {
-      // Editor controls the camera
-      this._editor.update(DT, getVis);
-      this._editor.processPendingActions(getVis);
+      // Editor controls the camera — flat (no pitch)
+      this._editor.update(DT, getEditorVis);
+      this._editor.processPendingActions(getEditorVis);
       this.camX = this._editor.camX;
       this.camY = this._editor.camY;
     } else if (this._aquariumMode) {
@@ -556,10 +568,16 @@ export class MenuScene {
     this.camX = Math.max(camInset, Math.min(this.camX, MENU_WORLD_W - visW - camInset));
     this.camY = Math.max(camInset, Math.min(this.camY, MENU_WORLD_H - visH - camInset));
 
-    // Position Three.js camera
+    // Position Three.js camera (editor = flat, normal = pitched)
     const lookX = this.camX + visW / 2;
     const lookY = -(this.camY + visH / 2);
-    this.camera.position.set(lookX, lookY - this._camYOffset, this._camZOffset);
+    if (editorMode) {
+      this.camera.aspect = editorAspect;
+      this.camera.updateProjectionMatrix();
+      this.camera.position.set(lookX, lookY, CAM_DISTANCE);
+    } else {
+      this.camera.position.set(lookX, lookY - this._camYOffset, this._camZOffset);
+    }
     this.camera.lookAt(lookX, lookY, 0);
 
     // Sync voxel renderer (skip in editor mode — entities positioned by editor callbacks)
@@ -577,14 +595,26 @@ export class MenuScene {
       this.voxelRenderer._time += DT;
     }
 
-    // Render
-    this.renderer.render(this.scene, this.camera);
+    // Render — editor mode uses viewport/scissor to render right of sidebar
+    if (editorMode) {
+      this.renderer.setViewport(sidebarPx, 0, editorViewW, canvasH);
+      this.renderer.setScissor(sidebarPx, 0, editorViewW, canvasH);
+      this.renderer.setScissorTest(true);
+      this.renderer.render(this.scene, this.camera);
+      this.renderer.setScissorTest(false);
+      this.renderer.setViewport(0, 0, canvasW, canvasH);
+      // Restore camera aspect
+      this.camera.aspect = canvasW / canvasH;
+      this.camera.updateProjectionMatrix();
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
 
     // Editor overlay (drawn on shared HUD canvas)
     if (editorMode && this._editor.hudCtx) {
       const hud = this._editor.hudCanvas;
       this._editor.hudCtx.clearRect(0, 0, hud.width, hud.height);
-      this._editor.render(getVis);
+      this._editor.render(getEditorVis);
       this._editor.renderToast(DT);
     }
 

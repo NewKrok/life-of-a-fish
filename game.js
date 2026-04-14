@@ -27,7 +27,7 @@ import { TouchControls } from './touch-controls.js';
 import { MenuScene } from './menu-scene.js';
 import { MusicSystem } from './music-system.js';
 import { SfxSystem } from './sfx-system.js';
-import { LevelEditor } from './level-editor.js';
+import { LevelEditor, generateEditorPreviews } from './level-editor.js';
 import { generateCodexPreviews } from './codex-renderer.js';
 
 // ── Three.js import ──
@@ -589,6 +589,7 @@ const CODEX_DATA = [
 
 // Lazy-generated preview images (rendered on first Codex open)
 let _codexPreviews = null;
+let _editorPreviews = null;
 
 function _buildCodexEntries(category) {
   if (!_codexPreviews) _codexPreviews = generateCodexPreviews(THREE);
@@ -765,6 +766,12 @@ window.addEventListener('keydown', (e) => {
 function _activateEditor() {
   editorActive = true;
 
+  // Generate editor preview thumbnails once (lazy, reuses codex previews)
+  if (!_editorPreviews) {
+    if (!_codexPreviews) _codexPreviews = generateCodexPreviews(THREE);
+    _editorPreviews = generateEditorPreviews(THREE, VoxelRenderer, _codexPreviews);
+  }
+
   if (appState === 'game' && gameInitialized) {
     // Game level editor
     if (!gameEditor) {
@@ -774,6 +781,8 @@ function _activateEditor() {
       gameEditor = new LevelEditor(
         hudCtx, hudCanvas, TILES, LEVEL_COLS, LEVEL_ROWS, WORLD_W, WORLD_H
       );
+      gameEditor.setPreviews(_editorPreviews);
+      gameEditor.setScene(THREE, scene, voxelRenderer);
       // Wire up 3D rebuild callbacks
       gameEditor.onTerrainChange = () => {
         if (voxelRenderer) voxelRenderer.rebuildTerrain();
@@ -796,6 +805,8 @@ function _activateEditor() {
       menuEditor = new LevelEditor(
         hudCtx, hudCanvas, MENU_TILES, MENU_COLS, MENU_ROWS, MENU_WORLD_W, MENU_WORLD_H
       );
+      menuEditor.setPreviews(_editorPreviews);
+      menuEditor.setScene(THREE, menuScene.scene, menuScene.voxelRenderer);
       // Wire up 3D rebuild callbacks for menu
       menuEditor.onTerrainChange = () => {
         const mr = menuScene.voxelRenderer;
@@ -823,14 +834,7 @@ function _activateEditor() {
 function _rebuildGameEntityVisuals(entities) {
   if (!voxelRenderer) return;
   voxelRenderer.clearEntityVisuals();
-  for (const ent of entities) {
-    if (ent.tileId === 6)  voxelRenderer.buildEnemyFish();
-    if (ent.tileId === 12) voxelRenderer.buildShark();
-    if (ent.tileId === 13) voxelRenderer.buildPufferfish();
-    if (ent.tileId === 14) voxelRenderer.buildCrab();
-    if (ent.tileId === 15) voxelRenderer.buildToxicFish();
-  }
-  // Position the newly created visuals at the entity positions
+  _buildEditorEntities(voxelRenderer, entities);
   _positionEditorEntities(voxelRenderer, entities);
 }
 
@@ -839,14 +843,43 @@ function _rebuildMenuEntityVisuals(entities) {
   const mr = menuScene.voxelRenderer;
   if (!mr) return;
   mr.clearEntityVisuals();
-  for (const ent of entities) {
-    if (ent.tileId === 6)  mr.buildEnemyFish();
-    if (ent.tileId === 12) mr.buildShark();
-    if (ent.tileId === 13) mr.buildPufferfish();
-    if (ent.tileId === 14) mr.buildCrab();
-    if (ent.tileId === 15) mr.buildToxicFish();
-  }
+  _buildEditorEntities(mr, entities);
   _positionEditorEntities(mr, entities);
+}
+
+// Build all entity visuals from editor entity list
+function _buildEditorEntities(vr, entities) {
+  // Collect entities by type for batch building
+  const pearls = [], buoys = [], boulders = [], rafts = [], keys = [], chests = [];
+
+  for (const ent of entities) {
+    const fakeBody = { position: { x: ent.x, y: ent.y } };
+    switch (ent.tileId) {
+      case 5: pearls.push(fakeBody); break;
+      case 6: vr.buildEnemyFish(); break;
+      case 7: /* spawn — no 3D model needed */ break;
+      case 9: buoys.push(fakeBody); break;
+      case 10: boulders.push(fakeBody); break;
+      case 11: rafts.push(fakeBody); break;
+      case 12: vr.buildShark(); break;
+      case 13: vr.buildPufferfish(); break;
+      case 14: vr.buildCrab(); break;
+      case 15: vr.buildToxicFish(); break;
+      default:
+        if (ent.tileId >= 16 && ent.tileId <= 20) {
+          keys.push({ body: fakeBody, colorIndex: ent.tileId - 16 });
+        } else if (ent.tileId >= 21 && ent.tileId <= 25) {
+          chests.push({ body: fakeBody, colorIndex: ent.tileId - 21 });
+        }
+    }
+  }
+
+  if (pearls.length) for (const b of pearls) vr.buildPearlAt(b);
+  if (buoys.length) vr.buildBuoys(buoys);
+  if (boulders.length) vr.buildBoulders(boulders);
+  if (rafts.length) vr.buildRafts(rafts);
+  if (keys.length) vr.buildKeys(keys);
+  if (chests.length) vr.buildChests(chests);
 }
 
 // Position editor entity visuals at their world positions
@@ -876,6 +909,8 @@ function _positionEditorEntities(vr, entities) {
       vr.toxicFishGroups[ti].visible = true;
       ti++;
     }
+    // Pearl, buoy, boulder, raft, key, chest positions are already set
+    // by the build methods via the fakeBody positions
   }
 }
 
@@ -963,6 +998,7 @@ const toxicFishTag = new CbType();
 const projectileTag = new CbType();
 const keyTag = new CbType();
 const chestTag = new CbType();
+const crateTag = new CbType();
 
 // ── Build terrain bodies from merged tiles ──
 const mergedBodies = getMergedSolidBodies();
@@ -999,6 +1035,7 @@ _capturedEntities = {
   pufferfish: entities.pufferfish.map(e => ({ ...e })),
   crabs: entities.crabs.map(e => ({ ...e })),
   toxicFish: entities.toxicFish.map(e => ({ ...e })),
+  crates: entities.crates.map(e => ({ ...e })),
 };
 
 // ── Hazard bodies (seaweed/spiky plants) ──
@@ -1201,12 +1238,30 @@ for (const rf of entities.rafts) {
   raftBodies.push(b);
 }
 
+// ── Crates (wooden boxes, destroyed by dashing) ──
+const CRATE_PEARL_CHANCE = 0.3;          // ~30% chance to drop a pearl
+const crateBodies = [];
+for (const cr of entities.crates) {
+  const b = new Body(BodyType.DYNAMIC, new Vec2(cr.x, cr.y));
+  const solid = new Polygon(Polygon.box(26, 26), undefined, new Material(0.5, 0.3, 0.3, 2.0));
+  b.shapes.add(solid);
+  // Sensor overlay for dash detection
+  const sensor = new Polygon(Polygon.box(28, 28));
+  sensor.sensorEnabled = true;
+  sensor.cbTypes.add(crateTag);
+  b.shapes.add(sensor);
+  b.allowRotation = true;
+  b.space = space;
+  crateBodies.push(b);
+}
+
 // Build dynamic object meshes
 voxelRenderer.buildBuoys(buoyBodies);
 voxelRenderer.buildBoulders(boulderBodies);
 voxelRenderer.buildKeys(keyBodies);
 voxelRenderer.buildChests(chestBodies);
 voxelRenderer.buildRafts(raftBodies);
+voxelRenderer.buildCrates(crateBodies);
 
 // ── Player fish ──
 const player = new Body(BodyType.DYNAMIC, new Vec2(entities.playerSpawn.x, entities.playerSpawn.y));
@@ -1464,6 +1519,36 @@ const keyChestListener = new InteractionListener(
   },
 );
 keyChestListener.space = space;
+
+// Dash into crate -> destroy crate, wood plank particles, ~30% pearl drop
+const crateListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, playerTag, crateTag,
+  (cb) => {
+    if (!fishCtrl.dashing) return;
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const crateBody = crateBodies.find(c => c === b1 || c === b2);
+    if (crateBody && crateBody.space) {
+      const cx = crateBody.position.x;
+      const cy = crateBody.position.y;
+      crateBody.space = null;
+      voxelRenderer.spawnCrateBreak(cx, cy);
+      sfx.crateBreak();
+      // ~30% chance to drop a pearl
+      if (Math.random() < CRATE_PEARL_CHANCE) {
+        const pb = new Body(BodyType.STATIC, new Vec2(cx, cy));
+        const ps = new Circle(6);
+        ps.sensorEnabled = true;
+        ps.cbTypes.add(pearlTag);
+        pb.shapes.add(ps);
+        pb.space = space;
+        pearlBodies.push(pb);
+        voxelRenderer.buildPearlAt(pb);
+      }
+    }
+  },
+);
+crateListener.space = space;
 
 // Player-key collision: ignored while carrying
 const keyPlayerPre = new PreListener(
@@ -1883,6 +1968,18 @@ function _resetEntities() {
   grabbedBoulder = null;
   voxelRenderer.buildBoulders(boulderBodies);
 
+  // ── Crates ──
+  for (let i = 0; i < crateBodies.length; i++) {
+    const b = crateBodies[i];
+    const cr = entities.crates[i];
+    b.position = new Vec2(cr.x, cr.y);
+    b.velocity = new Vec2(0, 0);
+    b.rotation = 0;
+    b.angularVel = 0;
+    if (!b.space) b.space = space;
+  }
+  voxelRenderer.buildCrates(crateBodies);
+
   // ── Keys ──
   for (let i = 0; i < keyBodies.length; i++) {
     const k = keyBodies[i];
@@ -2216,31 +2313,57 @@ function gameLoop() {
 
   // ── Editor Mode ──
   if (editorActive && gameEditor) {
-    // Editor: free camera, no physics, render overlay
-    gameEditor.update(DT, getVisibleSize);
-    gameEditor.processPendingActions(getVisibleSize);
+    // Editor uses flat (top-down) camera, viewport offset by sidebar width
+    const sidebarPx = 216;  // matches SIDEBAR_W in level-editor.js
+    const canvasW = renderer.domElement.clientWidth;
+    const canvasH = renderer.domElement.clientHeight;
+    const viewportW = canvasW - sidebarPx;
+    const editorAspect = viewportW / canvasH;
 
-    // Use editor camera
+    const editorGetVisibleSize = () => {
+      const vFov = CAM_FOV * Math.PI / 180;
+      const visH = 2 * Math.tan(vFov / 2) * CAM_DISTANCE;
+      const visW = visH * editorAspect;
+      return { visW, visH };
+    };
+
+    gameEditor.update(DT, editorGetVisibleSize);
+    gameEditor.processPendingActions(editorGetVisibleSize);
+
+    // Use editor camera — flat (no pitch), aspect matches viewport
     camX = gameEditor.camX;
     camY = gameEditor.camY;
     _gameCamX = camX;
     _gameCamY = camY;
 
-    const { visW: camVisW, visH: camVisH } = getVisibleSize();
+    camera.aspect = editorAspect;
+    camera.updateProjectionMatrix();
+
+    const { visW: camVisW, visH: camVisH } = editorGetVisibleSize();
     const lookX = camX + camVisW / 2;
     const lookY = -(camY + camVisH / 2);
-    camera.position.set(lookX, lookY - CAM_Y_OFFSET, CAM_Z_OFFSET);
+    camera.position.set(lookX, lookY, CAM_DISTANCE);
     camera.lookAt(lookX, lookY, 0);
 
     // In editor mode, skip syncFrame (entities are positioned by editor callbacks).
     // Only update time-based animations (water, bubbles, etc.)
     voxelRenderer._time += DT;
 
+    // Render 3D scene only to the viewport area (right of sidebar)
+    renderer.setViewport(sidebarPx, 0, viewportW, canvasH);
+    renderer.setScissor(sidebarPx, 0, viewportW, canvasH);
+    renderer.setScissorTest(true);
     renderer.render(scene, camera);
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, canvasW, canvasH);
+
+    // Restore camera aspect for non-editor use
+    camera.aspect = canvasW / canvasH;
+    camera.updateProjectionMatrix();
 
     // Editor HUD
     hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
-    gameEditor.render(getVisibleSize);
+    gameEditor.render(editorGetVisibleSize);
     gameEditor.renderToast(DT);
 
     gameAnimId = requestAnimationFrame(gameLoop);

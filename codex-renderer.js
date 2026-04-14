@@ -210,6 +210,10 @@ export function generateCodexPreviews(THREE) {
 
   // Terrain blocks
   {
+    const stoneGroup = _buildTerrainBlock(THREE, vr, 1);
+    previews.stone = _renderPreview(THREE, offRenderer, stoneGroup, { camDist: 40 });
+  }
+  {
     const coralGroup = _buildTerrainBlock(THREE, vr, 3);
     previews.coral = _renderPreview(THREE, offRenderer, coralGroup, { camDist: 40 });
   }

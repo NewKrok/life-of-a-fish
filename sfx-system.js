@@ -347,6 +347,41 @@ export class SfxSystem {
     osc2.stop(t + 0.42);
   }
 
+  // ── 13. Crate break — wood crack + splinter scatter ──
+  crateBreak() {
+    if (!this._ensureCtx()) return;
+    const t = this._ctx.currentTime;
+    // Wood crack — sharp filtered noise burst
+    const crack = this._noise(0.12);
+    const crGain = this._ctx.createGain();
+    const crBpf = this._ctx.createBiquadFilter();
+    crBpf.type = 'bandpass';
+    crBpf.frequency.setValueAtTime(1800, t);
+    crBpf.frequency.exponentialRampToValueAtTime(600, t + 0.1);
+    crBpf.Q.value = 2;
+    crack.connect(crBpf);
+    crBpf.connect(crGain);
+    crGain.connect(this._masterGain);
+    crGain.gain.setValueAtTime(0.35, t);
+    crGain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+    crack.start(t);
+    crack.stop(t + 0.13);
+    // Low thud — wood body resonance
+    const thud = this._osc('triangle', 140, t);
+    const thudG = this._env(thud, t, 0.003, 0.1, 0.3);
+    thud.frequency.exponentialRampToValueAtTime(50, t + 0.1);
+    thud.stop(t + 0.12);
+    // Splinter scatter — rapid high clicks
+    for (let i = 0; i < 4; i++) {
+      const start = t + 0.03 + i * 0.025;
+      const freq = 1200 + Math.random() * 800;
+      const osc = this._osc('square', freq, start);
+      const g = this._env(osc, start, 0.002, 0.03, 0.15);
+      osc.frequency.exponentialRampToValueAtTime(freq * 0.4, start + 0.03);
+      osc.stop(start + 0.04);
+    }
+  }
+
   // ── 12. Enemy death — pop + sparkle ──
   enemyDeath() {
     if (!this._ensureCtx()) return;

@@ -47,16 +47,19 @@ App starts in menu state. `MenuScene` creates its own Three.js scene, physics sp
 
 ### Level Editor (level-editor.js)
 
-In-game editor activated with **F4**. Works in both menu and game states. Pauses physics/AI while active.
+In-game editor activated with **F4**. Works in both menu and game states. Pauses physics/AI while active. Camera switches to flat top-down view (no pitch) with viewport/scissor rendering offset by sidebar width.
 
-- **Free camera**: WASD/Arrows to pan, Shift for fast scroll
-- **Tile palette**: bottom bar with all 16 tile types, click or scroll wheel to select, 0-9 hotkeys
+- **Left sidebar** (216px): Unity-style grid of 60×60 square preview cells with collapsible categories (Tools, Terrain, Items, Enemies, Keys, Chests). 3D preview thumbnails generated from codex-renderer + per-color key/chest variants. Large preview area at top shows selected item.
+- **Tools**: Erase (clear tile/entity) and Move (drag entities to new positions, snaps to grid)
+- **Free camera**: WASD/Arrows to pan, Shift for fast scroll, right-click drag to pan, two-finger pan on mobile
+- **3D ghost cursor**: selected entity/terrain shown as 50% opacity 3D model at cursor grid position
 - **Placement**: click to place selected tile/entity, hold to paint terrain
 - **Deletion**: double-click to remove entity or erase terrain tile
-- **Patrol editing**: enemies show patrol range lines with draggable min/max handles
+- **Patrol editing**: enemies show patrol range lines with draggable min/max handles, snapped to tile centers
 - **Grid overlay**: toggle with G key
 - **Export**: Ctrl+C copies LEVEL_STRINGS + patrol data to clipboard
-- **Entity overlay**: colored circles with labels for all entities (pearls, enemies, spawn, etc.)
+- **Entity overlay**: colored markers with labels for all entities (pearls, enemies, spawn, etc.)
+- **Mobile**: touch support for sidebar scroll/tap, world placement, double-tap delete, two-finger camera pan
 
 ### Game Loop (game.js, 60 FPS)
 
@@ -79,6 +82,7 @@ In-game editor activated with **F4**. Works in both menu and game states. Pauses
 - Pearls / hazards: sensor shapes with `InteractionListener` callbacks
 - Keys: dynamic bodies like boulders, carriable/throwable, no enemy damage
 - Chests: static sensor bodies, opened by matching-color key collision
+- Crates: dynamic bodies (float/roll in water), destroyed by dashing, wood plank particles, ~30% pearl drop
 - Each entity class has its own `CbType` for collision filtering
 
 ### Rendering (Three.js)
@@ -125,6 +129,7 @@ Tile map is a string grid (125 cols × 25 rows, 32px tiles):
 | `g`  | Chest Green | 23      |
 | `y`  | Chest Yellow| 24      |
 | `q`  | Chest Purple| 25      |
+| `W`  | Crate       | 26      |
 
 Keys are carriable/throwable like boulders but deal no damage. Throwing a key at its matching-color chest opens the chest with a particle effect and spawns a pearl. Chest pearls are included in `TOTAL_PEARLS` from level start.
 
@@ -134,6 +139,7 @@ Water surface is at row 4 (128px).
 
 Deep-dive docs live in `.claude/docs/`. Refer to these when working on the relevant subsystem:
 
+- [game-design.md](.claude/docs/game-design.md) — Full game design document: "The Call of the Deep" story, 5-world structure, new mechanics, enemies, skills, bosses, monetization
 - [fish-controller.md](.claude/docs/fish-controller.md) — Player movement states, tuning constants, dash/jump mechanics, water detection
 - [voxel-renderer.md](.claude/docs/voxel-renderer.md) — Three.js rendering: terrain instancing, fish voxel models, water/bubble animation, lighting
 - [nape-physics-setup.md](.claude/docs/nape-physics-setup.md) — Physics space config, body types, CbType collision system, greedy rectangle merging
