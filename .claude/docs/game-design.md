@@ -295,7 +295,7 @@ Plus ~25 hidden bottle messages and the Codex encyclopedia.
 | # | Element | Description | Status |
 |---|---------|-------------|--------|
 | 0 | Vitest + editor overhaul | Vitest setup, editor sidebar with categories/previews/move tool | **Done** |
-| 1 | Underwater crates | Dashable wooden boxes, wood plank particles, ~30% pearl drop | Pending |
+| 1 | Underwater crates | Dashable wooden boxes, wood plank particles, ~30% pearl drop | **Done** |
 | 2 | Breakable walls | Cracked stone texture, dash to destroy, hidden areas behind | Pending |
 | 3 | Armored Fish | New enemy: patrols L-R, dash bounces off, killed by boulder only | Pending |
 | 4 | Spitting Coral | New enemy: fixed on ground, 3 projectiles upward in fan pattern | Pending |

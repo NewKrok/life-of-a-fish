@@ -82,6 +82,7 @@ In-game editor activated with **F4**. Works in both menu and game states. Pauses
 - Pearls / hazards: sensor shapes with `InteractionListener` callbacks
 - Keys: dynamic bodies like boulders, carriable/throwable, no enemy damage
 - Chests: static sensor bodies, opened by matching-color key collision
+- Crates: dynamic bodies (float/roll in water), destroyed by dashing, wood plank particles, ~30% pearl drop
 - Each entity class has its own `CbType` for collision filtering
 
 ### Rendering (Three.js)
@@ -128,6 +129,7 @@ Tile map is a string grid (125 cols × 25 rows, 32px tiles):
 | `g`  | Chest Green | 23      |
 | `y`  | Chest Yellow| 24      |
 | `q`  | Chest Purple| 25      |
+| `W`  | Crate       | 26      |
 
 Keys are carriable/throwable like boulders but deal no damage. Throwing a key at its matching-color chest opens the chest with a particle effect and spawns a pearl. Chest pearls are included in `TOTAL_PEARLS` from level start.
 

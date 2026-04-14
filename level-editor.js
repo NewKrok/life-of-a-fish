@@ -24,6 +24,7 @@ const PALETTE = [
   { id: 9,  char: 'B', label: 'Buoy',        color: '#ff4444', category: 'items',   previewKey: 'buoy' },
   { id: 10, char: 'R', label: 'Boulder',     color: '#888',    category: 'items',   previewKey: 'boulder' },
   { id: 11, char: 'T', label: 'Raft',        color: '#8b5a2b', category: 'items',   previewKey: 'raft' },
+  { id: 26, char: 'W', label: 'Crate',       color: '#8B6914', category: 'items',   previewKey: 'crate' },
   { id: 6,  char: 'e', label: 'Piranha',     color: '#ff6060', category: 'enemies', previewKey: 'piranha' },
   { id: 12, char: 'S', label: 'Shark',       color: '#6080c0', category: 'enemies', previewKey: 'shark' },
   { id: 13, char: 'U', label: 'Pufferfish',  color: '#c0a060', category: 'enemies', previewKey: 'pufferfish' },
@@ -56,7 +57,7 @@ const ID_TO_CHAR = {};
 for (const p of PALETTE) ID_TO_CHAR[p.id] = p.char;
 
 // Entity tile IDs (non-terrain — stored as entity positions)
-const ENTITY_IDS = new Set([5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25]);
+const ENTITY_IDS = new Set([5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26]);
 
 // Enemies with patrol ranges
 const PATROL_DEFAULTS = {
@@ -284,6 +285,7 @@ export class LevelEditor {
       if (knownEntities.pufferfish) addGroup(knownEntities.pufferfish, 13);
       if (knownEntities.crabs) addGroup(knownEntities.crabs, 14);
       if (knownEntities.toxicFish) addGroup(knownEntities.toxicFish, 15);
+      if (knownEntities.crates) addGroup(knownEntities.crates, 26);
       if (knownEntities.keys) {
         for (const k of knownEntities.keys) list.push({ x: k.x, y: k.y, tileId: 16 + k.colorIndex });
       }
@@ -1663,6 +1665,17 @@ export function generateEditorPreviews(THREE, VoxelRendererClass, existingCodexP
         entry.mesh.position.set(0, 0, 0);
         previews[key] = _renderGroupPreview(THREE, offRenderer, entry.mesh, 50);
       }
+    }
+  }
+
+  // Crate preview
+  if (!previews.crate) {
+    vr.buildCrates([{ position: { x: 0, y: 0 } }]);
+    const entry = vr.crateMeshes.pop();
+    if (entry) {
+      tempScene.remove(entry.mesh);
+      entry.mesh.position.set(0, 0, 0);
+      previews.crate = _renderGroupPreview(THREE, offRenderer, entry.mesh, 30);
     }
   }
 

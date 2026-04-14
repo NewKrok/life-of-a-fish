@@ -63,6 +63,7 @@ export class VoxelRenderer {
     this.keyMeshes = [];     // { mesh, body, colorIndex } pairs
     this.chestMeshes = [];   // { mesh, body, colorIndex, opened } pairs
     this.raftMeshes = [];   // { mesh, body } pairs
+    this.crateMeshes = [];  // { mesh, body } pairs
     this.waterMesh = null;
     this.bubbles = [];
     this._time = 0;
@@ -138,6 +139,9 @@ export class VoxelRenderer {
     // Rafts
     for (const r of this.raftMeshes) this.scene.remove(r.mesh);
     this.raftMeshes.length = 0;
+    // Crates
+    for (const c of this.crateMeshes) this.scene.remove(c.mesh);
+    this.crateMeshes.length = 0;
   }
 
   // ── Generate procedural Minecraft-style texture for a tile type ──
@@ -1591,6 +1595,69 @@ export class VoxelRenderer {
     }
   }
 
+  // ── Build crate meshes (wooden boxes) ──
+  buildCrates(crateBodies) {
+    for (const c of this.crateMeshes) this.scene.remove(c.mesh);
+    this.crateMeshes.length = 0;
+
+    const THREE = this.THREE;
+    const V = 3; // voxel size — larger for chunkier crate
+
+    for (const body of crateBodies) {
+      const group = new THREE.Group();
+
+      const addVoxel = (x, y, z, color) => {
+        const geo = new THREE.BoxGeometry(V, V, V);
+        const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.8, metalness: 0.05 });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(x * V, y * V, z * V);
+        group.add(mesh);
+      };
+
+      const WOOD = 0x8B6914;
+      const WOOD_DARK = 0x6B4914;
+      const WOOD_LIGHT = 0xA07828;
+      const METAL = 0x888888;
+
+      // Seed for variation
+      const seed = body.position.x * 7 + body.position.y * 13;
+      const rng = (i) => {
+        const x = Math.sin(seed + i * 9871) * 43758.5453;
+        return x - Math.floor(x);
+      };
+
+      // Box shape: 9×9×5 voxels (wider than deep for a chunky crate look)
+      let idx = 0;
+      for (let y = -4; y <= 4; y++) {
+        for (let x = -4; x <= 4; x++) {
+          for (let z = -2; z <= 2; z++) {
+            // Only shell (faces of the box) + some interior for lid/bottom
+            const isEdgeX = x === -4 || x === 4;
+            const isEdgeY = y === -4 || y === 4;
+            const isEdgeZ = z === -2 || z === 2;
+            if (!isEdgeX && !isEdgeY && !isEdgeZ) continue;
+
+            const rv = rng(idx++);
+            let color;
+            // Metal bands: horizontal stripes at y=0 and corners
+            if (y === 0 && (isEdgeX || isEdgeZ)) {
+              color = METAL;
+            } else if (isEdgeX && isEdgeZ) {
+              color = METAL;
+            } else {
+              color = rv < 0.3 ? WOOD_DARK : rv < 0.7 ? WOOD : WOOD_LIGHT;
+            }
+            addVoxel(x, y, z, color);
+          }
+        }
+      }
+
+      group.position.set(body.position.x, -body.position.y, 0);
+      this.scene.add(group);
+      this.crateMeshes.push({ mesh: group, body });
+    }
+  }
+
   // ── Build key meshes (colored key shapes) ──
   buildKeys(keyBodies) {
     for (const k of this.keyMeshes) this.scene.remove(k.mesh);
@@ -2580,6 +2647,47 @@ export class VoxelRenderer {
     }
   }
 
+  // ── Spawn crate break particles (wood planks) ──
+  spawnCrateBreak(x, y) {
+    const THREE = this.THREE;
+    const colors = [0x8B6914, 0x6B4914, 0xA07828, 0x9B7924, 0x5B3904];
+    const count = 18;
+
+    for (let i = 0; i < count; i++) {
+      // Elongated plank shapes
+      const w = 2 + Math.random() * 3;
+      const h = w * (1.5 + Math.random());
+      const d = 1.5 + Math.random() * 2;
+      const geo = new THREE.BoxGeometry(w, h, d);
+      const mat = new THREE.MeshStandardMaterial({
+        color: colors[Math.floor(Math.random() * colors.length)],
+        roughness: 0.85,
+        metalness: 0.0,
+        transparent: true,
+        opacity: 0.9,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(
+        x + (Math.random() - 0.5) * 22,
+        -y + (Math.random() - 0.5) * 22,
+        (Math.random() - 0.5) * 18
+      );
+      mesh.rotation.set(
+        Math.random() * Math.PI,
+        Math.random() * Math.PI,
+        Math.random() * Math.PI
+      );
+      this.scene.add(mesh);
+      this.bubbles.push({
+        mesh,
+        vy: (Math.random() - 0.2) * 90,
+        vx: (Math.random() - 0.5) * 130,
+        life: 0.7 + Math.random() * 0.7,
+        _isRock: true, // uses gravity, no surface fade
+      });
+    }
+  }
+
   // ── Spawn chest open particles (colored sparkles + wood splinters) ──
   spawnChestOpen(x, y, colorIndex) {
     const THREE = this.THREE;
@@ -2761,6 +2869,18 @@ export class VoxelRenderer {
       }
       b.mesh.position.set(b.body.position.x, -b.body.position.y, 0);
       b.mesh.rotation.z = -b.body.rotation;
+    }
+
+    // ── Sync crates (position + rotation, remove destroyed) ──
+    for (let i = this.crateMeshes.length - 1; i >= 0; i--) {
+      const c = this.crateMeshes[i];
+      if (!c.body.space) {
+        this.scene.remove(c.mesh);
+        this.crateMeshes.splice(i, 1);
+        continue;
+      }
+      c.mesh.position.set(c.body.position.x, -c.body.position.y, 0);
+      c.mesh.rotation.z = -c.body.rotation;
     }
 
     // ── Sync keys (position + rotation, remove destroyed) ──

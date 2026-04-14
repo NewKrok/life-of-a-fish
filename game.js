@@ -998,6 +998,7 @@ const toxicFishTag = new CbType();
 const projectileTag = new CbType();
 const keyTag = new CbType();
 const chestTag = new CbType();
+const crateTag = new CbType();
 
 // ── Build terrain bodies from merged tiles ──
 const mergedBodies = getMergedSolidBodies();
@@ -1034,6 +1035,7 @@ _capturedEntities = {
   pufferfish: entities.pufferfish.map(e => ({ ...e })),
   crabs: entities.crabs.map(e => ({ ...e })),
   toxicFish: entities.toxicFish.map(e => ({ ...e })),
+  crates: entities.crates.map(e => ({ ...e })),
 };
 
 // ── Hazard bodies (seaweed/spiky plants) ──
@@ -1236,12 +1238,30 @@ for (const rf of entities.rafts) {
   raftBodies.push(b);
 }
 
+// ── Crates (wooden boxes, destroyed by dashing) ──
+const CRATE_PEARL_CHANCE = 0.3;          // ~30% chance to drop a pearl
+const crateBodies = [];
+for (const cr of entities.crates) {
+  const b = new Body(BodyType.DYNAMIC, new Vec2(cr.x, cr.y));
+  const solid = new Polygon(Polygon.box(26, 26), undefined, new Material(0.5, 0.3, 0.3, 2.0));
+  b.shapes.add(solid);
+  // Sensor overlay for dash detection
+  const sensor = new Polygon(Polygon.box(28, 28));
+  sensor.sensorEnabled = true;
+  sensor.cbTypes.add(crateTag);
+  b.shapes.add(sensor);
+  b.allowRotation = true;
+  b.space = space;
+  crateBodies.push(b);
+}
+
 // Build dynamic object meshes
 voxelRenderer.buildBuoys(buoyBodies);
 voxelRenderer.buildBoulders(boulderBodies);
 voxelRenderer.buildKeys(keyBodies);
 voxelRenderer.buildChests(chestBodies);
 voxelRenderer.buildRafts(raftBodies);
+voxelRenderer.buildCrates(crateBodies);
 
 // ── Player fish ──
 const player = new Body(BodyType.DYNAMIC, new Vec2(entities.playerSpawn.x, entities.playerSpawn.y));
@@ -1499,6 +1519,36 @@ const keyChestListener = new InteractionListener(
   },
 );
 keyChestListener.space = space;
+
+// Dash into crate -> destroy crate, wood plank particles, ~30% pearl drop
+const crateListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, playerTag, crateTag,
+  (cb) => {
+    if (!fishCtrl.dashing) return;
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const crateBody = crateBodies.find(c => c === b1 || c === b2);
+    if (crateBody && crateBody.space) {
+      const cx = crateBody.position.x;
+      const cy = crateBody.position.y;
+      crateBody.space = null;
+      voxelRenderer.spawnCrateBreak(cx, cy);
+      sfx.crateBreak();
+      // ~30% chance to drop a pearl
+      if (Math.random() < CRATE_PEARL_CHANCE) {
+        const pb = new Body(BodyType.STATIC, new Vec2(cx, cy));
+        const ps = new Circle(6);
+        ps.sensorEnabled = true;
+        ps.cbTypes.add(pearlTag);
+        pb.shapes.add(ps);
+        pb.space = space;
+        pearlBodies.push(pb);
+        voxelRenderer.buildPearlAt(pb);
+      }
+    }
+  },
+);
+crateListener.space = space;
 
 // Player-key collision: ignored while carrying
 const keyPlayerPre = new PreListener(
@@ -1917,6 +1967,18 @@ function _resetEntities() {
   }
   grabbedBoulder = null;
   voxelRenderer.buildBoulders(boulderBodies);
+
+  // ── Crates ──
+  for (let i = 0; i < crateBodies.length; i++) {
+    const b = crateBodies[i];
+    const cr = entities.crates[i];
+    b.position = new Vec2(cr.x, cr.y);
+    b.velocity = new Vec2(0, 0);
+    b.rotation = 0;
+    b.angularVel = 0;
+    if (!b.space) b.space = space;
+  }
+  voxelRenderer.buildCrates(crateBodies);
 
   // ── Keys ──
   for (let i = 0; i < keyBodies.length; i++) {
