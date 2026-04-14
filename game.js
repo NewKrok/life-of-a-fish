@@ -27,7 +27,7 @@ import { TouchControls } from './touch-controls.js';
 import { MenuScene } from './menu-scene.js';
 import { MusicSystem } from './music-system.js';
 import { SfxSystem } from './sfx-system.js';
-import { LevelEditor } from './level-editor.js';
+import { LevelEditor, generateEditorPreviews } from './level-editor.js';
 import { generateCodexPreviews } from './codex-renderer.js';
 
 // ── Three.js import ──
@@ -589,6 +589,7 @@ const CODEX_DATA = [
 
 // Lazy-generated preview images (rendered on first Codex open)
 let _codexPreviews = null;
+let _editorPreviews = null;
 
 function _buildCodexEntries(category) {
   if (!_codexPreviews) _codexPreviews = generateCodexPreviews(THREE);
@@ -765,6 +766,12 @@ window.addEventListener('keydown', (e) => {
 function _activateEditor() {
   editorActive = true;
 
+  // Generate editor preview thumbnails once (lazy, reuses codex previews)
+  if (!_editorPreviews) {
+    if (!_codexPreviews) _codexPreviews = generateCodexPreviews(THREE);
+    _editorPreviews = generateEditorPreviews(THREE, VoxelRenderer, _codexPreviews);
+  }
+
   if (appState === 'game' && gameInitialized) {
     // Game level editor
     if (!gameEditor) {
@@ -774,6 +781,8 @@ function _activateEditor() {
       gameEditor = new LevelEditor(
         hudCtx, hudCanvas, TILES, LEVEL_COLS, LEVEL_ROWS, WORLD_W, WORLD_H
       );
+      gameEditor.setPreviews(_editorPreviews);
+      gameEditor.setScene(THREE, scene, voxelRenderer);
       // Wire up 3D rebuild callbacks
       gameEditor.onTerrainChange = () => {
         if (voxelRenderer) voxelRenderer.rebuildTerrain();
@@ -796,6 +805,8 @@ function _activateEditor() {
       menuEditor = new LevelEditor(
         hudCtx, hudCanvas, MENU_TILES, MENU_COLS, MENU_ROWS, MENU_WORLD_W, MENU_WORLD_H
       );
+      menuEditor.setPreviews(_editorPreviews);
+      menuEditor.setScene(THREE, menuScene.scene, menuScene.voxelRenderer);
       // Wire up 3D rebuild callbacks for menu
       menuEditor.onTerrainChange = () => {
         const mr = menuScene.voxelRenderer;
@@ -2216,31 +2227,57 @@ function gameLoop() {
 
   // ── Editor Mode ──
   if (editorActive && gameEditor) {
-    // Editor: free camera, no physics, render overlay
-    gameEditor.update(DT, getVisibleSize);
-    gameEditor.processPendingActions(getVisibleSize);
+    // Editor uses flat (top-down) camera, viewport offset by sidebar width
+    const sidebarPx = 180;  // matches SIDEBAR_W in level-editor.js
+    const canvasW = renderer.domElement.clientWidth;
+    const canvasH = renderer.domElement.clientHeight;
+    const viewportW = canvasW - sidebarPx;
+    const editorAspect = viewportW / canvasH;
 
-    // Use editor camera
+    const editorGetVisibleSize = () => {
+      const vFov = CAM_FOV * Math.PI / 180;
+      const visH = 2 * Math.tan(vFov / 2) * CAM_DISTANCE;
+      const visW = visH * editorAspect;
+      return { visW, visH };
+    };
+
+    gameEditor.update(DT, editorGetVisibleSize);
+    gameEditor.processPendingActions(editorGetVisibleSize);
+
+    // Use editor camera — flat (no pitch), aspect matches viewport
     camX = gameEditor.camX;
     camY = gameEditor.camY;
     _gameCamX = camX;
     _gameCamY = camY;
 
-    const { visW: camVisW, visH: camVisH } = getVisibleSize();
+    camera.aspect = editorAspect;
+    camera.updateProjectionMatrix();
+
+    const { visW: camVisW, visH: camVisH } = editorGetVisibleSize();
     const lookX = camX + camVisW / 2;
     const lookY = -(camY + camVisH / 2);
-    camera.position.set(lookX, lookY - CAM_Y_OFFSET, CAM_Z_OFFSET);
+    camera.position.set(lookX, lookY, CAM_DISTANCE);
     camera.lookAt(lookX, lookY, 0);
 
     // In editor mode, skip syncFrame (entities are positioned by editor callbacks).
     // Only update time-based animations (water, bubbles, etc.)
     voxelRenderer._time += DT;
 
+    // Render 3D scene only to the viewport area (right of sidebar)
+    renderer.setViewport(sidebarPx, 0, viewportW, canvasH);
+    renderer.setScissor(sidebarPx, 0, viewportW, canvasH);
+    renderer.setScissorTest(true);
     renderer.render(scene, camera);
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, canvasW, canvasH);
+
+    // Restore camera aspect for non-editor use
+    camera.aspect = canvasW / canvasH;
+    camera.updateProjectionMatrix();
 
     // Editor HUD
     hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
-    gameEditor.render(getVisibleSize);
+    gameEditor.render(editorGetVisibleSize);
     gameEditor.renderToast(DT);
 
     gameAnimId = requestAnimationFrame(gameLoop);
