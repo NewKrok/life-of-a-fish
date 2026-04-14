@@ -134,6 +134,7 @@ Water surface is at row 4 (128px).
 
 Deep-dive docs live in `.claude/docs/`. Refer to these when working on the relevant subsystem:
 
+- [game-design.md](.claude/docs/game-design.md) — Full game design document: "The Call of the Deep" story, 5-world structure, new mechanics, enemies, skills, bosses, monetization
 - [fish-controller.md](.claude/docs/fish-controller.md) — Player movement states, tuning constants, dash/jump mechanics, water detection
 - [voxel-renderer.md](.claude/docs/voxel-renderer.md) — Three.js rendering: terrain instancing, fish voxel models, water/bubble animation, lighting
 - [nape-physics-setup.md](.claude/docs/nape-physics-setup.md) — Physics space config, body types, CbType collision system, greedy rectangle merging
