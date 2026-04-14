@@ -47,16 +47,19 @@ App starts in menu state. `MenuScene` creates its own Three.js scene, physics sp
 
 ### Level Editor (level-editor.js)
 
-In-game editor activated with **F4**. Works in both menu and game states. Pauses physics/AI while active.
+In-game editor activated with **F4**. Works in both menu and game states. Pauses physics/AI while active. Camera switches to flat top-down view (no pitch) with viewport/scissor rendering offset by sidebar width.
 
-- **Free camera**: WASD/Arrows to pan, Shift for fast scroll
-- **Tile palette**: bottom bar with all 16 tile types, click or scroll wheel to select, 0-9 hotkeys
+- **Left sidebar** (216px): Unity-style grid of 60×60 square preview cells with collapsible categories (Tools, Terrain, Items, Enemies, Keys, Chests). 3D preview thumbnails generated from codex-renderer + per-color key/chest variants. Large preview area at top shows selected item.
+- **Tools**: Erase (clear tile/entity) and Move (drag entities to new positions, snaps to grid)
+- **Free camera**: WASD/Arrows to pan, Shift for fast scroll, right-click drag to pan, two-finger pan on mobile
+- **3D ghost cursor**: selected entity/terrain shown as 50% opacity 3D model at cursor grid position
 - **Placement**: click to place selected tile/entity, hold to paint terrain
 - **Deletion**: double-click to remove entity or erase terrain tile
-- **Patrol editing**: enemies show patrol range lines with draggable min/max handles
+- **Patrol editing**: enemies show patrol range lines with draggable min/max handles, snapped to tile centers
 - **Grid overlay**: toggle with G key
 - **Export**: Ctrl+C copies LEVEL_STRINGS + patrol data to clipboard
-- **Entity overlay**: colored circles with labels for all entities (pearls, enemies, spawn, etc.)
+- **Entity overlay**: colored markers with labels for all entities (pearls, enemies, spawn, etc.)
+- **Mobile**: touch support for sidebar scroll/tap, world placement, double-tap delete, two-finger camera pan
 
 ### Game Loop (game.js, 60 FPS)
 
