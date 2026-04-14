@@ -523,7 +523,7 @@ export class MenuScene {
     // Camera update
     const getVis = () => this._getVisibleSize();
     // Editor uses flat camera (no pitch) with viewport offset for sidebar
-    const sidebarPx = 180;  // matches SIDEBAR_W in level-editor.js
+    const sidebarPx = 216;  // matches SIDEBAR_W in level-editor.js
     const canvasW = this.renderer.domElement.clientWidth;
     const canvasH = this.renderer.domElement.clientHeight;
     const editorViewW = canvasW - sidebarPx;

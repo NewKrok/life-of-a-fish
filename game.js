@@ -834,14 +834,7 @@ function _activateEditor() {
 function _rebuildGameEntityVisuals(entities) {
   if (!voxelRenderer) return;
   voxelRenderer.clearEntityVisuals();
-  for (const ent of entities) {
-    if (ent.tileId === 6)  voxelRenderer.buildEnemyFish();
-    if (ent.tileId === 12) voxelRenderer.buildShark();
-    if (ent.tileId === 13) voxelRenderer.buildPufferfish();
-    if (ent.tileId === 14) voxelRenderer.buildCrab();
-    if (ent.tileId === 15) voxelRenderer.buildToxicFish();
-  }
-  // Position the newly created visuals at the entity positions
+  _buildEditorEntities(voxelRenderer, entities);
   _positionEditorEntities(voxelRenderer, entities);
 }
 
@@ -850,14 +843,43 @@ function _rebuildMenuEntityVisuals(entities) {
   const mr = menuScene.voxelRenderer;
   if (!mr) return;
   mr.clearEntityVisuals();
-  for (const ent of entities) {
-    if (ent.tileId === 6)  mr.buildEnemyFish();
-    if (ent.tileId === 12) mr.buildShark();
-    if (ent.tileId === 13) mr.buildPufferfish();
-    if (ent.tileId === 14) mr.buildCrab();
-    if (ent.tileId === 15) mr.buildToxicFish();
-  }
+  _buildEditorEntities(mr, entities);
   _positionEditorEntities(mr, entities);
+}
+
+// Build all entity visuals from editor entity list
+function _buildEditorEntities(vr, entities) {
+  // Collect entities by type for batch building
+  const pearls = [], buoys = [], boulders = [], rafts = [], keys = [], chests = [];
+
+  for (const ent of entities) {
+    const fakeBody = { position: { x: ent.x, y: ent.y } };
+    switch (ent.tileId) {
+      case 5: pearls.push(fakeBody); break;
+      case 6: vr.buildEnemyFish(); break;
+      case 7: /* spawn — no 3D model needed */ break;
+      case 9: buoys.push(fakeBody); break;
+      case 10: boulders.push(fakeBody); break;
+      case 11: rafts.push(fakeBody); break;
+      case 12: vr.buildShark(); break;
+      case 13: vr.buildPufferfish(); break;
+      case 14: vr.buildCrab(); break;
+      case 15: vr.buildToxicFish(); break;
+      default:
+        if (ent.tileId >= 16 && ent.tileId <= 20) {
+          keys.push({ body: fakeBody, colorIndex: ent.tileId - 16 });
+        } else if (ent.tileId >= 21 && ent.tileId <= 25) {
+          chests.push({ body: fakeBody, colorIndex: ent.tileId - 21 });
+        }
+    }
+  }
+
+  if (pearls.length) for (const b of pearls) vr.buildPearlAt(b);
+  if (buoys.length) vr.buildBuoys(buoys);
+  if (boulders.length) vr.buildBoulders(boulders);
+  if (rafts.length) vr.buildRafts(rafts);
+  if (keys.length) vr.buildKeys(keys);
+  if (chests.length) vr.buildChests(chests);
 }
 
 // Position editor entity visuals at their world positions
@@ -887,6 +909,8 @@ function _positionEditorEntities(vr, entities) {
       vr.toxicFishGroups[ti].visible = true;
       ti++;
     }
+    // Pearl, buoy, boulder, raft, key, chest positions are already set
+    // by the build methods via the fakeBody positions
   }
 }
 
@@ -2228,7 +2252,7 @@ function gameLoop() {
   // ── Editor Mode ──
   if (editorActive && gameEditor) {
     // Editor uses flat (top-down) camera, viewport offset by sidebar width
-    const sidebarPx = 180;  // matches SIDEBAR_W in level-editor.js
+    const sidebarPx = 216;  // matches SIDEBAR_W in level-editor.js
     const canvasW = renderer.domElement.clientWidth;
     const canvasH = renderer.domElement.clientHeight;
     const viewportW = canvasW - sidebarPx;

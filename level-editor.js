@@ -9,7 +9,10 @@ import { TILE_SIZE } from './level-data.js';
 // ── Tile palette definition ──
 // Each entry: { id, char, label, color, category, previewKey? }
 // previewKey maps to the key in the previews object passed via setPreviews()
+const MOVE_TILE_ID = -1; // Special ID for move tool
+
 const PALETTE = [
+  { id: MOVE_TILE_ID, char: '.', label: 'Move',  color: '#00e5ff', category: 'tools',   previewKey: null },
   { id: 0,  char: '.', label: 'Erase',      color: '#222',    category: 'tools',   previewKey: null },
   { id: 1,  char: '#', label: 'Stone',       color: '#666',    category: 'terrain', previewKey: 'stone' },
   { id: 2,  char: 's', label: 'Sand',        color: '#c8a86e', category: 'terrain', previewKey: 'sand' },
@@ -26,16 +29,16 @@ const PALETTE = [
   { id: 13, char: 'U', label: 'Pufferfish',  color: '#c0a060', category: 'enemies', previewKey: 'pufferfish' },
   { id: 14, char: 'C', label: 'Crab',        color: '#d04020', category: 'enemies', previewKey: 'crab' },
   { id: 15, char: 'F', label: 'Toxic Fish',  color: '#50c050', category: 'enemies', previewKey: 'toxicFish' },
-  { id: 16, char: '1', label: 'Key Red',     color: '#ff4444', category: 'keys',    previewKey: 'key' },
-  { id: 17, char: '2', label: 'Key Blue',    color: '#4488ff', category: 'keys',    previewKey: 'key' },
-  { id: 18, char: '3', label: 'Key Green',   color: '#44cc44', category: 'keys',    previewKey: 'key' },
-  { id: 19, char: '4', label: 'Key Yellow',  color: '#ffcc00', category: 'keys',    previewKey: 'key' },
-  { id: 20, char: '5', label: 'Key Purple',  color: '#aa44ff', category: 'keys',    previewKey: 'key' },
-  { id: 21, char: 'a', label: 'Chest Red',   color: '#cc2222', category: 'chests',  previewKey: 'chest' },
-  { id: 22, char: 'b', label: 'Chest Blue',  color: '#2266cc', category: 'chests',  previewKey: 'chest' },
-  { id: 23, char: 'g', label: 'Chest Green', color: '#22aa22', category: 'chests',  previewKey: 'chest' },
-  { id: 24, char: 'y', label: 'Chest Yellow',color: '#ccaa00', category: 'chests',  previewKey: 'chest' },
-  { id: 25, char: 'q', label: 'Chest Purple',color: '#8822cc', category: 'chests',  previewKey: 'chest' },
+  { id: 16, char: '1', label: 'Key Red',     color: '#ff4444', category: 'keys',    previewKey: 'keyRed' },
+  { id: 17, char: '2', label: 'Key Blue',    color: '#4488ff', category: 'keys',    previewKey: 'keyBlue' },
+  { id: 18, char: '3', label: 'Key Green',   color: '#44cc44', category: 'keys',    previewKey: 'keyGreen' },
+  { id: 19, char: '4', label: 'Key Yellow',  color: '#ffcc00', category: 'keys',    previewKey: 'keyYellow' },
+  { id: 20, char: '5', label: 'Key Purple',  color: '#aa44ff', category: 'keys',    previewKey: 'keyPurple' },
+  { id: 21, char: 'a', label: 'Chest Red',   color: '#cc2222', category: 'chests',  previewKey: 'chestRed' },
+  { id: 22, char: 'b', label: 'Chest Blue',  color: '#2266cc', category: 'chests',  previewKey: 'chestBlue' },
+  { id: 23, char: 'g', label: 'Chest Green', color: '#22aa22', category: 'chests',  previewKey: 'chestGreen' },
+  { id: 24, char: 'y', label: 'Chest Yellow',color: '#ccaa00', category: 'chests',  previewKey: 'chestYellow' },
+  { id: 25, char: 'q', label: 'Chest Purple',color: '#8822cc', category: 'chests',  previewKey: 'chestPurple' },
 ];
 
 // Category definitions in display order
@@ -69,14 +72,13 @@ const CAM_SPEED = 400;          // px/s
 const CAM_FAST_MULTIPLIER = 2;  // shift held
 
 // ── Sidebar layout constants ──
-const SIDEBAR_W = 180;          // px width
+const SIDEBAR_W = 216;          // px width (20% wider than 180)
 const SIDEBAR_PAD = 8;          // px inner padding
 const CATEGORY_HEADER_H = 24;   // px height for category headers
-const TILE_ITEM_H = 32;         // px height per tile item row (room for preview icon)
-const TILE_ICON_SIZE = 24;      // px preview icon size in list
+const GRID_CELL_SIZE = 60;      // px — square grid cell for library items
+const GRID_GAP = 4;             // px gap between grid cells
 const PREVIEW_H = 80;           // px height for large preview area at top
 const TOP_BAR_H = 32;           // px top info bar
-const MOVE_BTN_H = 30;          // px move button height
 
 export class LevelEditor {
   /**
@@ -110,8 +112,7 @@ export class LevelEditor {
     // Patrol editing
     this._draggingPatrol = null;  // { entityIdx, handle: 'min'|'max' }
 
-    // Move mode
-    this.moveMode = false;
+    // Move mode (active when Move tool is selected)
     this._movingEntity = null;    // { entityIdx }
 
     // Category collapse state (all expanded by default)
@@ -188,6 +189,8 @@ export class LevelEditor {
     this._onTouchEnd = this._handleTouchEnd.bind(this);
   }
 
+  get moveMode() { return this.selectedTile === MOVE_TILE_ID; }
+
   // ── Set 3D scene for ghost cursor model ──
   setScene(THREE, scene, voxelRenderer) {
     this._three = THREE;
@@ -236,7 +239,6 @@ export class LevelEditor {
     this.active = false;
     this._draggingPatrol = null;
     this._movingEntity = null;
-    this.moveMode = false;
     this._rightDragStart = null;
     this._removeGhost();
     this.hudCanvas.style.pointerEvents = 'none';
@@ -257,15 +259,16 @@ export class LevelEditor {
   static buildEntityList(tiles, cols, rows, knownEntities) {
     const list = [];
     if (knownEntities) {
+      const snapCenter = (v) => Math.floor(v / TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
       const addGroup = (arr, tileId) => {
         for (const e of arr) {
           const entry = { x: e.x, y: e.y, tileId };
           const pDef = PATROL_DEFAULTS[tileId];
           if (pDef) {
             if (pDef.axis === 'x') {
-              entry.patrol = { axis: 'x', min: e.x - pDef.range, max: e.x + pDef.range };
+              entry.patrol = { axis: 'x', min: snapCenter(e.x - pDef.range), max: snapCenter(e.x + pDef.range) };
             } else {
-              entry.patrol = { axis: 'y', min: e.y - pDef.range, max: e.y + pDef.range };
+              entry.patrol = { axis: 'y', min: snapCenter(e.y - pDef.range), max: snapCenter(e.y + pDef.range) };
             }
           }
           list.push(entry);
@@ -303,10 +306,11 @@ export class LevelEditor {
             const entry = { x: cx, y: cy, tileId: t };
             const pDef = PATROL_DEFAULTS[t];
             if (pDef) {
+              const snap = (v) => Math.floor(v / TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
               if (pDef.axis === 'x') {
-                entry.patrol = { axis: 'x', min: cx - pDef.range, max: cx + pDef.range };
+                entry.patrol = { axis: 'x', min: snap(cx - pDef.range), max: snap(cx + pDef.range) };
               } else {
-                entry.patrol = { axis: 'y', min: cy - pDef.range, max: cy + pDef.range };
+                entry.patrol = { axis: 'y', min: snap(cy - pDef.range), max: snap(cy + pDef.range) };
               }
             }
             list.push(entry);
@@ -386,9 +390,9 @@ export class LevelEditor {
         const { visW: vw, visH: vh } = getVisibleSize();
         const rawX = this.camX + ((this._mouseScreen.x - SIDEBAR_W) / (this.hudCanvas.width - SIDEBAR_W)) * vw;
         const rawY = this.camY + (this._mouseScreen.y / this.hudCanvas.height) * vh;
-        // Snap to nearest tile edge
-        const snapX = Math.round(rawX / TILE_SIZE) * TILE_SIZE;
-        const snapY = Math.round(rawY / TILE_SIZE) * TILE_SIZE;
+        // Snap to nearest tile center
+        const snapX = Math.floor(rawX / TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
+        const snapY = Math.floor(rawY / TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
         if (ent.patrol.axis === 'x') {
           if (this._draggingPatrol.handle === 'min') {
             ent.patrol.min = Math.min(snapX, ent.x - TILE_SIZE);
@@ -406,17 +410,20 @@ export class LevelEditor {
       }
     }
 
-    // Right-click camera drag
+    // Right-click camera drag — always re-anchor to prevent drift at edges
     if (this._rightDragStart) {
       const dx = this._mouseScreen.x - this._rightDragStart.screenX;
       const dy = this._mouseScreen.y - this._rightDragStart.screenY;
       const viewW = this.hudCanvas.width - SIDEBAR_W;
       const scaleX = visW / viewW;
       const scaleY = visH / this.hudCanvas.height;
-      this.camX = this._rightDragStart.camX - dx * scaleX;
-      this.camY = this._rightDragStart.camY - dy * scaleY;
-      this.camX = Math.max(0, Math.min(this.camX, this.worldW - visW));
-      this.camY = Math.max(0, Math.min(this.camY, this.worldH - visH));
+      this.camX = Math.max(0, Math.min(this._rightDragStart.camX - dx * scaleX, this.worldW - visW));
+      this.camY = Math.max(0, Math.min(this._rightDragStart.camY - dy * scaleY, this.worldH - visH));
+      // Re-anchor every frame so clamping doesn't accumulate offset
+      this._rightDragStart.screenX = this._mouseScreen.x;
+      this._rightDragStart.screenY = this._mouseScreen.y;
+      this._rightDragStart.camX = this.camX;
+      this._rightDragStart.camY = this.camY;
     }
 
     // Throttled terrain rebuild
@@ -633,10 +640,15 @@ export class LevelEditor {
     ctx.restore();
   }
 
-  // ── Left sidebar ──
+  // ── Left sidebar — grid layout ──
   _renderSidebar(W, H) {
     const ctx = this.hudCtx;
     const sw = SIDEBAR_W;
+    const contentW = sw - SIDEBAR_PAD * 2;
+    // How many grid cells fit per row
+    const cols = Math.floor((contentW + GRID_GAP) / (GRID_CELL_SIZE + GRID_GAP));
+    const gridW = cols * GRID_CELL_SIZE + (cols - 1) * GRID_GAP;
+    const gridOffsetX = SIDEBAR_PAD + (contentW - gridW) / 2;
 
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -653,27 +665,12 @@ export class LevelEditor {
 
     // ── Preview area at top ──
     const previewY = SIDEBAR_PAD;
-    const previewW = sw - SIDEBAR_PAD * 2;
-    this._renderPreview(ctx, SIDEBAR_PAD, previewY, previewW, PREVIEW_H);
+    this._renderPreview(ctx, SIDEBAR_PAD, previewY, contentW, PREVIEW_H);
 
-    // ── Move mode button ──
-    const moveBtnY = previewY + PREVIEW_H + SIDEBAR_PAD;
-    this._moveBtnRect = { x: SIDEBAR_PAD, y: moveBtnY, w: previewW, h: MOVE_BTN_H };
-    ctx.fillStyle = this.moveMode ? 'rgba(0, 229, 255, 0.3)' : 'rgba(30, 50, 70, 0.6)';
-    ctx.strokeStyle = this.moveMode ? 'rgba(0, 229, 255, 0.8)' : 'rgba(100, 180, 255, 0.2)';
-    ctx.lineWidth = this.moveMode ? 2 : 1;
-    ctx.fillRect(this._moveBtnRect.x, moveBtnY, previewW, MOVE_BTN_H);
-    ctx.strokeRect(this._moveBtnRect.x, moveBtnY, previewW, MOVE_BTN_H);
-    ctx.fillStyle = this.moveMode ? '#00e5ff' : 'rgba(200,230,255,0.7)';
-    ctx.font = "bold 10px 'Silkscreen', monospace";
-    ctx.textAlign = 'center';
-    ctx.fillText(this.moveMode ? 'MOVE ON' : 'MOVE (M)', sw / 2, moveBtnY + 20);
-
-    // ── Category list (scrollable) ──
-    const listTop = moveBtnY + MOVE_BTN_H + SIDEBAR_PAD;
+    // ── Category grid (scrollable) ──
+    const listTop = previewY + PREVIEW_H + SIDEBAR_PAD;
     const listH = H - listTop - SIDEBAR_PAD;
 
-    // Clip to list area
     ctx.save();
     ctx.beginPath();
     ctx.rect(0, listTop, sw, listH);
@@ -689,54 +686,60 @@ export class LevelEditor {
 
       // Category header
       ctx.fillStyle = 'rgba(100, 180, 255, 0.15)';
-      ctx.fillRect(SIDEBAR_PAD, curY, previewW, CATEGORY_HEADER_H);
+      ctx.fillRect(SIDEBAR_PAD, curY, contentW, CATEGORY_HEADER_H);
       ctx.fillStyle = 'rgba(100, 200, 255, 0.9)';
       ctx.font = "bold 9px 'Silkscreen', monospace";
       ctx.textAlign = 'left';
       const arrow = isCollapsed ? '\u25B6' : '\u25BC';
       ctx.fillText(`${arrow} ${cat.label}`, SIDEBAR_PAD + 6, curY + 16);
-      curY += CATEGORY_HEADER_H + 2;
+      curY += CATEGORY_HEADER_H + 4;
 
       if (!isCollapsed) {
-        for (const p of items) {
+        for (let i = 0; i < items.length; i++) {
+          const p = items[i];
+          const gridCol = i % cols;
+          const gridRow = Math.floor(i / cols);
+          const cellX = gridOffsetX + gridCol * (GRID_CELL_SIZE + GRID_GAP);
+          const cellY = curY + gridRow * (GRID_CELL_SIZE + GRID_GAP);
           const selected = p.id === this.selectedTile && !this.moveMode;
-          const iy = curY;
 
-          // Item background
+          // Cell background
           if (selected) {
             ctx.fillStyle = 'rgba(100, 200, 255, 0.25)';
             ctx.strokeStyle = 'rgba(100, 200, 255, 0.8)';
-            ctx.lineWidth = 1.5;
-            ctx.fillRect(SIDEBAR_PAD, iy, previewW, TILE_ITEM_H);
-            ctx.strokeRect(SIDEBAR_PAD, iy, previewW, TILE_ITEM_H);
+            ctx.lineWidth = 2;
+          } else {
+            ctx.fillStyle = 'rgba(30, 50, 70, 0.5)';
+            ctx.strokeStyle = 'rgba(100, 180, 255, 0.12)';
+            ctx.lineWidth = 1;
           }
+          ctx.fillRect(cellX, cellY, GRID_CELL_SIZE, GRID_CELL_SIZE);
+          ctx.strokeRect(cellX, cellY, GRID_CELL_SIZE, GRID_CELL_SIZE);
 
-          // Preview icon or color swatch
-          const iconX = SIDEBAR_PAD + 4;
-          const iconY = iy + (TILE_ITEM_H - TILE_ICON_SIZE) / 2;
+          // Preview image or color swatch (square, centered with padding)
+          const imgPad = 4;
+          const imgSize = GRID_CELL_SIZE - imgPad * 2 - 12; // leave room for label
+          const imgX = cellX + (GRID_CELL_SIZE - imgSize) / 2;
+          const imgY = cellY + imgPad;
           const img = p.previewKey ? this._previewImgs[p.previewKey] : null;
           if (img && img.complete && img.naturalWidth > 0) {
-            ctx.drawImage(img, iconX, iconY, TILE_ICON_SIZE, TILE_ICON_SIZE);
+            ctx.drawImage(img, imgX, imgY, imgSize, imgSize);
           } else {
-            // Fallback: color swatch
             ctx.fillStyle = p.color;
-            ctx.fillRect(iconX, iconY, TILE_ICON_SIZE, TILE_ICON_SIZE);
-            ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-            ctx.lineWidth = 0.5;
-            ctx.strokeRect(iconX, iconY, TILE_ICON_SIZE, TILE_ICON_SIZE);
+            ctx.fillRect(imgX, imgY, imgSize, imgSize);
           }
 
-          // Label
-          ctx.fillStyle = selected ? '#fff' : 'rgba(200,230,255,0.7)';
-          ctx.font = "9px 'Silkscreen', monospace";
-          ctx.textAlign = 'left';
-          ctx.fillText(p.label, iconX + TILE_ICON_SIZE + 6, iy + TILE_ITEM_H / 2 + 3);
-
-          curY += TILE_ITEM_H;
+          // Label below the preview
+          ctx.fillStyle = selected ? '#fff' : 'rgba(200,230,255,0.6)';
+          ctx.font = "7px 'Silkscreen', monospace";
+          ctx.textAlign = 'center';
+          ctx.fillText(p.label, cellX + GRID_CELL_SIZE / 2, cellY + GRID_CELL_SIZE - 3);
         }
+        const rowCount = Math.ceil(items.length / cols);
+        curY += rowCount * (GRID_CELL_SIZE + GRID_GAP);
       }
 
-      curY += 4; // gap between categories
+      curY += 4;
     }
 
     this._sidebarContentH = curY + this._sidebarScrollY - listTop;
@@ -791,23 +794,18 @@ export class LevelEditor {
     ctx.fillText(pal.label, x + w / 2, y + h - 8);
   }
 
-  // ── Get sidebar item hit at screen position ──
+  // ── Get sidebar item hit at screen position (grid layout) ──
   _hitTestSidebar(screenX, screenY) {
     if (screenX > SIDEBAR_W) return null;
 
     const sw = SIDEBAR_W;
-    const previewW = sw - SIDEBAR_PAD * 2;
+    const contentW = sw - SIDEBAR_PAD * 2;
+    const cols = Math.floor((contentW + GRID_GAP) / (GRID_CELL_SIZE + GRID_GAP));
+    const gridW = cols * GRID_CELL_SIZE + (cols - 1) * GRID_GAP;
+    const gridOffsetX = SIDEBAR_PAD + (contentW - gridW) / 2;
 
-    // Move button
-    if (this._moveBtnRect) {
-      const b = this._moveBtnRect;
-      if (screenX >= b.x && screenX <= b.x + b.w && screenY >= b.y && screenY <= b.y + b.h) {
-        return { type: 'move_btn' };
-      }
-    }
-
-    // Category list area
-    const listTop = (this._moveBtnRect ? this._moveBtnRect.y + MOVE_BTN_H : PREVIEW_H + MOVE_BTN_H) + SIDEBAR_PAD;
+    // Category grid area
+    const listTop = SIDEBAR_PAD + PREVIEW_H + SIDEBAR_PAD;
     if (screenY < listTop) return null;
 
     let curY = listTop - this._sidebarScrollY;
@@ -820,15 +818,21 @@ export class LevelEditor {
       if (screenY >= curY && screenY < curY + CATEGORY_HEADER_H) {
         return { type: 'category', key: cat.key };
       }
-      curY += CATEGORY_HEADER_H + 2;
+      curY += CATEGORY_HEADER_H + 4;
 
       if (!this._collapsed[cat.key]) {
-        for (const p of items) {
-          if (screenY >= curY && screenY < curY + TILE_ITEM_H) {
-            return { type: 'tile', id: p.id };
+        const rowCount = Math.ceil(items.length / cols);
+        for (let i = 0; i < items.length; i++) {
+          const gc = i % cols;
+          const gr = Math.floor(i / cols);
+          const cellX = gridOffsetX + gc * (GRID_CELL_SIZE + GRID_GAP);
+          const cellY = curY + gr * (GRID_CELL_SIZE + GRID_GAP);
+          if (screenX >= cellX && screenX < cellX + GRID_CELL_SIZE &&
+              screenY >= cellY && screenY < cellY + GRID_CELL_SIZE) {
+            return { type: 'tile', id: items[i].id };
           }
-          curY += TILE_ITEM_H;
         }
+        curY += rowCount * (GRID_CELL_SIZE + GRID_GAP);
       }
 
       curY += 4;
@@ -865,12 +869,14 @@ export class LevelEditor {
     const tileId = this.selectedTile;
 
     if (tileId === 0) {
-      // Erase
+      // Erase: clear tile AND remove any entity at cell
       const hadTile = this.tiles[row][col] !== 0;
       this.tiles[row][col] = 0;
       const removedEntity = this._removeEntityAt(cx, cy);
       if (hadTile) this._terrainDirty = true;
-      if (removedEntity && this.onEntityChange) this.onEntityChange(this.entities);
+      if (removedEntity) {
+        if (this.onEntityChange) this.onEntityChange(this.entities);
+      }
     } else if (ENTITY_IDS.has(tileId)) {
       // Entity placement
       this._removeEntityAt(cx, cy);
@@ -883,10 +889,12 @@ export class LevelEditor {
       const entry = { x: cx, y: cy, tileId };
       const pDef = PATROL_DEFAULTS[tileId];
       if (pDef) {
+        // Snap patrol endpoints to tile centers
+        const snapCenter = (v) => Math.floor(v / TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
         if (pDef.axis === 'x') {
-          entry.patrol = { axis: 'x', min: cx - pDef.range, max: cx + pDef.range };
+          entry.patrol = { axis: 'x', min: snapCenter(cx - pDef.range), max: snapCenter(cx + pDef.range) };
         } else {
-          entry.patrol = { axis: 'y', min: cy - pDef.range, max: cy + pDef.range };
+          entry.patrol = { axis: 'y', min: snapCenter(cy - pDef.range), max: snapCenter(cy + pDef.range) };
         }
       }
       if (tileId === 7) {
@@ -1108,7 +1116,6 @@ export class LevelEditor {
       const n = parseInt(e.code.replace('Digit', ''));
       if (n >= 0 && n < PALETTE.length) {
         this.selectedTile = PALETTE[n].id;
-        this.moveMode = false;
         e.preventDefault();
       }
     }
@@ -1121,7 +1128,7 @@ export class LevelEditor {
 
     // M = toggle move mode
     if (e.code === 'KeyM' && !e.ctrlKey && !e.metaKey) {
-      this.moveMode = !this.moveMode;
+      this.selectedTile = this.moveMode ? 1 : MOVE_TILE_ID;
       this._movingEntity = null;
       e.preventDefault();
     }
@@ -1159,14 +1166,11 @@ export class LevelEditor {
       if (e.clientX <= SIDEBAR_W) {
         const hit = this._hitTestSidebar(e.clientX, e.clientY);
         if (hit) {
-          if (hit.type === 'move_btn') {
-            this.moveMode = !this.moveMode;
-            this._movingEntity = null;
-          } else if (hit.type === 'category') {
+          if (hit.type === 'category') {
             this._collapsed[hit.key] = !this._collapsed[hit.key];
           } else if (hit.type === 'tile') {
             this.selectedTile = hit.id;
-            this.moveMode = false;
+            this._movingEntity = null;
           }
         }
         return;
@@ -1222,21 +1226,13 @@ export class LevelEditor {
     if (!this.active) return;
     e.preventDefault();
 
-    // Sidebar scroll
+    // Sidebar scroll only — no palette cycling on world area
     if (this._mouseScreen.x <= SIDEBAR_W) {
-      const listTop = (this._moveBtnRect ? this._moveBtnRect.y + MOVE_BTN_H : PREVIEW_H + MOVE_BTN_H) + SIDEBAR_PAD;
+      const listTop = SIDEBAR_PAD + PREVIEW_H + SIDEBAR_PAD;
       const listH = this.hudCanvas.height - listTop - SIDEBAR_PAD;
       const maxScroll = Math.max(0, this._sidebarContentH - listH);
       this._sidebarScrollY = Math.max(0, Math.min(maxScroll, this._sidebarScrollY + e.deltaY));
-      return;
     }
-
-    // Scroll through palette on world area
-    const dir = e.deltaY > 0 ? 1 : -1;
-    const idx = PALETTE.findIndex(p => p.id === this.selectedTile);
-    const newIdx = Math.max(0, Math.min(PALETTE.length - 1, idx + dir));
-    this.selectedTile = PALETTE[newIdx].id;
-    this.moveMode = false;
   }
 
   // ── Touch handlers (for mobile sidebar + world interaction) ──
@@ -1333,7 +1329,7 @@ export class LevelEditor {
         e.preventDefault();
         const dy = this._sidebarTouchStartY - t.clientY;
         if (Math.abs(dy) > 5) this._sidebarTouchMoved = true;
-        const listTop = (this._moveBtnRect ? this._moveBtnRect.y + MOVE_BTN_H : PREVIEW_H + MOVE_BTN_H) + SIDEBAR_PAD;
+        const listTop = SIDEBAR_PAD + PREVIEW_H + SIDEBAR_PAD;
         const listH = this.hudCanvas.height - listTop - SIDEBAR_PAD;
         const maxScroll = Math.max(0, this._sidebarContentH - listH);
         this._sidebarScrollY = Math.max(0, Math.min(maxScroll, this._sidebarScrollStart + dy));
@@ -1363,14 +1359,11 @@ export class LevelEditor {
         if (!this._sidebarTouchMoved) {
           const hit = this._hitTestSidebar(t.clientX, t.clientY);
           if (hit) {
-            if (hit.type === 'move_btn') {
-              this.moveMode = !this.moveMode;
-              this._movingEntity = null;
-            } else if (hit.type === 'category') {
+            if (hit.type === 'category') {
               this._collapsed[hit.key] = !this._collapsed[hit.key];
             } else if (hit.type === 'tile') {
               this.selectedTile = hit.id;
-              this.moveMode = false;
+              this._movingEntity = null;
             }
           }
         }
@@ -1643,6 +1636,36 @@ export function generateEditorPreviews(THREE, VoxelRendererClass, existingCodexP
   if (!previews.hazard) previews.hazard = _renderBlockPreview(THREE, offRenderer, vr, 4);
   if (!previews.seagrass) previews.seagrass = _renderBlockPreview(THREE, offRenderer, vr, 8);
 
+  // Per-color key previews
+  const colorNames = ['Red', 'Blue', 'Green', 'Yellow', 'Purple'];
+  const fakeBody = { position: { x: 0, y: 0 } };
+  for (let ci = 0; ci < 5; ci++) {
+    const key = 'key' + colorNames[ci];
+    if (!previews[key]) {
+      vr.buildKeys([{ body: fakeBody, colorIndex: ci }]);
+      const entry = vr.keyMeshes.pop();
+      if (entry) {
+        tempScene.remove(entry.mesh);
+        entry.mesh.position.set(0, 0, 0);
+        previews[key] = _renderGroupPreview(THREE, offRenderer, entry.mesh, 40);
+      }
+    }
+  }
+
+  // Per-color chest previews
+  for (let ci = 0; ci < 5; ci++) {
+    const key = 'chest' + colorNames[ci];
+    if (!previews[key]) {
+      vr.buildChests([{ body: fakeBody, colorIndex: ci }]);
+      const entry = vr.chestMeshes.pop();
+      if (entry) {
+        tempScene.remove(entry.mesh);
+        entry.mesh.position.set(0, 0, 0);
+        previews[key] = _renderGroupPreview(THREE, offRenderer, entry.mesh, 50);
+      }
+    }
+  }
+
   offRenderer.dispose();
 
   return previews;
@@ -1676,5 +1699,34 @@ function _renderBlockPreview(THREE, offRenderer, vr, tileType) {
   mat.dispose();
   if (texture.dispose) texture.dispose();
 
+  return url;
+}
+
+function _renderGroupPreview(THREE, offRenderer, group, camDist) {
+  const scene = new THREE.Scene();
+  scene.add(new THREE.AmbientLight(0x88aacc, 1.4));
+  const sun = new THREE.DirectionalLight(0xffeedd, 1.6);
+  sun.position.set(50, 40, 60);
+  scene.add(sun);
+  const fill = new THREE.DirectionalLight(0x88bbdd, 0.5);
+  fill.position.set(-30, 10, 40);
+  scene.add(fill);
+  scene.add(new THREE.HemisphereLight(0x88ccff, 0x886644, 0.3));
+
+  // Center the group
+  const box = new THREE.Box3().setFromObject(group);
+  const center = box.getCenter(new THREE.Vector3());
+  group.position.sub(center);
+  scene.add(group);
+
+  const camera = new THREE.PerspectiveCamera(30, 1, 1, 500);
+  const dist = camDist || 40;
+  camera.position.set(dist * 0.15, dist * 0.3, dist);
+  camera.lookAt(0, 0, 0);
+
+  offRenderer.render(scene, camera);
+  const url = offRenderer.domElement.toDataURL('image/png');
+
+  scene.remove(group);
   return url;
 }
