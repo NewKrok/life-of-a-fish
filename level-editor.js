@@ -33,6 +33,10 @@ const PALETTE = [
   { id: 14, char: 'C', label: 'Crab',        color: '#d04020', category: 'enemies', previewKey: 'crab' },
   { id: 15, char: 'F', label: 'Toxic Fish',  color: '#50c050', category: 'enemies', previewKey: 'toxicFish' },
   { id: 29, char: 'P', label: 'Spit Coral', color: '#cc6688', category: 'enemies', previewKey: 'spittingCoral' },
+  { id: 30, char: 'V', label: 'Sw Toggle',  color: '#22aa44', category: 'items',   previewKey: 'switchToggle' },
+  { id: 31, char: 'N', label: 'Sw Pressure', color: '#3366cc', category: 'items',  previewKey: 'switchPressure' },
+  { id: 32, char: 'O', label: 'Sw Timed',   color: '#cc8822', category: 'items',   previewKey: 'switchTimed' },
+  { id: 33, char: 'G', label: 'Gate',        color: '#888899', category: 'items',   previewKey: 'gate' },
   { id: 16, char: '1', label: 'Key Red',     color: '#ff4444', category: 'keys',    previewKey: 'keyRed' },
   { id: 17, char: '2', label: 'Key Blue',    color: '#4488ff', category: 'keys',    previewKey: 'keyBlue' },
   { id: 18, char: '3', label: 'Key Green',   color: '#44cc44', category: 'keys',    previewKey: 'keyGreen' },
@@ -296,6 +300,10 @@ export class LevelEditor {
       if (knownEntities.toxicFish) addGroup(knownEntities.toxicFish, 15);
       if (knownEntities.armoredFish) addGroup(knownEntities.armoredFish, 28);
       if (knownEntities.spittingCoral) addGroup(knownEntities.spittingCoral, 29);
+      if (knownEntities.toggleSwitches) addGroup(knownEntities.toggleSwitches, 30);
+      if (knownEntities.pressureSwitches) addGroup(knownEntities.pressureSwitches, 31);
+      if (knownEntities.timedSwitches) addGroup(knownEntities.timedSwitches, 32);
+      if (knownEntities.gates) addGroup(knownEntities.gates, 33);
       if (knownEntities.crates) addGroup(knownEntities.crates, 26);
       if (knownEntities.keys) {
         for (const k of knownEntities.keys) list.push({ x: k.x, y: k.y, tileId: 16 + k.colorIndex });
@@ -1662,6 +1670,23 @@ export class LevelEditor {
           tempScene.remove(result);
           if (vr.spittingCoralGroups) vr.spittingCoralGroups.pop();
           break;
+        case 30: case 31: case 32: { // Switches
+          const swType = tileId === 30 ? 'toggle' : tileId === 31 ? 'pressure' : 'timed';
+          const fakeBody = { position: { x: 0, y: 0 } };
+          const fakeSw = { body: fakeBody, type: swType, group: 0, active: false, timer: 0 };
+          vr.buildSwitches([fakeSw]);
+          const entry = vr.switchMeshes.pop();
+          if (entry) { tempScene.remove(entry.mesh); result = entry.mesh; }
+          break;
+        }
+        case 33: { // Gate
+          const fakeBody = { position: { x: 0, y: 0 } };
+          const fakeGate = { body: fakeBody, group: 0, open: false, angle: 0 };
+          vr.buildGates([fakeGate]);
+          const entry = vr.gateMeshes.pop();
+          if (entry) { tempScene.remove(entry.mesh); result = entry.mesh; }
+          break;
+        }
       }
     } finally {
       vr.scene = origScene;
@@ -1758,6 +1783,34 @@ export function generateEditorPreviews(THREE, VoxelRendererClass, existingCodexP
       tempScene.remove(entry.mesh);
       entry.mesh.position.set(0, 0, 0);
       previews.crate = _renderGroupPreview(THREE, offRenderer, entry.mesh, 30);
+    }
+  }
+
+  // Switch previews
+  for (const [type, key] of [['toggle', 'switchToggle'], ['pressure', 'switchPressure'], ['timed', 'switchTimed']]) {
+    if (!previews[key]) {
+      const fakeBody = { position: { x: 0, y: 0 } };
+      const fakeSw = { body: fakeBody, type, group: 0, active: false, timer: 0 };
+      vr.buildSwitches([fakeSw]);
+      const entry = vr.switchMeshes.pop();
+      if (entry) {
+        tempScene.remove(entry.mesh);
+        entry.mesh.position.set(0, 0, 0);
+        previews[key] = _renderGroupPreview(THREE, offRenderer, entry.mesh, 30);
+      }
+    }
+  }
+
+  // Gate preview
+  if (!previews.gate) {
+    const fakeBody = { position: { x: 0, y: 0 } };
+    const fakeGate = { body: fakeBody, group: 0, open: false, angle: 0 };
+    vr.buildGates([fakeGate]);
+    const entry = vr.gateMeshes.pop();
+    if (entry) {
+      tempScene.remove(entry.mesh);
+      entry.mesh.position.set(0, 0, 0);
+      previews.gate = _renderGroupPreview(THREE, offRenderer, entry.mesh, 50);
     }
   }
 

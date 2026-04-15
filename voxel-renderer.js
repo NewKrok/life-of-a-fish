@@ -88,6 +88,8 @@ export class VoxelRenderer {
     this._armoredFlipAngles = [];
     this.spittingCoralGroups = [];
     this.projectileMeshes = [];    // { mesh, body } pairs for poison projectiles
+    this.switchMeshes = [];        // { mesh, body, type, padMesh } pairs
+    this.gateMeshes = [];          // { mesh, body, pivotGroup } pairs
 
     // New visual elements
     this.godRays = [];
@@ -154,6 +156,12 @@ export class VoxelRenderer {
     // Breakable walls
     for (const w of this.breakableWallMeshes) this.scene.remove(w.mesh);
     this.breakableWallMeshes.length = 0;
+    // Switches
+    for (const s of this.switchMeshes) this.scene.remove(s.mesh);
+    this.switchMeshes.length = 0;
+    // Gates
+    for (const g of this.gateMeshes) this.scene.remove(g.mesh);
+    this.gateMeshes.length = 0;
   }
 
   // ── Generate procedural Minecraft-style texture for a tile type ──
@@ -1985,6 +1993,117 @@ export class VoxelRenderer {
     }
   }
 
+  // ── Build switch meshes (flat glowing pads) ──
+  buildSwitches(switchBodies) {
+    for (const s of this.switchMeshes) this.scene.remove(s.mesh);
+    this.switchMeshes.length = 0;
+
+    const THREE = this.THREE;
+    const V = 3;
+
+    const COLORS = {
+      toggle:   { base: 0x22aa44, glow: 0x44ff66, dark: 0x116622 },  // green
+      pressure: { base: 0x3366cc, glow: 0x5588ff, dark: 0x224488 },  // blue
+      timed:    { base: 0xcc8822, glow: 0xffaa44, dark: 0x885511 },  // orange
+    };
+
+    for (const sw of switchBodies) {
+      const group = new THREE.Group();
+      const c = COLORS[sw.type] || COLORS.toggle;
+
+      // Base platform: 8×2×6 voxels (flat pad)
+      for (let x = -4; x <= 3; x++) {
+        for (let z = -3; z <= 2; z++) {
+          const isEdge = x === -4 || x === 3 || z === -3 || z === 2;
+          const geo = new THREE.BoxGeometry(V, V * 0.5, V);
+          const mat = new THREE.MeshStandardMaterial({
+            color: isEdge ? c.dark : c.base,
+            roughness: 0.5, metalness: 0.3,
+          });
+          const m = new THREE.Mesh(geo, mat);
+          m.position.set(x * V, -V * 0.25, z * V);
+          group.add(m);
+        }
+      }
+
+      // Glowing center button (raised pad)
+      const padGeo = new THREE.BoxGeometry(V * 4, V * 0.8, V * 3);
+      const padMat = new THREE.MeshStandardMaterial({
+        color: c.glow, roughness: 0.2, metalness: 0.5,
+        emissive: c.glow, emissiveIntensity: 0.3,
+      });
+      const padMesh = new THREE.Mesh(padGeo, padMat);
+      padMesh.position.set(-V * 0.5, V * 0.2, -V * 0.5);
+      group.add(padMesh);
+
+      group.position.set(sw.body.position.x, -sw.body.position.y, 0);
+      this.scene.add(group);
+      this.switchMeshes.push({ mesh: group, body: sw.body, type: sw.type, padMesh, switchRef: sw });
+    }
+  }
+
+  // ── Build gate meshes (2-tile-tall metal grate, pivots at top) ──
+  buildGates(gateBodies) {
+    for (const g of this.gateMeshes) this.scene.remove(g.mesh);
+    this.gateMeshes.length = 0;
+
+    const THREE = this.THREE;
+    const V = 3;
+    const GATE_H = 64; // 2 tiles in px
+    const BAR_COLOR = 0x888899;
+    const BAR_DARK = 0x555566;
+    const FRAME_COLOR = 0x666677;
+
+    for (const gate of gateBodies) {
+      // Outer group positioned at the gate body center
+      const outerGroup = new THREE.Group();
+      // Pivot group: rotation pivot at top edge of the gate
+      const pivotGroup = new THREE.Group();
+      // Shift pivot up by half gate height so rotation is around the top
+      pivotGroup.position.y = GATE_H / 2;
+
+      // Gate mesh group (bars hang down from the pivot)
+      const gateGroup = new THREE.Group();
+      gateGroup.position.y = -GATE_H / 2; // offset down from pivot
+
+      // Horizontal frame bars (top and bottom)
+      for (const yOff of [GATE_H / 2 - V, -GATE_H / 2 + V]) {
+        const geo = new THREE.BoxGeometry(V * 3, V, V * 3);
+        const mat = new THREE.MeshStandardMaterial({ color: FRAME_COLOR, roughness: 0.4, metalness: 0.7 });
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set(0, yOff, 0);
+        gateGroup.add(m);
+      }
+
+      // Vertical bars
+      const barSpacing = V * 2.5;
+      for (let i = -1; i <= 1; i++) {
+        const geo = new THREE.BoxGeometry(V * 0.5, GATE_H - V * 2, V * 0.5);
+        const mat = new THREE.MeshStandardMaterial({
+          color: i === 0 ? BAR_COLOR : BAR_DARK,
+          roughness: 0.3, metalness: 0.8,
+        });
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set(i * barSpacing, 0, 0);
+        gateGroup.add(m);
+      }
+
+      // Cross bar in the middle
+      const crossGeo = new THREE.BoxGeometry(V * 3, V * 0.5, V * 0.5);
+      const crossMat = new THREE.MeshStandardMaterial({ color: BAR_DARK, roughness: 0.4, metalness: 0.7 });
+      const crossMesh = new THREE.Mesh(crossGeo, crossMat);
+      crossMesh.position.set(0, 0, 0);
+      gateGroup.add(crossMesh);
+
+      pivotGroup.add(gateGroup);
+      outerGroup.add(pivotGroup);
+
+      outerGroup.position.set(gate.body.position.x, -gate.body.position.y, 0);
+      this.scene.add(outerGroup);
+      this.gateMeshes.push({ mesh: outerGroup, body: gate.body, pivotGroup, gateRef: gate });
+    }
+  }
+
   // ── Build key meshes (colored key shapes) ──
   buildKeys(keyBodies) {
     for (const k of this.keyMeshes) this.scene.remove(k.mesh);
@@ -3277,7 +3396,7 @@ export class VoxelRenderer {
     }
 
     // ── Sync sharks ──
-    const { sharkBodies, pufferfishBodies, crabBodies, toxicFishBodies, projectileBodies, armoredFishBodies, spittingCoralBodies } = extras;
+    const { sharkBodies, pufferfishBodies, crabBodies, toxicFishBodies, projectileBodies, armoredFishBodies, spittingCoralBodies, switchBodies: _swB, gateBodies: _gtB } = extras;
     if (sharkBodies) {
       for (let i = 0; i < sharkBodies.length && i < this.sharkGroups.length; i++) {
         const sb = sharkBodies[i];
@@ -3400,6 +3519,28 @@ export class VoxelRenderer {
         const sg = this.spittingCoralGroups[i];
         if (!sc.space) { sg.visible = false; continue; }
         sg.position.set(sc.position.x, -sc.position.y, 0);
+      }
+    }
+
+    // ── Sync switches (active glow animation) ──
+    if (_swB) {
+      for (const sm of this.switchMeshes) {
+        const sw = sm.switchRef;
+        if (!sw) continue;
+        // Animate pad: pressed down when active, glow brighter
+        const targetY = sw.active ? -1.5 : 0.6;
+        sm.padMesh.position.y += (targetY - sm.padMesh.position.y) * 0.15;
+        sm.padMesh.material.emissiveIntensity = sw.active ? 0.8 + Math.sin(this._time * 6) * 0.2 : 0.3;
+      }
+    }
+
+    // ── Sync gates (swing rotation animation) ──
+    if (_gtB) {
+      for (const gm of this.gateMeshes) {
+        const gate = gm.gateRef;
+        if (!gate) continue;
+        // Rotate pivotGroup around X axis (swing open into the background)
+        gm.pivotGroup.rotation.x = gate.angle;
       }
     }
 

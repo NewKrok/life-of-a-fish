@@ -55,6 +55,10 @@ const CORAL_SHOOT_INTERVAL = 3000;    // ms — volley every 3s
 const CORAL_PROJECTILE_SPEED = 100;   // px/s — slower than toxic fish
 const CORAL_PROJECTILE_LIFE = 2000;   // ms — shorter range
 const CORAL_FAN_ANGLE = Math.PI / 6;  // 30° spread on each side
+const TIMED_SWITCH_DURATION = 5000;   // ms — how long a timed switch stays open
+const GATE_OPEN_SPEED = 3.0;          // rad/s — gate swing rotation speed
+const GATE_HEIGHT = 2 * 32;           // px — gate is 2 tiles tall
+const GATE_WIDTH = 8;                 // px — thin like a raft
 const PLAYER_CAPSULE_W = 24;
 const PLAYER_CAPSULE_H = 12;
 
@@ -1008,6 +1012,8 @@ const crateTag = new CbType();
 const breakableWallTag = new CbType();
 const armoredFishTag = new CbType();
 const spittingCoralTag = new CbType();
+const switchTag = new CbType();
+const gateTag = new CbType();
 
 // ── Build terrain bodies from merged tiles ──
 const mergedBodies = getMergedSolidBodies();
@@ -1048,6 +1054,10 @@ _capturedEntities = {
   breakableWalls: entities.breakableWalls.map(e => ({ ...e })),
   armoredFish: entities.armoredFish.map(e => ({ ...e })),
   spittingCoral: entities.spittingCoral.map(e => ({ ...e })),
+  toggleSwitches: entities.toggleSwitches.map(e => ({ ...e })),
+  pressureSwitches: entities.pressureSwitches.map(e => ({ ...e })),
+  timedSwitches: entities.timedSwitches.map(e => ({ ...e })),
+  gates: entities.gates.map(e => ({ ...e })),
 };
 
 // ── Hazard bodies (seaweed/spiky plants) ──
@@ -1315,6 +1325,43 @@ for (const bw of entities.breakableWalls) {
   breakableWallBodies.push(b);
 }
 
+// ── Switches (sensor pads on the floor) ──
+// All switch types share physics shape & tag; behaviour differs in game loop
+const switchBodies = [];  // { body, type, group, active, timer }
+const allSwitchEntities = [
+  ...entities.toggleSwitches.map(s => ({ ...s, type: 'toggle' })),
+  ...entities.pressureSwitches.map(s => ({ ...s, type: 'pressure' })),
+  ...entities.timedSwitches.map(s => ({ ...s, type: 'timed' })),
+];
+for (const sw of allSwitchEntities) {
+  const b = new Body(BodyType.STATIC, new Vec2(sw.x, sw.y));
+  const shape = new Polygon(Polygon.box(TILE_SIZE * 0.8, TILE_SIZE * 0.3));
+  shape.sensorEnabled = true;
+  shape.cbTypes.add(switchTag);
+  b.shapes.add(shape);
+  b.space = space;
+  switchBodies.push({ body: b, type: sw.type, group: sw.group, active: false, timer: 0 });
+}
+
+// ── Gates (2-tile-tall barriers, linked to switches by group) ──
+const gateBodies = [];  // { body, group, open, angle }
+for (const g of entities.gates) {
+  // Gate body: KINEMATIC so we can rotate it; pivot at top edge
+  // Position is at the tile center, body shape extends downward 2 tiles
+  const b = new Body(BodyType.KINEMATIC, new Vec2(g.x, g.y));
+  // Solid shape blocks passage when closed
+  const shape = new Polygon(Polygon.box(GATE_WIDTH, GATE_HEIGHT));
+  b.shapes.add(shape);
+  // Sensor overlay for collision events
+  const sensor = new Polygon(Polygon.box(GATE_WIDTH + 4, GATE_HEIGHT + 4));
+  sensor.sensorEnabled = true;
+  sensor.cbTypes.add(gateTag);
+  b.shapes.add(sensor);
+  b.allowRotation = false;  // we control rotation manually
+  b.space = space;
+  gateBodies.push({ body: b, group: g.group, open: false, angle: 0 });
+}
+
 // Build dynamic object meshes
 voxelRenderer.buildBuoys(buoyBodies);
 voxelRenderer.buildBoulders(boulderBodies);
@@ -1323,6 +1370,8 @@ voxelRenderer.buildChests(chestBodies);
 voxelRenderer.buildRafts(raftBodies);
 voxelRenderer.buildCrates(crateBodies);
 voxelRenderer.buildBreakableWalls(breakableWallBodies);
+voxelRenderer.buildSwitches(switchBodies);
+voxelRenderer.buildGates(gateBodies);
 
 // ── Player fish ──
 const player = new Body(BodyType.DYNAMIC, new Vec2(entities.playerSpawn.x, entities.playerSpawn.y));
@@ -1717,6 +1766,131 @@ const keyPlayerPre = new PreListener(
   () => grabbedKey ? PreFlag.IGNORE : PreFlag.ACCEPT,
 );
 keyPlayerPre.space = space;
+
+// ── Switch activation: player swims over switch ──
+const switchPlayerListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, playerTag, switchTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const sw = switchBodies.find(s => s.body === b1 || s.body === b2);
+    if (!sw) return;
+    _activateSwitch(sw);
+  },
+);
+switchPlayerListener.space = space;
+
+// ── Switch activation: boulder/key lands on switch ──
+const switchBoulderListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, boulderTag, switchTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const sw = switchBodies.find(s => s.body === b1 || s.body === b2);
+    if (!sw) return;
+    _activateSwitch(sw);
+  },
+);
+switchBoulderListener.space = space;
+
+const switchKeyListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, keyTag, switchTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const sw = switchBodies.find(s => s.body === b1 || s.body === b2);
+    if (!sw) return;
+    _activateSwitch(sw);
+  },
+);
+switchKeyListener.space = space;
+
+// ── Pressure switch deactivation: boulder/key leaves switch ──
+const switchBoulderEndListener = new InteractionListener(
+  CbEvent.END, InteractionType.SENSOR, boulderTag, switchTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const sw = switchBodies.find(s => s.body === b1 || s.body === b2);
+    if (sw && sw.type === 'pressure') _deactivateSwitch(sw);
+  },
+);
+switchBoulderEndListener.space = space;
+
+const switchKeyEndListener = new InteractionListener(
+  CbEvent.END, InteractionType.SENSOR, keyTag, switchTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const sw = switchBodies.find(s => s.body === b1 || s.body === b2);
+    if (sw && sw.type === 'pressure') _deactivateSwitch(sw);
+  },
+);
+switchKeyEndListener.space = space;
+
+// Player-gate collision: solid when closed, pass through when open
+const gatePlayerPre = new PreListener(
+  InteractionType.COLLISION, playerTag, gateTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const gate = gateBodies.find(g => g.body === b1 || g.body === b2);
+    return (gate && gate.open) ? PreFlag.IGNORE : PreFlag.ACCEPT;
+  },
+);
+gatePlayerPre.space = space;
+
+// Boulder/key-gate collision: pass through when open
+const gateBoulderPre = new PreListener(
+  InteractionType.COLLISION, boulderTag, gateTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const gate = gateBodies.find(g => g.body === b1 || g.body === b2);
+    return (gate && gate.open) ? PreFlag.IGNORE : PreFlag.ACCEPT;
+  },
+);
+gateBoulderPre.space = space;
+
+const gateKeyPre = new PreListener(
+  InteractionType.COLLISION, keyTag, gateTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const gate = gateBodies.find(g => g.body === b1 || g.body === b2);
+    return (gate && gate.open) ? PreFlag.IGNORE : PreFlag.ACCEPT;
+  },
+);
+gateKeyPre.space = space;
+
+// ── Switch/Gate state management ──
+function _activateSwitch(sw) {
+  if (sw.type === 'toggle') {
+    sw.active = !sw.active;
+  } else if (sw.type === 'pressure') {
+    sw.active = true;
+  } else if (sw.type === 'timed') {
+    sw.active = true;
+    sw.timer = TIMED_SWITCH_DURATION;
+  }
+  _updateGatesForGroup(sw.group);
+  sfx.pearlPickup(); // reuse pickup sound for switch activation
+}
+
+function _deactivateSwitch(sw) {
+  sw.active = false;
+  _updateGatesForGroup(sw.group);
+}
+
+function _updateGatesForGroup(group) {
+  // A gate opens if ANY switch in its group is active
+  const groupActive = switchBodies.some(s => s.group === group && s.active);
+  for (const gate of gateBodies) {
+    if (gate.group === group) {
+      gate.open = groupActive;
+    }
+  }
+}
 
 // ── Keyboard Input ──
 const keys = {};
@@ -2198,6 +2372,18 @@ function _resetEntities() {
     b.velocity = new Vec2(0, 0);
     b.rotation = 0;
     b.angularVel = 0;
+  }
+
+  // ── Switches — reset to inactive ──
+  for (const sw of switchBodies) {
+    sw.active = false;
+    sw.timer = 0;
+  }
+
+  // ── Gates — reset to closed ──
+  for (const gate of gateBodies) {
+    gate.open = false;
+    gate.angle = 0;
   }
 
   // ── Restore visibility for all enemy meshes ──
@@ -2787,6 +2973,32 @@ function gameLoop() {
     }
   }
 
+  // ── Update timed switches (countdown) ──
+  for (const sw of switchBodies) {
+    if (sw.type === 'timed' && sw.active) {
+      sw.timer -= DT * 1000;
+      if (sw.timer <= 0) {
+        sw.timer = 0;
+        sw.active = false;
+        _updateGatesForGroup(sw.group);
+      }
+    }
+  }
+
+  // ── Update gate animation (swing open/close via rotation) ──
+  for (const gate of gateBodies) {
+    const targetAngle = gate.open ? Math.PI / 2 : 0;
+    if (Math.abs(gate.angle - targetAngle) > 0.01) {
+      const dir = targetAngle > gate.angle ? 1 : -1;
+      gate.angle += dir * GATE_OPEN_SPEED * DT;
+      // Clamp
+      if (dir > 0 && gate.angle > targetAngle) gate.angle = targetAngle;
+      if (dir < 0 && gate.angle < targetAngle) gate.angle = targetAngle;
+    }
+    // When gate is more than ~45° open, disable solid collision
+    // (PreListener handles the ACCEPT/IGNORE dynamically)
+  }
+
   // ── Update buoys (stabilize at water surface) ──
   for (const bb of buoyBodies) {
     // Extra damping so buoys don't bounce forever
@@ -2933,7 +3145,7 @@ function gameLoop() {
   const fishState = fishCtrl.getState();
   voxelRenderer.syncFrame(player, fishState, enemyBodies, DT, {
     sharkBodies, pufferfishBodies, crabBodies, toxicFishBodies, projectileBodies,
-    armoredFishBodies, spittingCoralBodies,
+    armoredFishBodies, spittingCoralBodies, switchBodies, gateBodies,
   });
 
   renderer.render(scene, camera);

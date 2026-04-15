@@ -74,6 +74,7 @@ Each entity class has a named `CbType` for collision filtering:
 - `buoyTag`, `boulderTag`, `raftTag`
 - `sharkTag`, `pufferfishTag`, `crabTag`, `toxicFishTag`, `projectileTag`
 - `keyTag`, `chestTag`, `crateTag`, `breakableWallTag`, `armoredFishTag`, `spittingCoralTag`
+- `switchTag`, `gateTag`
 
 `InteractionListener` callbacks handle:
 - Player ↔ Pearl → collect pearl, destroy body
@@ -96,6 +97,27 @@ Each entity class has a named `CbType` for collision filtering:
 - Player ↔ Crate → if dashing, destroy crate, wood plank particles, ~30% pearl drop
 - Player ↔ Breakable Wall → if dashing, destroy wall, rock debris particles
 - Key ↔ Chest → if matching color, open chest, spawn pearl
+- Player ↔ Switch → activate switch (toggle flips, timed starts 5s timer)
+- Boulder/Key ↔ Switch (BEGIN) → activate switch
+- Boulder/Key ↔ Switch (END) → deactivate pressure switch only
+- Player/Boulder/Key ↔ Gate (PreListener) → IGNORE if gate open, ACCEPT if closed
+
+### Switches (static, sensor)
+- Static bodies with sensor shape (~0.8×0.3 tile)
+- `switchTag` CbType — shared by all 3 types
+- 3 types: toggle (flip on/off), pressure (active while weight on it), timed (5s countdown)
+- Linked to gates by group ID (from `switchGateGroups` level metadata)
+- Toggle: flips active state on player/boulder/key contact
+- Pressure: active while boulder/key overlaps, deactivates on END event
+- Timed: activates for `TIMED_SWITCH_DURATION` (5000ms), auto-closes
+
+### Gates (kinematic, 2 tiles tall)
+- Kinematic bodies, thin (8px wide) × 2 tiles tall (64px)
+- Solid collision shape + sensor overlay with `gateTag`
+- Linked to switches by group ID — opens when any switch in group is active
+- Open animation: `pivotGroup` rotates around top hinge (X axis, 0→π/2)
+- PreListener on player/boulder/key checks `gate.open` to IGNORE or ACCEPT collision
+- `GATE_OPEN_SPEED` = 3.0 rad/s for smooth swing animation
 
 ### Breakable Walls (static, sensor overlay)
 - Static bodies with solid collision shape (32×32 px) + sensor overlay (34×34 px)

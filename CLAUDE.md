@@ -83,6 +83,8 @@ In-game editor activated with **F4**. Works in both menu and game states. Pauses
 - Keys: dynamic bodies like boulders, carriable/throwable, no enemy damage
 - Chests: static sensor bodies, opened by matching-color key collision
 - Crates: dynamic bodies (float/roll in water), destroyed by dashing, wood plank particles, ~30% pearl drop
+- Switches: static sensor bodies, 3 types (toggle/pressure/timed), activated by player or boulder/key contact
+- Gates: kinematic bodies (2 tiles tall, thin), linked to switches by group ID, swing open with rotation animation
 - Each entity class has its own `CbType` for collision filtering
 
 ### Rendering (Three.js)
@@ -133,8 +135,14 @@ Tile map is a string grid (125 cols × 25 rows, 32px tiles):
 | `K`  | Breakable Wall | 27   |
 | `A`  | Armored Fish | 28     |
 | `P`  | Spitting Coral | 29   |
+| `V`  | Toggle Switch | 30    |
+| `N`  | Pressure Switch | 31  |
+| `O`  | Timed Switch | 32     |
+| `G`  | Gate         | 33     |
 
 Keys are carriable/throwable like boulders but deal no damage. Throwing a key at its matching-color chest opens the chest with a particle effect and spawns a pearl. Chest pearls are included in `TOTAL_PEARLS` from level start.
+
+Switches and gates are linked by group IDs stored in `switchGateGroups` metadata per level. Toggle switches flip on player contact. Pressure switches stay active while a boulder/key rests on them. Timed switches activate for 5s then auto-close. Gates are 2-tile-tall metal grates that swing open around a top hinge.
 
 Water surface is at row 4 (128px).
 

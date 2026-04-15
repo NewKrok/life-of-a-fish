@@ -99,12 +99,12 @@ describe('tile parsing', () => {
     }
   });
 
-  it('all tile values are valid (0-29)', () => {
+  it('all tile values are valid (0-33)', () => {
     for (let r = 0; r < LEVEL_ROWS; r++) {
       for (let c = 0; c < LEVEL_COLS; c++) {
         const t = TILES[r][c];
         expect(t).toBeGreaterThanOrEqual(0);
-        expect(t).toBeLessThanOrEqual(29);
+        expect(t).toBeLessThanOrEqual(33);
       }
     }
   });
@@ -174,6 +174,10 @@ describe('getLevelEntities', () => {
       ...ent.breakableWalls,
       ...ent.armoredFish,
       ...ent.spittingCoral,
+      ...ent.toggleSwitches,
+      ...ent.pressureSwitches,
+      ...ent.timedSwitches,
+      ...ent.gates,
     ];
     for (const pos of allPositions) {
       expect(pos.x).toBeGreaterThanOrEqual(0);
@@ -223,6 +227,56 @@ describe('getLevelEntities', () => {
     for (const sc of ent.spittingCoral) {
       expect(sc.x).toBeGreaterThan(0);
       expect(sc.y).toBeGreaterThan(0);
+    }
+  });
+
+  it('extracts toggle switches from level 1', () => {
+    const ent = getLevelEntities();
+    expect(ent.toggleSwitches.length).toBeGreaterThan(0);
+    for (const sw of ent.toggleSwitches) {
+      expect(sw.x).toBeGreaterThan(0);
+      expect(sw.y).toBeGreaterThan(0);
+      expect(sw.group).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('extracts pressure switches from level 1', () => {
+    const ent = getLevelEntities();
+    expect(ent.pressureSwitches.length).toBeGreaterThan(0);
+    for (const sw of ent.pressureSwitches) {
+      expect(sw.x).toBeGreaterThan(0);
+      expect(sw.y).toBeGreaterThan(0);
+      expect(sw.group).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('extracts timed switches from level 1', () => {
+    const ent = getLevelEntities();
+    expect(ent.timedSwitches.length).toBeGreaterThan(0);
+    for (const sw of ent.timedSwitches) {
+      expect(sw.x).toBeGreaterThan(0);
+      expect(sw.y).toBeGreaterThan(0);
+      expect(sw.group).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('extracts gates from level 1', () => {
+    const ent = getLevelEntities();
+    expect(ent.gates.length).toBeGreaterThan(0);
+    for (const g of ent.gates) {
+      expect(g.x).toBeGreaterThan(0);
+      expect(g.y).toBeGreaterThan(0);
+      expect(g.group).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('switch-gate groups are correctly linked', () => {
+    const ent = getLevelEntities();
+    const allSwitches = [...ent.toggleSwitches, ...ent.pressureSwitches, ...ent.timedSwitches];
+    // Each gate's group should match at least one switch's group
+    for (const g of ent.gates) {
+      const hasMatchingSwitch = allSwitches.some(s => s.group === g.group);
+      expect(hasMatchingSwitch).toBe(true);
     }
   });
 

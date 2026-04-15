@@ -299,7 +299,7 @@ Plus ~25 hidden bottle messages and the Codex encyclopedia.
 | 2 | Breakable walls | Cracked stone texture, dash to destroy, hidden areas behind | **Done** |
 | 3 | Armored Fish | New enemy: patrols L-R, dash bounces off, killed by boulder only | **Done** |
 | 4 | Spitting Coral | New enemy: fixed on ground, 3 projectiles upward in fan pattern | **Done** |
-| 5 | Switches & gates | Toggle / pressure / timed types, boulder activation | Pending |
+| 5 | Switches & gates | Toggle / pressure / timed types, boulder activation | **Done** |
 | 6 | Moving physical elements | Floating logs, swinging anchors, current-drifting debris | Pending |
 | 7 | Bottle messages | Hidden collectible messages, bubble UI, Codex "Explorer's Notes" | Pending |
 | 8 | Dark level mode | Limited visibility, light circle around fish | Pending |
