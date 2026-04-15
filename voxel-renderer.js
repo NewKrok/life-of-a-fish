@@ -1995,7 +1995,9 @@ export class VoxelRenderer {
     }
   }
 
-  // ── Build switch meshes (flat glowing pads) ──
+  // ── Build switch meshes ──
+  // Toggle/Pressure: flat pad with rising center button
+  // Timed: base block with lever arm that tilts
   buildSwitches(switchBodies) {
     for (const s of this.switchMeshes) this.scene.remove(s.mesh);
     this.switchMeshes.length = 0;
@@ -2011,36 +2013,91 @@ export class VoxelRenderer {
 
     for (const sw of switchBodies) {
       const group = new THREE.Group();
-      const c = COLORS[sw.type] || COLORS.toggle;
+      const c = COLORS[sw.type] || COLORS.pressure;
 
-      // Base platform: 8×2×6 voxels (flat pad)
-      for (let x = -4; x <= 3; x++) {
-        for (let z = -3; z <= 2; z++) {
-          const isEdge = x === -4 || x === 3 || z === -3 || z === 2;
-          const geo = new THREE.BoxGeometry(V, V * 0.5, V);
-          const mat = new THREE.MeshStandardMaterial({
-            color: isEdge ? c.dark : c.base,
-            roughness: 0.5, metalness: 0.3,
-          });
-          const m = new THREE.Mesh(geo, mat);
-          m.position.set(x * V, -V * 0.25, z * V);
-          group.add(m);
+      if (sw.type === 'timed') {
+        // ── Timed switch: same-size base as other switches, with lever arm ──
+        // Base platform (same 8×6 as toggle/pressure)
+        for (let x = -4; x <= 3; x++) {
+          for (let z = -3; z <= 2; z++) {
+            const isEdge = x === -4 || x === 3 || z === -3 || z === 2;
+            const geo = new THREE.BoxGeometry(V, V * 1.5, V);
+            const mat = new THREE.MeshStandardMaterial({
+              color: isEdge ? c.dark : c.base,
+              roughness: 0.5, metalness: 0.3,
+            });
+            const m = new THREE.Mesh(geo, mat);
+            m.position.set(x * V, 0, z * V);
+            group.add(m);
+          }
         }
+
+        // Lever arm (pivot at base surface, arm extends upward after +90° Z rotation)
+        const leverPivot = new THREE.Group();
+        leverPivot.position.set(0, V * 0.75, 0); // at top surface of base
+
+        const leverLen = V * 7;
+        const leverGeo = new THREE.BoxGeometry(leverLen, V * 1, V * 1.5);
+        const leverMat = new THREE.MeshStandardMaterial({
+          color: c.glow, roughness: 0.3, metalness: 0.5,
+          emissive: c.glow, emissiveIntensity: 0.3,
+        });
+        const leverMesh = new THREE.Mesh(leverGeo, leverMat);
+        leverMesh.position.set(leverLen / 2, 0, 0); // bottom of arm at pivot, extends up
+        leverPivot.add(leverMesh);
+
+        // Handle ball at the tip of the lever arm
+        const ballGeo = new THREE.BoxGeometry(V * 2, V * 2, V * 2);
+        const ballMat = new THREE.MeshStandardMaterial({ color: c.glow, roughness: 0.2, metalness: 0.6 });
+        const ballMesh = new THREE.Mesh(ballGeo, ballMat);
+        ballMesh.position.set(leverLen, 0, 0); // at the very end of the arm
+        leverPivot.add(ballMesh);
+
+        // Start tilted right (inactive position), +PI/2 to orient arm upward on screen
+        leverPivot.rotation.z = -0.5 + Math.PI / 2;
+
+        group.add(leverPivot);
+
+        group.position.set(sw.body.position.x, -sw.body.position.y, 0);
+        this.scene.add(group);
+        this.switchMeshes.push({
+          mesh: group, body: sw.body, type: sw.type,
+          padMesh: null, leverPivot, switchRef: sw,
+        });
+      } else {
+        // ── Toggle / Pressure: flat pad with center button ──
+        // Base platform
+        for (let x = -4; x <= 3; x++) {
+          for (let z = -3; z <= 2; z++) {
+            const isEdge = x === -4 || x === 3 || z === -3 || z === 2;
+            const geo = new THREE.BoxGeometry(V, V * 0.5, V);
+            const mat = new THREE.MeshStandardMaterial({
+              color: isEdge ? c.dark : c.base,
+              roughness: 0.5, metalness: 0.3,
+            });
+            const m = new THREE.Mesh(geo, mat);
+            m.position.set(x * V, -V * 0.25, z * V);
+            group.add(m);
+          }
+        }
+
+        // Center button (animates up when inactive, down when active)
+        const padGeo = new THREE.BoxGeometry(V * 4, V * 0.8, V * 3);
+        const padMat = new THREE.MeshStandardMaterial({
+          color: c.glow, roughness: 0.2, metalness: 0.5,
+          emissive: c.glow, emissiveIntensity: 0.3,
+        });
+        const padMesh = new THREE.Mesh(padGeo, padMat);
+        padMesh.position.set(-V * 0.5, V * 0.8, -V * 0.5); // raised by default
+        group.add(padMesh);
+
+        group.position.set(sw.body.position.x, -sw.body.position.y, 0);
+        this.scene.add(group);
+        this.switchMeshes.push({
+          mesh: group, body: sw.body, type: sw.type,
+          padMesh, leverPivot: null, switchRef: sw,
+        });
       }
-
-      // Glowing center button (raised pad)
-      const padGeo = new THREE.BoxGeometry(V * 4, V * 0.8, V * 3);
-      const padMat = new THREE.MeshStandardMaterial({
-        color: c.glow, roughness: 0.2, metalness: 0.5,
-        emissive: c.glow, emissiveIntensity: 0.3,
-      });
-      const padMesh = new THREE.Mesh(padGeo, padMat);
-      padMesh.position.set(-V * 0.5, V * 0.2, -V * 0.5);
-      group.add(padMesh);
-
-      group.position.set(sw.body.position.x, -sw.body.position.y, 0);
-      this.scene.add(group);
-      this.switchMeshes.push({ mesh: group, body: sw.body, type: sw.type, padMesh, switchRef: sw });
     }
   }
 
@@ -2059,39 +2116,45 @@ export class VoxelRenderer {
     for (const gate of gateBodies) {
       // Outer group positioned at the gate body center
       const outerGroup = new THREE.Group();
-      // Pivot group: rotation pivot at top edge of the gate
+      // Pivot group: rotation pivot at left edge (hinge side)
       const pivotGroup = new THREE.Group();
-      // Shift pivot up by half gate height so rotation is around the top
-      pivotGroup.position.y = GATE_H / 2;
+      pivotGroup.position.x = -16; // shift to left edge of 32px tile
 
-      // Gate mesh group (bars hang down from the pivot)
+      // Gate mesh group (offset so gate hangs right of the pivot)
       const gateGroup = new THREE.Group();
-      gateGroup.position.y = -GATE_H / 2; // offset down from pivot
+      gateGroup.position.x = 16; // center the gate right of the hinge
+
+      const GATE_W = 32; // match tile width
+      const BAR_THICK = V * 1.2;
+      const FRAME_THICK = V * 1.5;
+      const DEPTH = V * 3; // Z depth for visibility at camera angle
 
       // Horizontal frame bars (top and bottom)
-      for (const yOff of [GATE_H / 2 - V, -GATE_H / 2 + V]) {
-        const geo = new THREE.BoxGeometry(V * 3, V, V * 3);
+      for (const yOff of [GATE_H / 2 - FRAME_THICK / 2, -GATE_H / 2 + FRAME_THICK / 2]) {
+        const geo = new THREE.BoxGeometry(GATE_W, FRAME_THICK, DEPTH);
         const mat = new THREE.MeshStandardMaterial({ color: FRAME_COLOR, roughness: 0.4, metalness: 0.7 });
         const m = new THREE.Mesh(geo, mat);
         m.position.set(0, yOff, 0);
         gateGroup.add(m);
       }
 
-      // Vertical bars
-      const barSpacing = V * 2.5;
-      for (let i = -1; i <= 1; i++) {
-        const geo = new THREE.BoxGeometry(V * 0.5, GATE_H - V * 2, V * 0.5);
+      // Vertical bars (5 evenly spaced)
+      const barCount = 5;
+      const innerW = GATE_W - FRAME_THICK;
+      const barSpacing = innerW / (barCount + 1);
+      for (let i = 1; i <= barCount; i++) {
+        const geo = new THREE.BoxGeometry(BAR_THICK, GATE_H - FRAME_THICK * 2, DEPTH * 0.6);
         const mat = new THREE.MeshStandardMaterial({
-          color: i === 0 ? BAR_COLOR : BAR_DARK,
+          color: (i % 2 === 0) ? BAR_COLOR : BAR_DARK,
           roughness: 0.3, metalness: 0.8,
         });
         const m = new THREE.Mesh(geo, mat);
-        m.position.set(i * barSpacing, 0, 0);
+        m.position.set(-innerW / 2 + i * barSpacing, 0, 0);
         gateGroup.add(m);
       }
 
-      // Cross bar in the middle
-      const crossGeo = new THREE.BoxGeometry(V * 3, V * 0.5, V * 0.5);
+      // Middle horizontal cross bar
+      const crossGeo = new THREE.BoxGeometry(GATE_W, FRAME_THICK * 0.6, DEPTH * 0.6);
       const crossMat = new THREE.MeshStandardMaterial({ color: BAR_DARK, roughness: 0.4, metalness: 0.7 });
       const crossMesh = new THREE.Mesh(crossGeo, crossMat);
       crossMesh.position.set(0, 0, 0);
@@ -3524,15 +3587,31 @@ export class VoxelRenderer {
       }
     }
 
-    // ── Sync switches (active glow animation) ──
+    // ── Sync switches (type-specific animation) ──
     if (_swB) {
       for (const sm of this.switchMeshes) {
         const sw = sm.switchRef;
         if (!sw) continue;
-        // Animate pad: pressed down when active, glow brighter
-        const targetY = sw.active ? -1.5 : 0.6;
-        sm.padMesh.position.y += (targetY - sm.padMesh.position.y) * 0.15;
-        sm.padMesh.material.emissiveIntensity = sw.active ? 0.8 + Math.sin(this._time * 6) * 0.2 : 0.3;
+
+        if (sw.type === 'timed' && sm.leverPivot) {
+          // Lever: tilted right when inactive (-0.5 rad), tilted left when active (+0.5 rad)
+          // When timer is running, lerp back gradually toward inactive
+          const LEVER_OFFSET = Math.PI / 2; // 90° offset to orient arm on screen
+          let targetZ;
+          if (sw.active) {
+            const pct = sw.timer / 5000; // 1 at start → 0 at end
+            targetZ = -0.5 + pct * 1.0;  // starts at +0.5 (left), drifts to -0.5 (right)
+          } else {
+            targetZ = -0.5; // inactive: tilted right
+          }
+          sm.leverPivot.rotation.z += ((targetZ + LEVER_OFFSET) - sm.leverPivot.rotation.z) * 0.1;
+        } else if (sm.padMesh) {
+          // Toggle / Pressure: button rises up when inactive, presses down when active
+          const V = 3;
+          const targetY = sw.active ? -V * 0.25 : V * 0.8;
+          sm.padMesh.position.y += (targetY - sm.padMesh.position.y) * 0.15;
+          sm.padMesh.material.emissiveIntensity = sw.active ? 0.8 + Math.sin(this._time * 6) * 0.2 : 0.3;
+        }
       }
     }
 
@@ -3541,8 +3620,8 @@ export class VoxelRenderer {
       for (const gm of this.gateMeshes) {
         const gate = gm.gateRef;
         if (!gate) continue;
-        // Rotate pivotGroup around X axis (swing open into the background)
-        gm.pivotGroup.rotation.x = gate.angle;
+        // Rotate pivotGroup around Y axis (swing open sideways like a door)
+        gm.pivotGroup.rotation.y = gate.angle;
       }
     }
 

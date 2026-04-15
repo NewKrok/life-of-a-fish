@@ -58,7 +58,7 @@ const CORAL_FAN_ANGLE = Math.PI / 6;  // 30° spread on each side
 const TIMED_SWITCH_DURATION = 5000;   // ms — how long a timed switch stays open
 const GATE_OPEN_SPEED = 3.0;          // rad/s — gate swing rotation speed
 const GATE_HEIGHT = 2 * 32;           // px — gate is 2 tiles tall
-const GATE_WIDTH = 8;                 // px — thin like a raft
+const GATE_WIDTH = 32;                // px — one tile wide to match visual
 const PLAYER_CAPSULE_W = 24;
 const PLAYER_CAPSULE_H = 12;
 
@@ -580,8 +580,8 @@ const CODEX_DATA = [
   {
     category: 'terrain', preview: 'switchToggle', name: 'Switch',
     tag: 'terrain', tagLabel: 'Mechanism',
-    desc: 'Ancient mechanisms still working after centuries. Press the switch and the gate obeys — for a while.',
-    tip: 'Tip: Toggle switches flip on contact. Pressure switches need a boulder or key resting on them. Timed switches only stay open for 5 seconds!',
+    desc: 'Ancient mechanisms still working after centuries. Press the switch and the gate obeys.',
+    tip: 'Tip: Green switches stay open permanently. Blue switches need weight on them. Orange levers close after 5 seconds!',
   },
   {
     category: 'terrain', preview: 'gate', name: 'Gate',
@@ -1371,7 +1371,10 @@ const allSwitchEntities = [
 ];
 for (const sw of allSwitchEntities) {
   const b = new Body(BodyType.STATIC, new Vec2(sw.x, sw.y));
-  const shape = new Polygon(Polygon.box(TILE_SIZE * 0.8, TILE_SIZE * 0.3));
+  // Timed lever is taller so needs a taller sensor; pad switches are flat
+  const sW = sw.type === 'timed' ? TILE_SIZE * 0.4 : TILE_SIZE * 0.8;
+  const sH = sw.type === 'timed' ? TILE_SIZE * 0.6 : TILE_SIZE * 0.3;
+  const shape = new Polygon(Polygon.box(sW, sH));
   shape.sensorEnabled = true;
   shape.cbTypes.add(switchTag);
   b.shapes.add(shape);
@@ -1837,7 +1840,18 @@ const switchKeyListener = new InteractionListener(
 );
 switchKeyListener.space = space;
 
-// ── Pressure switch deactivation: boulder/key leaves switch ──
+// ── Pressure switch deactivation: player/boulder/key/crate leaves switch ──
+const switchPlayerEndListener = new InteractionListener(
+  CbEvent.END, InteractionType.SENSOR, playerTag, switchTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const sw = switchBodies.find(s => s.body === b1 || s.body === b2);
+    if (sw && sw.type === 'pressure') _deactivateSwitch(sw);
+  },
+);
+switchPlayerEndListener.space = space;
+
 const switchBoulderEndListener = new InteractionListener(
   CbEvent.END, InteractionType.SENSOR, boulderTag, switchTag,
   (cb) => {
@@ -1859,6 +1873,29 @@ const switchKeyEndListener = new InteractionListener(
   },
 );
 switchKeyEndListener.space = space;
+
+const switchCrateListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, crateTag, switchTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const sw = switchBodies.find(s => s.body === b1 || s.body === b2);
+    if (!sw) return;
+    _activateSwitch(sw);
+  },
+);
+switchCrateListener.space = space;
+
+const switchCrateEndListener = new InteractionListener(
+  CbEvent.END, InteractionType.SENSOR, crateTag, switchTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const sw = switchBodies.find(s => s.body === b1 || s.body === b2);
+    if (sw && sw.type === 'pressure') _deactivateSwitch(sw);
+  },
+);
+switchCrateEndListener.space = space;
 
 // Player-gate collision: solid when closed, pass through when open
 const gatePlayerPre = new PreListener(
@@ -1898,7 +1935,8 @@ gateKeyPre.space = space;
 // ── Switch/Gate state management ──
 function _activateSwitch(sw) {
   if (sw.type === 'toggle') {
-    sw.active = !sw.active;
+    if (sw.active) return; // one-shot: already activated, ignore
+    sw.active = true;
   } else if (sw.type === 'pressure') {
     sw.active = true;
   } else if (sw.type === 'timed') {
@@ -1910,6 +1948,7 @@ function _activateSwitch(sw) {
 }
 
 function _deactivateSwitch(sw) {
+  if (sw.type === 'toggle') return; // one-shot: never deactivates
   sw.active = false;
   _updateGatesForGroup(sw.group);
 }

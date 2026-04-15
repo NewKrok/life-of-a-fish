@@ -33,7 +33,7 @@ const PALETTE = [
   { id: 14, char: 'C', label: 'Crab',        color: '#d04020', category: 'enemies', previewKey: 'crab' },
   { id: 15, char: 'F', label: 'Toxic Fish',  color: '#50c050', category: 'enemies', previewKey: 'toxicFish' },
   { id: 29, char: 'P', label: 'Spit Coral', color: '#cc6688', category: 'enemies', previewKey: 'spittingCoral' },
-  { id: 30, char: 'V', label: 'Sw Toggle',  color: '#22aa44', category: 'items',   previewKey: 'switchToggle' },
+  { id: 30, char: 'V', label: 'Sw Toggle',   color: '#22aa44', category: 'items',  previewKey: 'switchToggle' },
   { id: 31, char: 'N', label: 'Sw Pressure', color: '#3366cc', category: 'items',  previewKey: 'switchPressure' },
   { id: 32, char: 'O', label: 'Sw Timed',   color: '#cc8822', category: 'items',   previewKey: 'switchTimed' },
   { id: 33, char: 'G', label: 'Gate',        color: '#888899', category: 'items',   previewKey: 'gate' },

@@ -26,8 +26,8 @@
 //  27 = breakable wall (cracked stone, destroyed by dashing, rock debris)
 //  28 = armored fish (patrols, dash bounces off, killed by boulder only)
 //  29 = spitting coral (fixed on ground, fires 3 projectiles in fan pattern)
-//  30 = toggle switch (swim over to flip open/close linked gate)
-//  31 = pressure switch (needs boulder/key resting on it to keep gate open)
+//  30 = toggle switch (one-shot: activates once and stays open permanently)
+//  31 = pressure switch (stays open while player/boulder/key/crate rests on it)
 //  32 = timed switch (opens linked gate for ~5s then auto-closes)
 //  33 = gate (2-tile-tall metal grate, linked to a switch by group ID)
 
@@ -74,7 +74,7 @@ const KEY = {
   'K': 27, // breakable wall (cracked stone)
   'A': 28, // armored fish (dash-proof enemy)
   'P': 29, // spitting coral (fan projectiles)
-  'V': 30, // toggle switch
+  'V': 30, // toggle switch (one-shot, stays open)
   'N': 31, // pressure switch
   'O': 32, // timed switch
   'G': 33, // gate (2-tile-tall barrier)
@@ -122,7 +122,7 @@ const LEVELS = [
     // Switch-gate group linkage: each group has an id, the switches that control it,
     // and the gates it opens. Positions are (row, col) in the tile grid.
     switchGateGroups: [
-      { id: 0, switches: [{ row: 8, col: 34 }], gates: [{ row: 7, col: 37 }] },   // toggle switch opens gate
+      { id: 0, switches: [{ row: 8, col: 34 }], gates: [{ row: 7, col: 37 }] },   // toggle switch opens gate (one-shot)
       { id: 1, switches: [{ row: 10, col: 28 }], gates: [{ row: 9, col: 26 }] },   // pressure switch (boulder nearby at row 9, col 29)
       { id: 2, switches: [{ row: 10, col: 20 }], gates: [{ row: 10, col: 23 }] },  // timed switch (5s)
     ],
@@ -283,7 +283,7 @@ export function getLevelEntities() {
     breakableWalls: [],   // { x, y }
     armoredFish: [],      // { x, y }
     spittingCoral: [],    // { x, y }
-    toggleSwitches: [],   // { x, y, group }
+    toggleSwitches: [],   // { x, y, group } — one-shot, stays open
     pressureSwitches: [], // { x, y, group }
     timedSwitches: [],    // { x, y, group }
     gates: [],            // { x, y, group }

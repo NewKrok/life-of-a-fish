@@ -84,14 +84,15 @@ Voxel groups built from hardcoded coordinate arrays:
 - Fires purple projectiles (`BoxGeometry 6×6×6`, emissive `0x8822cc`) in upward fan pattern
 
 **Switches** (per-type color: toggle green `0x22aa44`, pressure blue `0x3366cc`, timed orange `0xcc8822`):
-- Flat voxel pad (8×2×6 voxels) with dark border and bright center
-- Center `padMesh` (BoxGeometry) with emissive glow — animates down when pressed (active)
+- **Toggle** (green): flat pad with center button — button presses down on activation and stays down permanently
+- **Pressure** (blue): same flat pad as toggle — button presses down while weight on it, pops back up when released
+- **Timed** (orange): base block with pivot post and lever arm — lever tilts left on activation, gradually drifts back right as timer expires
+- Toggle/pressure use `padMesh` with emissive glow; timed uses `leverPivot` group with rotation.z animation
 - Emissive intensity pulses brighter when active (0.8 + sin×0.2)
 
 **Gates** (metallic grey `0x888899`):
-- 2-tile-tall metal grate with 3 vertical bars and horizontal frame bars (top/bottom)
-- Cross bar in the middle for visual detail
-- Pivot group at top edge — rotates on X axis to swing open into background (0→π/2)
+- 2-tile-tall, 1-tile-wide metal grate with 5 vertical bars, horizontal frame bars (top/bottom), and middle cross bar
+- Pivot group at left edge (hinge) — rotates on Y axis to swing open sideways (0→π/2)
 - Frame and cross bars use `MeshStandardMaterial` with high metalness (0.7-0.8)
 
 ## Background & Atmosphere
