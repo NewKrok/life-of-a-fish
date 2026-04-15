@@ -99,12 +99,12 @@ describe('tile parsing', () => {
     }
   });
 
-  it('all tile values are valid (0-25)', () => {
+  it('all tile values are valid (0-33)', () => {
     for (let r = 0; r < LEVEL_ROWS; r++) {
       for (let c = 0; c < LEVEL_COLS; c++) {
         const t = TILES[r][c];
         expect(t).toBeGreaterThanOrEqual(0);
-        expect(t).toBeLessThanOrEqual(25);
+        expect(t).toBeLessThanOrEqual(33);
       }
     }
   });
@@ -170,6 +170,14 @@ describe('getLevelEntities', () => {
       ...ent.pufferfish,
       ...ent.crabs,
       ...ent.toxicFish,
+      ...ent.crates,
+      ...ent.breakableWalls,
+      ...ent.armoredFish,
+      ...ent.spittingCoral,
+      ...ent.toggleSwitches,
+      ...ent.pressureSwitches,
+      ...ent.timedSwitches,
+      ...ent.gates,
     ];
     for (const pos of allPositions) {
       expect(pos.x).toBeGreaterThanOrEqual(0);
@@ -192,6 +200,99 @@ describe('getLevelEntities', () => {
     for (const chest of ent.chests) {
       expect(chest.colorIndex).toBeGreaterThanOrEqual(0);
       expect(chest.colorIndex).toBeLessThanOrEqual(4);
+    }
+  });
+
+  it('extracts breakable walls from level 1', () => {
+    const ent = getLevelEntities();
+    expect(ent.breakableWalls.length).toBeGreaterThan(0);
+    for (const bw of ent.breakableWalls) {
+      expect(bw.x).toBeGreaterThan(0);
+      expect(bw.y).toBeGreaterThan(0);
+    }
+  });
+
+  it('extracts armored fish from level 1', () => {
+    const ent = getLevelEntities();
+    expect(ent.armoredFish.length).toBeGreaterThan(0);
+    for (const af of ent.armoredFish) {
+      expect(af.x).toBeGreaterThan(0);
+      expect(af.y).toBeGreaterThan(0);
+    }
+  });
+
+  it('extracts spitting coral from level 1', () => {
+    const ent = getLevelEntities();
+    expect(ent.spittingCoral.length).toBeGreaterThan(0);
+    for (const sc of ent.spittingCoral) {
+      expect(sc.x).toBeGreaterThan(0);
+      expect(sc.y).toBeGreaterThan(0);
+    }
+  });
+
+  it('extracts toggle switches from level 1', () => {
+    const ent = getLevelEntities();
+    expect(ent.toggleSwitches.length).toBeGreaterThan(0);
+    for (const sw of ent.toggleSwitches) {
+      expect(sw.x).toBeGreaterThan(0);
+      expect(sw.y).toBeGreaterThan(0);
+      expect(sw.group).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('extracts pressure switches from level 1', () => {
+    const ent = getLevelEntities();
+    expect(ent.pressureSwitches.length).toBeGreaterThan(0);
+    for (const sw of ent.pressureSwitches) {
+      expect(sw.x).toBeGreaterThan(0);
+      expect(sw.y).toBeGreaterThan(0);
+      expect(sw.group).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('extracts timed switches from level 1', () => {
+    const ent = getLevelEntities();
+    expect(ent.timedSwitches.length).toBeGreaterThan(0);
+    for (const sw of ent.timedSwitches) {
+      expect(sw.x).toBeGreaterThan(0);
+      expect(sw.y).toBeGreaterThan(0);
+      expect(sw.group).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('extracts gates from level 1', () => {
+    const ent = getLevelEntities();
+    expect(ent.gates.length).toBeGreaterThan(0);
+    for (const g of ent.gates) {
+      expect(g.x).toBeGreaterThan(0);
+      expect(g.y).toBeGreaterThan(0);
+      expect(g.group).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('switch-gate groups are correctly linked', () => {
+    const ent = getLevelEntities();
+    const allSwitches = [...ent.toggleSwitches, ...ent.pressureSwitches, ...ent.timedSwitches];
+    // Each gate's group should match at least one switch's group
+    for (const g of ent.gates) {
+      const hasMatchingSwitch = allSwitches.some(s => s.group === g.group);
+      expect(hasMatchingSwitch).toBe(true);
+    }
+  });
+
+  it('breakable walls are not included in merged solid bodies', () => {
+    const ent = getLevelEntities();
+    const bodies = getMergedSolidBodies();
+    // Breakable wall positions should not overlap with any merged solid body
+    for (const bw of ent.breakableWalls) {
+      for (const body of bodies) {
+        const left = body.x - body.w / 2;
+        const right = body.x + body.w / 2;
+        const top = body.y - body.h / 2;
+        const bottom = body.y + body.h / 2;
+        const inside = bw.x > left && bw.x < right && bw.y > top && bw.y < bottom;
+        expect(inside).toBe(false);
+      }
     }
   });
 });

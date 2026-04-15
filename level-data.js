@@ -23,6 +23,13 @@
 //  16-20 = keys (red, blue, green, yellow, purple) — carriable, throwable, no damage
 //  21-25 = chests (red, blue, green, yellow, purple) — opened by matching key, spawns pearl
 //  26 = crate (wooden box, destroyed by dashing, ~30% pearl drop)
+//  27 = breakable wall (cracked stone, destroyed by dashing, rock debris)
+//  28 = armored fish (patrols, dash bounces off, killed by boulder only)
+//  29 = spitting coral (fixed on ground, fires 3 projectiles in fan pattern)
+//  30 = toggle switch (swim over to flip open/close linked gate)
+//  31 = pressure switch (needs boulder/key resting on it to keep gate open)
+//  32 = timed switch (opens linked gate for ~5s then auto-closes)
+//  33 = gate (2-tile-tall metal grate, linked to a switch by group ID)
 
 export const TILE_SIZE = 32;
 
@@ -64,6 +71,13 @@ const KEY = {
   'y': 24, // chest yellow
   'q': 25, // chest purple
   'W': 26, // crate (wooden box)
+  'K': 27, // breakable wall (cracked stone)
+  'A': 28, // armored fish (dash-proof enemy)
+  'P': 29, // spitting coral (fan projectiles)
+  'V': 30, // toggle switch
+  'N': 31, // pressure switch
+  'O': 32, // timed switch
+  'G': 33, // gate (2-tile-tall barrier)
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -86,24 +100,31 @@ const LEVELS = [
       '#...........B.......................p....................B.................R..................R.R.........p.................#',  // 4
       '####....................##......##......e...##......####......###....T.....###..........###...###....####...........pd....###',  // 5
       '####..........p2..W.....##......##..........##......####......###..........###..........###...###.......U...........##...####',  // 6
-      '####..@.......W.........##..................##d.....####d.....###d.........###..........###....................##....x##.x###',  // 7
-      '####.............d1...........p.............a##......####d.....###....x...d###.......................S........W..........x###',  // 8
-      '####........pd.###.............R............##g..F..p...x..W.d###.........###.p.dx..........B............................####',  // 9
-      '####........######.................e.........##.......d......##..x..F..p........##....e.R.......................p........x###',  // 10
-      '####............................R.............##......##..e..##p........W.......##......##..........R...............dpd..d###',  // 11
-      '####..........................................##......##.....##.....##..........##......##..p..........S...........d####.####',  // 12
+      '####..@.......W.........##...........G......##d.....####d.....###d.........###..........###....................##....x##.x###',  // 7
+      '####.............d1...........p...V.........a##......####d.....###....x...d###.......................S........W..........x###',  // 8
+      '####........pd.###........G....R............##g..F..p...x..W.d###.........###.p.dx..........B..............P.............####',  // 9
+      '####........######..O..G....N......e.........##.......d......##..x..F..p........##....e.R.......................p........x###',  // 10
+      '####.............A..............R.............##......##..e..##p........W.......##......##..........R...............dpd..d###',  // 11
+      '####..................KKpKK...................##......##.....##.....##..........##......##..p..........S...........d####.####',  // 12
       '####.................U...........b............##......##.....x......##.........d##......##.............U..........d####..####',  // 13
-      '####........e....................c......pU...##....x....d..d.......##..........##......##..e....................d#####..U####',  // 14
-      '####.............................dc.c.......d##..x......####.....x........F....##d....x....................d.Cd.######...####',  // 15
+      '####........e.........P..........c......pU...##....x....d..d.......##..........##......##..e....................d#####..U####',  // 14
+      '####.............KpK.............dc.c.......d##..x......####.....x........F....##d....x....................d.Cd.######...####',  // 15
       '####............................d###.......dd##.xx..d..d####.d.C............x...####d..d..................##########d..U.####',  // 16
       '####......................d.c.cdc###......ddd##.x..#####d....####......d........d.ddd####..............d..d###########...####',  // 17
       '####......................##..e..###.....ddd.##.xdp#####....U####....####.....###..dd####.....x.dR.....#############ppU..####',  // 18
-      '####......................##.....###....###p.##dxdd#####..p..####....####.....###..pd####.....####...pd#############pp...####',  // 19
+      '####......................##.....###....###p.##dxdd#####..p..####....####.....###..pd####..A..####...pd#############pp...####',  // 19
       '####........dd............##.....###....###..#########.......####....####.....###..e.####..e..####..##################...####',  // 20
       '####......dddd............##..p..###....###..#########.......####....####..p..###....####.....####..##################...####',  // 21
       '####..Cpddddddd..d...dp.d.##..d..###.d..###d.#########..d..d.####d...####..C..###d...####..d..####..##################..d####',  // 22
       '#sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss#',  // 23
       '#############################################################################################################################',  // 24
+    ],
+    // Switch-gate group linkage: each group has an id, the switches that control it,
+    // and the gates it opens. Positions are (row, col) in the tile grid.
+    switchGateGroups: [
+      { id: 0, switches: [{ row: 8, col: 34 }], gates: [{ row: 7, col: 37 }] },   // toggle switch opens gate
+      { id: 1, switches: [{ row: 10, col: 28 }], gates: [{ row: 9, col: 26 }] },   // pressure switch (boulder nearby at row 9, col 29)
+      { id: 2, switches: [{ row: 10, col: 20 }], gates: [{ row: 10, col: 23 }] },  // timed switch (5s)
     ],
   },
 
@@ -258,7 +279,14 @@ export function getLevelEntities() {
     toxicFish: [],
     keys: [],      // { x, y, colorIndex } — colorIndex 0-4 maps to KEY_CHEST_COLORS
     chests: [],    // { x, y, colorIndex }
-    crates: [],    // { x, y }
+    crates: [],           // { x, y }
+    breakableWalls: [],   // { x, y }
+    armoredFish: [],      // { x, y }
+    spittingCoral: [],    // { x, y }
+    toggleSwitches: [],   // { x, y, group }
+    pressureSwitches: [], // { x, y, group }
+    timedSwitches: [],    // { x, y, group }
+    gates: [],            // { x, y, group }
   };
   for (let row = 0; row < LEVEL_ROWS; row++) {
     for (let col = 0; col < LEVEL_COLS; col++) {
@@ -307,9 +335,55 @@ export function getLevelEntities() {
       } else if (t === 26) {
         entities.crates.push({ x: cx, y: cy });
         TILES[row][col] = 0;
+      } else if (t === 27) {
+        entities.breakableWalls.push({ x: cx, y: cy });
+        TILES[row][col] = 0;
+      } else if (t === 28) {
+        entities.armoredFish.push({ x: cx, y: cy });
+        TILES[row][col] = 0;
+      } else if (t === 29) {
+        entities.spittingCoral.push({ x: cx, y: cy });
+        TILES[row][col] = 0;
+      } else if (t === 30) {
+        entities.toggleSwitches.push({ x: cx, y: cy, group: -1 });
+        TILES[row][col] = 0;
+      } else if (t === 31) {
+        entities.pressureSwitches.push({ x: cx, y: cy, group: -1 });
+        TILES[row][col] = 0;
+      } else if (t === 32) {
+        entities.timedSwitches.push({ x: cx, y: cy, group: -1 });
+        TILES[row][col] = 0;
+      } else if (t === 33) {
+        entities.gates.push({ x: cx, y: cy, group: -1 });
+        TILES[row][col] = 0;
       }
     }
   }
+
+  // ── Assign switch-gate group IDs from level metadata ──
+  const level = LEVELS[_currentLevelIndex];
+  if (level.switchGateGroups) {
+    for (const grp of level.switchGateGroups) {
+      for (const s of grp.switches) {
+        const sx = s.col * TILE_SIZE + TILE_SIZE / 2;
+        const sy = s.row * TILE_SIZE + TILE_SIZE / 2;
+        const allSwitches = [
+          ...entities.toggleSwitches,
+          ...entities.pressureSwitches,
+          ...entities.timedSwitches,
+        ];
+        const match = allSwitches.find(sw => Math.abs(sw.x - sx) < 2 && Math.abs(sw.y - sy) < 2);
+        if (match) match.group = grp.id;
+      }
+      for (const g of grp.gates) {
+        const gx = g.col * TILE_SIZE + TILE_SIZE / 2;
+        const gy = g.row * TILE_SIZE + TILE_SIZE / 2;
+        const match = entities.gates.find(gt => Math.abs(gt.x - gx) < 2 && Math.abs(gt.y - gy) < 2);
+        if (match) match.group = grp.id;
+      }
+    }
+  }
+
   return entities;
 }
 

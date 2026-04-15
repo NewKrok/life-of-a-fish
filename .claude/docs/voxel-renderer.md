@@ -13,6 +13,7 @@ Each tile type gets its own `InstancedMesh` with a single `BoxGeometry(TILE_SIZE
 | Coral   | Vibrant pinks/reds with polyp bumps and highlights   |
 | Hazard  | Red with spike/cross pattern and dark edges           |
 | Seagrass | Green kelp blades with lighter vertical streaks       |
+| Breakable Wall | Dark grays with prominent diagonal crack lines  |
 
 Each pixel in the 16x16 grid is drawn as a 4x4 block on a 64x64 canvas. Block edges have highlight (top/left bright) and shadow (bottom/right dark) for a 3D pixel-art look.
 
@@ -67,6 +68,31 @@ Voxel groups built from hardcoded coordinate arrays:
 - Glowing purple eyes, purple dorsal fin
 - Tail pivot for wag animation
 - Shoots green glowing poison projectiles (`BoxGeometry 6×6×6`, emissive `0x44cc00`)
+
+**Armored fish** (steel blue `0x667788`):
+- Bulky body with metallic armor plating and rivets
+- Lighter belly, bright yellow warning eyes
+- Dorsal and side fins with armor-tinted tips
+- Tail pivot for wag animation
+- Visual shield flash effect when dash bounces off
+
+**Spitting coral** (purple-pink `0x884466`):
+- Ground-fixed polyp with rocky brown base and 3 vertical tubes
+- Center tube tallest, side tubes shorter — open "mouth" tips glow pink (`0xff99cc`)
+- Green toxic spots on tubes
+- No movement animation (static enemy)
+- Fires purple projectiles (`BoxGeometry 6×6×6`, emissive `0x8822cc`) in upward fan pattern
+
+**Switches** (per-type color: toggle green `0x22aa44`, pressure blue `0x3366cc`, timed orange `0xcc8822`):
+- Flat voxel pad (8×2×6 voxels) with dark border and bright center
+- Center `padMesh` (BoxGeometry) with emissive glow — animates down when pressed (active)
+- Emissive intensity pulses brighter when active (0.8 + sin×0.2)
+
+**Gates** (metallic grey `0x888899`):
+- 2-tile-tall metal grate with 3 vertical bars and horizontal frame bars (top/bottom)
+- Cross bar in the middle for visual detail
+- Pivot group at top edge — rotates on X axis to swing open into background (0→π/2)
+- Frame and cross bars use `MeshStandardMaterial` with high metalness (0.7-0.8)
 
 ## Background & Atmosphere
 
@@ -191,6 +217,14 @@ Built via `buildRafts(raftBodies)`:
 - Composited additively onto the base wave animation in the vertex loop
 - Auto-removed when `age ≥ decay`
 
+### Rock Debris Particles (Breakable Walls)
+- `spawnBreakableWallDebris(x, y)` — spawns 24 cubic rock fragments
+- Gray stone colors (5 shades from `0x4a4a5a` to `0x8a8a9a`)
+- Box geometries (2–8px), random rotation on all axes
+- Wider spread (±28px) and faster lateral velocity (±150 px/s) than boulder break
+- Uses `_isRock: true` flag for gravity-affected bubble update (no surface fade)
+- Lifetime 0.9–1.8s with opacity fade
+
 ### Ambient Bubbles
 - `AMBIENT_BUBBLE_COUNT` (30) small cubes (`BoxGeometry`) scattered throughout the underwater area
 - Slowly rise (8–23 px/s) with horizontal sine-wave wobble
@@ -218,7 +252,11 @@ Called every frame after physics step. Updates:
 5. Pufferfish positions, wobble rotation, scale pulse animation
 6. Crab positions, 3D flip, scuttle bob animation
 7. Toxic fish positions, 3D flip, tail wag
-8. Projectile positions, spin rotation, emissive pulse, remove expired
+8. Armored fish positions, 3D flip, tail wag
+9. Spitting coral positions, hide dead
+10. Switch pad press animation, emissive glow pulse when active
+11. Gate pivot rotation animation (swing open/close)
+12. Projectile positions, spin rotation, emissive pulse, remove expired
 9. Pearl bob + spin animation; remove collected pearls (body.space === null)
 10. Buoy, boulder, raft positions + rotations from physics bodies
 11. Bubble positions, opacity, and lifetime (including horizontal `vx` drag for splash particles)

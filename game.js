@@ -37,6 +37,8 @@ import * as THREE from "three";
 const GRAVITY = 200;
 const DT = 1 / 60;
 const ENEMY_SPEED = 60;
+const ARMORED_FISH_SPEED = 50;         // px/s — slightly slower than piranha
+const ARMORED_KNOCKBACK = 300;         // px/s — half of crab push force
 const SHARK_PATROL_SPEED = 50;        // px/s — patrol speed
 const SHARK_CHASE_SPEED = 110;        // px/s — chase speed
 const SHARK_DETECT_RADIUS = 150;      // px — detection radius
@@ -49,6 +51,14 @@ const TOXIC_SHOOT_RANGE = 180;        // px — range to detect and shoot
 const TOXIC_SHOOT_INTERVAL = 2000;    // ms — cooldown between shots
 const TOXIC_PROJECTILE_SPEED = 150;   // px/s — projectile velocity
 const TOXIC_PROJECTILE_LIFE = 2500;   // ms — projectile lifespan
+const CORAL_SHOOT_INTERVAL = 3000;    // ms — volley every 3s
+const CORAL_PROJECTILE_SPEED = 100;   // px/s — slower than toxic fish
+const CORAL_PROJECTILE_LIFE = 2000;   // ms — shorter range
+const CORAL_FAN_ANGLE = Math.PI / 6;  // 30° spread on each side
+const TIMED_SWITCH_DURATION = 5000;   // ms — how long a timed switch stays open
+const GATE_OPEN_SPEED = 3.0;          // rad/s — gate swing rotation speed
+const GATE_HEIGHT = 2 * 32;           // px — gate is 2 tiles tall
+const GATE_WIDTH = 8;                 // px — thin like a raft
 const PLAYER_CAPSULE_W = 24;
 const PLAYER_CAPSULE_H = 12;
 
@@ -999,6 +1009,11 @@ const projectileTag = new CbType();
 const keyTag = new CbType();
 const chestTag = new CbType();
 const crateTag = new CbType();
+const breakableWallTag = new CbType();
+const armoredFishTag = new CbType();
+const spittingCoralTag = new CbType();
+const switchTag = new CbType();
+const gateTag = new CbType();
 
 // ── Build terrain bodies from merged tiles ──
 const mergedBodies = getMergedSolidBodies();
@@ -1036,6 +1051,13 @@ _capturedEntities = {
   crabs: entities.crabs.map(e => ({ ...e })),
   toxicFish: entities.toxicFish.map(e => ({ ...e })),
   crates: entities.crates.map(e => ({ ...e })),
+  breakableWalls: entities.breakableWalls.map(e => ({ ...e })),
+  armoredFish: entities.armoredFish.map(e => ({ ...e })),
+  spittingCoral: entities.spittingCoral.map(e => ({ ...e })),
+  toggleSwitches: entities.toggleSwitches.map(e => ({ ...e })),
+  pressureSwitches: entities.pressureSwitches.map(e => ({ ...e })),
+  timedSwitches: entities.timedSwitches.map(e => ({ ...e })),
+  gates: entities.gates.map(e => ({ ...e })),
 };
 
 // ── Hazard bodies (seaweed/spiky plants) ──
@@ -1072,8 +1094,8 @@ for (const en of entities.enemies) {
   b.shapes.add(shape);
   b.space = space;
   b._patrol = {
-    minX: en.x - 80,
-    maxX: en.x + 80,
+    x1: en.x - 80, y1: en.y,
+    x2: en.x + 80, y2: en.y,
     speed: ENEMY_SPEED,
     _dir: 1,
   };
@@ -1160,6 +1182,39 @@ for (const tf of entities.toxicFish) {
   b._shoot = { cooldown: 0 };
   toxicFishBodies.push(b);
   voxelRenderer.buildToxicFish();
+}
+
+// ── Armored fish enemies (dash-proof, killed by boulder only) ──
+const armoredFishBodies = [];
+for (const af of entities.armoredFish) {
+  const b = new Body(BodyType.KINEMATIC, new Vec2(af.x, af.y));
+  const shape = new Capsule(26, 14);
+  shape.sensorEnabled = true;
+  shape.cbTypes.add(armoredFishTag);
+  b.shapes.add(shape);
+  b.space = space;
+  b._patrol = {
+    x1: af.x - 70, y1: af.y,
+    x2: af.x + 70, y2: af.y,
+    speed: ARMORED_FISH_SPEED,
+    _dir: 1,
+  };
+  armoredFishBodies.push(b);
+  voxelRenderer.buildArmoredFish();
+}
+
+// ── Spitting coral (fixed on ground, fan projectiles) ──
+const spittingCoralBodies = [];
+for (const sc of entities.spittingCoral) {
+  const b = new Body(BodyType.STATIC, new Vec2(sc.x, sc.y));
+  const shape = new Polygon(Polygon.box(20, 24));
+  shape.sensorEnabled = true;
+  shape.cbTypes.add(spittingCoralTag);
+  b.shapes.add(shape);
+  b.space = space;
+  b._shoot = { cooldown: Math.random() * CORAL_SHOOT_INTERVAL }; // stagger initial shots
+  spittingCoralBodies.push(b);
+  voxelRenderer.buildSpittingCoral();
 }
 
 // ── Buoys (floating on water surface) ──
@@ -1255,6 +1310,58 @@ for (const cr of entities.crates) {
   crateBodies.push(b);
 }
 
+// ── Breakable walls (cracked stone, destroyed by dashing) ──
+const breakableWallBodies = [];
+for (const bw of entities.breakableWalls) {
+  const b = new Body(BodyType.STATIC, new Vec2(bw.x, bw.y));
+  const solid = new Polygon(Polygon.box(TILE_SIZE, TILE_SIZE), undefined, new Material(0.8, 0.1, 0.5, 2.0));
+  b.shapes.add(solid);
+  // Sensor overlay for dash detection
+  const sensor = new Polygon(Polygon.box(TILE_SIZE + 2, TILE_SIZE + 2));
+  sensor.sensorEnabled = true;
+  sensor.cbTypes.add(breakableWallTag);
+  b.shapes.add(sensor);
+  b.space = space;
+  breakableWallBodies.push(b);
+}
+
+// ── Switches (sensor pads on the floor) ──
+// All switch types share physics shape & tag; behaviour differs in game loop
+const switchBodies = [];  // { body, type, group, active, timer }
+const allSwitchEntities = [
+  ...entities.toggleSwitches.map(s => ({ ...s, type: 'toggle' })),
+  ...entities.pressureSwitches.map(s => ({ ...s, type: 'pressure' })),
+  ...entities.timedSwitches.map(s => ({ ...s, type: 'timed' })),
+];
+for (const sw of allSwitchEntities) {
+  const b = new Body(BodyType.STATIC, new Vec2(sw.x, sw.y));
+  const shape = new Polygon(Polygon.box(TILE_SIZE * 0.8, TILE_SIZE * 0.3));
+  shape.sensorEnabled = true;
+  shape.cbTypes.add(switchTag);
+  b.shapes.add(shape);
+  b.space = space;
+  switchBodies.push({ body: b, type: sw.type, group: sw.group, active: false, timer: 0 });
+}
+
+// ── Gates (2-tile-tall barriers, linked to switches by group) ──
+const gateBodies = [];  // { body, group, open, angle }
+for (const g of entities.gates) {
+  // Gate body: KINEMATIC so we can rotate it; pivot at top edge
+  // Position is at the tile center, body shape extends downward 2 tiles
+  const b = new Body(BodyType.KINEMATIC, new Vec2(g.x, g.y));
+  // Solid shape blocks passage when closed
+  const shape = new Polygon(Polygon.box(GATE_WIDTH, GATE_HEIGHT));
+  b.shapes.add(shape);
+  // Sensor overlay for collision events
+  const sensor = new Polygon(Polygon.box(GATE_WIDTH + 4, GATE_HEIGHT + 4));
+  sensor.sensorEnabled = true;
+  sensor.cbTypes.add(gateTag);
+  b.shapes.add(sensor);
+  b.allowRotation = false;  // we control rotation manually
+  b.space = space;
+  gateBodies.push({ body: b, group: g.group, open: false, angle: 0 });
+}
+
 // Build dynamic object meshes
 voxelRenderer.buildBuoys(buoyBodies);
 voxelRenderer.buildBoulders(boulderBodies);
@@ -1262,6 +1369,9 @@ voxelRenderer.buildKeys(keyBodies);
 voxelRenderer.buildChests(chestBodies);
 voxelRenderer.buildRafts(raftBodies);
 voxelRenderer.buildCrates(crateBodies);
+voxelRenderer.buildBreakableWalls(breakableWallBodies);
+voxelRenderer.buildSwitches(switchBodies);
+voxelRenderer.buildGates(gateBodies);
 
 // ── Player fish ──
 const player = new Body(BodyType.DYNAMIC, new Vec2(entities.playerSpawn.x, entities.playerSpawn.y));
@@ -1316,6 +1426,32 @@ const piranhaListener = new InteractionListener(
   },
 );
 piranhaListener.space = space;
+
+// Armored fish collision -> dash bounces off (knockback), else death
+const armoredFishListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, playerTag, armoredFishTag,
+  (cb) => {
+    if (fishCtrl.dashing) {
+      // Dash bounces off — knockback player, cancel dash
+      const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+      const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+      const afBody = armoredFishBodies.find(a => a === b1 || a === b2);
+      if (afBody) {
+        const dx = player.position.x - afBody.position.x;
+        const dy = player.position.y - afBody.position.y;
+        const len = Math.sqrt(dx * dx + dy * dy) || 1;
+        fishCtrl.knockback(
+          (dx / len) * ARMORED_KNOCKBACK,
+          (dy / len) * ARMORED_KNOCKBACK,
+        );
+        sfx.crabPush();
+      }
+    } else {
+      triggerDeath();
+    }
+  },
+);
+armoredFishListener.space = space;
 
 // Hazard collision -> death
 const hazardListener = new InteractionListener(
@@ -1481,6 +1617,61 @@ const boulderToxicListener = new InteractionListener(
 );
 boulderToxicListener.space = space;
 
+// Boulder hits armored fish -> both die
+const boulderArmoredListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, boulderTag, armoredFishTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const boulderBody = boulderBodies.find(br => br === b1 || br === b2);
+    if (boulderBody === grabbedBoulder) return;
+    const afBody = armoredFishBodies.find(a => a === b1 || a === b2);
+    if (afBody && afBody.space) {
+      const cx = afBody.position.x;
+      const cy = afBody.position.y;
+      afBody.space = null;
+      sfx.enemyDeath();
+      if (boulderBody && boulderBody.space) {
+        if (grabbedBoulder === boulderBody) grabbedBoulder = null;
+        boulderBody.space = null;
+        voxelRenderer.spawnBoulderBreak(cx, cy);
+      }
+    }
+  },
+);
+boulderArmoredListener.space = space;
+
+// Spitting coral collision -> death
+const spittingCoralListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, playerTag, spittingCoralTag,
+  () => { triggerDeath(); },
+);
+spittingCoralListener.space = space;
+
+// Boulder hits spitting coral -> both die
+const boulderCoralListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, boulderTag, spittingCoralTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const boulderBody = boulderBodies.find(br => br === b1 || br === b2);
+    if (boulderBody === grabbedBoulder) return;
+    const coralBody = spittingCoralBodies.find(c => c === b1 || c === b2);
+    if (coralBody && coralBody.space) {
+      const cx = coralBody.position.x;
+      const cy = coralBody.position.y;
+      coralBody.space = null;
+      sfx.enemyDeath();
+      if (boulderBody && boulderBody.space) {
+        if (grabbedBoulder === boulderBody) grabbedBoulder = null;
+        boulderBody.space = null;
+        voxelRenderer.spawnBoulderBreak(cx, cy);
+      }
+    }
+  },
+);
+boulderCoralListener.space = space;
+
 // ── Key-Chest collision: matching color opens chest, spawns pearl ──
 const keyChestListener = new InteractionListener(
   CbEvent.BEGIN, InteractionType.SENSOR, keyTag, chestTag,
@@ -1550,12 +1741,156 @@ const crateListener = new InteractionListener(
 );
 crateListener.space = space;
 
+// Dash into breakable wall -> destroy wall, rock debris particles
+const breakableWallListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, playerTag, breakableWallTag,
+  (cb) => {
+    if (!fishCtrl.dashing) return;
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const wallBody = breakableWallBodies.find(w => w === b1 || w === b2);
+    if (wallBody && wallBody.space) {
+      const cx = wallBody.position.x;
+      const cy = wallBody.position.y;
+      wallBody.space = null;
+      voxelRenderer.spawnBreakableWallDebris(cx, cy);
+      sfx.crateBreak();
+    }
+  },
+);
+breakableWallListener.space = space;
+
 // Player-key collision: ignored while carrying
 const keyPlayerPre = new PreListener(
   InteractionType.COLLISION, playerTag, keyTag,
   () => grabbedKey ? PreFlag.IGNORE : PreFlag.ACCEPT,
 );
 keyPlayerPre.space = space;
+
+// ── Switch activation: player swims over switch ──
+const switchPlayerListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, playerTag, switchTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const sw = switchBodies.find(s => s.body === b1 || s.body === b2);
+    if (!sw) return;
+    _activateSwitch(sw);
+  },
+);
+switchPlayerListener.space = space;
+
+// ── Switch activation: boulder/key lands on switch ──
+const switchBoulderListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, boulderTag, switchTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const sw = switchBodies.find(s => s.body === b1 || s.body === b2);
+    if (!sw) return;
+    _activateSwitch(sw);
+  },
+);
+switchBoulderListener.space = space;
+
+const switchKeyListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, keyTag, switchTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const sw = switchBodies.find(s => s.body === b1 || s.body === b2);
+    if (!sw) return;
+    _activateSwitch(sw);
+  },
+);
+switchKeyListener.space = space;
+
+// ── Pressure switch deactivation: boulder/key leaves switch ──
+const switchBoulderEndListener = new InteractionListener(
+  CbEvent.END, InteractionType.SENSOR, boulderTag, switchTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const sw = switchBodies.find(s => s.body === b1 || s.body === b2);
+    if (sw && sw.type === 'pressure') _deactivateSwitch(sw);
+  },
+);
+switchBoulderEndListener.space = space;
+
+const switchKeyEndListener = new InteractionListener(
+  CbEvent.END, InteractionType.SENSOR, keyTag, switchTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const sw = switchBodies.find(s => s.body === b1 || s.body === b2);
+    if (sw && sw.type === 'pressure') _deactivateSwitch(sw);
+  },
+);
+switchKeyEndListener.space = space;
+
+// Player-gate collision: solid when closed, pass through when open
+const gatePlayerPre = new PreListener(
+  InteractionType.COLLISION, playerTag, gateTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const gate = gateBodies.find(g => g.body === b1 || g.body === b2);
+    return (gate && gate.open) ? PreFlag.IGNORE : PreFlag.ACCEPT;
+  },
+);
+gatePlayerPre.space = space;
+
+// Boulder/key-gate collision: pass through when open
+const gateBoulderPre = new PreListener(
+  InteractionType.COLLISION, boulderTag, gateTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const gate = gateBodies.find(g => g.body === b1 || g.body === b2);
+    return (gate && gate.open) ? PreFlag.IGNORE : PreFlag.ACCEPT;
+  },
+);
+gateBoulderPre.space = space;
+
+const gateKeyPre = new PreListener(
+  InteractionType.COLLISION, keyTag, gateTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const gate = gateBodies.find(g => g.body === b1 || g.body === b2);
+    return (gate && gate.open) ? PreFlag.IGNORE : PreFlag.ACCEPT;
+  },
+);
+gateKeyPre.space = space;
+
+// ── Switch/Gate state management ──
+function _activateSwitch(sw) {
+  if (sw.type === 'toggle') {
+    sw.active = !sw.active;
+  } else if (sw.type === 'pressure') {
+    sw.active = true;
+  } else if (sw.type === 'timed') {
+    sw.active = true;
+    sw.timer = TIMED_SWITCH_DURATION;
+  }
+  _updateGatesForGroup(sw.group);
+  sfx.pearlPickup(); // reuse pickup sound for switch activation
+}
+
+function _deactivateSwitch(sw) {
+  sw.active = false;
+  _updateGatesForGroup(sw.group);
+}
+
+function _updateGatesForGroup(group) {
+  // A gate opens if ANY switch in its group is active
+  const groupActive = switchBodies.some(s => s.group === group && s.active);
+  for (const gate of gateBodies) {
+    if (gate.group === group) {
+      gate.open = groupActive;
+    }
+  }
+}
 
 // ── Keyboard Input ──
 const keys = {};
@@ -1949,6 +2284,16 @@ function _resetEntities() {
     if (!b.space) b.space = space;
   }
 
+  // ── Armored fish ──
+  for (let i = 0; i < armoredFishBodies.length; i++) {
+    const b = armoredFishBodies[i];
+    const af = entities.armoredFish[i];
+    b.position = new Vec2(af.x, af.y);
+    b.velocity = new Vec2(0, 0);
+    b._patrol._dir = 1;
+    if (!b.space) b.space = space;
+  }
+
   // ── Projectiles — remove all active ──
   for (const pb of projectileBodies) {
     if (pb.space) pb.space = null;
@@ -1979,6 +2324,15 @@ function _resetEntities() {
     if (!b.space) b.space = space;
   }
   voxelRenderer.buildCrates(crateBodies);
+
+  // ── Breakable walls ──
+  for (let i = 0; i < breakableWallBodies.length; i++) {
+    const b = breakableWallBodies[i];
+    const bw = entities.breakableWalls[i];
+    b.position = new Vec2(bw.x, bw.y);
+    if (!b.space) b.space = space;
+  }
+  voxelRenderer.buildBreakableWalls(breakableWallBodies);
 
   // ── Keys ──
   for (let i = 0; i < keyBodies.length; i++) {
@@ -2018,6 +2372,18 @@ function _resetEntities() {
     b.velocity = new Vec2(0, 0);
     b.rotation = 0;
     b.angularVel = 0;
+  }
+
+  // ── Switches — reset to inactive ──
+  for (const sw of switchBodies) {
+    sw.active = false;
+    sw.timer = 0;
+  }
+
+  // ── Gates — reset to closed ──
+  for (const gate of gateBodies) {
+    gate.open = false;
+    gate.angle = 0;
   }
 
   // ── Restore visibility for all enemy meshes ──
@@ -2440,14 +2806,40 @@ function gameLoop() {
     }
   }
 
-  // ── Update piranha patrol ──
+  // ── Update piranha patrol (point-to-point, supports diagonal) ──
   for (const eb of enemyBodies) {
     if (!eb._patrol || !eb.space) continue;
     const p = eb._patrol;
-    const px = eb.position.x;
-    if (px >= p.maxX) p._dir = -1;
-    if (px <= p.minX) p._dir = 1;
-    eb.velocity = new Vec2(p._dir * p.speed, 0);
+    const pdx = p.x2 - p.x1;
+    const pdy = p.y2 - p.y1;
+    const pathLen = Math.sqrt(pdx * pdx + pdy * pdy) || 1;
+    eb.velocity = new Vec2((pdx / pathLen) * p.speed * p._dir, (pdy / pathLen) * p.speed * p._dir);
+    const tx = p._dir === 1 ? p.x2 : p.x1;
+    const ty = p._dir === 1 ? p.y2 : p.y1;
+    const dot = (tx - eb.position.x) * pdx * p._dir + (ty - eb.position.y) * pdy * p._dir;
+    if (dot <= 0) {
+      eb.position.x = tx;
+      eb.position.y = ty;
+      p._dir *= -1;
+    }
+  }
+
+  // ── Update armored fish patrol (point-to-point, supports diagonal) ──
+  for (const af of armoredFishBodies) {
+    if (!af._patrol || !af.space) continue;
+    const p = af._patrol;
+    const pdx = p.x2 - p.x1;
+    const pdy = p.y2 - p.y1;
+    const pathLen = Math.sqrt(pdx * pdx + pdy * pdy) || 1;
+    af.velocity = new Vec2((pdx / pathLen) * p.speed * p._dir, (pdy / pathLen) * p.speed * p._dir);
+    const tx = p._dir === 1 ? p.x2 : p.x1;
+    const ty = p._dir === 1 ? p.y2 : p.y1;
+    const dot = (tx - af.position.x) * pdx * p._dir + (ty - af.position.y) * pdy * p._dir;
+    if (dot <= 0) {
+      af.position.x = tx;
+      af.position.y = ty;
+      p._dir *= -1;
+    }
   }
 
   // ── Check if player is hidden in seagrass ──
@@ -2543,6 +2935,33 @@ function gameLoop() {
     }
   }
 
+  // ── Update spitting coral AI (stationary, fan projectiles) ──
+  for (const sc of spittingCoralBodies) {
+    if (!sc.space) continue;
+    sc._shoot.cooldown = Math.max(0, sc._shoot.cooldown - DT * 1000);
+    if (sc._shoot.cooldown <= 0) {
+      sc._shoot.cooldown = CORAL_SHOOT_INTERVAL;
+      // Fire 3 projectiles in fan pattern: left-up, straight up, right-up
+      const angles = [-CORAL_FAN_ANGLE, 0, CORAL_FAN_ANGLE];
+      for (const angle of angles) {
+        const vx = Math.sin(angle) * CORAL_PROJECTILE_SPEED;
+        const vy = -Math.cos(angle) * CORAL_PROJECTILE_SPEED; // negative = upward
+        const pb = new Body(BodyType.KINEMATIC, new Vec2(sc.position.x, sc.position.y - 12));
+        const ps = new Circle(4);
+        ps.sensorEnabled = true;
+        ps.cbTypes.add(projectileTag);
+        pb.shapes.add(ps);
+        pb.space = space;
+        pb.velocity = new Vec2(vx, vy);
+        pb._life = CORAL_PROJECTILE_LIFE;
+        pb._coralProjectile = true;
+        projectileBodies.push(pb);
+        voxelRenderer.buildProjectile(pb, true);
+      }
+      sfx.toxicSpit();
+    }
+  }
+
   // ── Update projectiles (lifetime) ──
   for (let i = projectileBodies.length - 1; i >= 0; i--) {
     const pb = projectileBodies[i];
@@ -2552,6 +2971,32 @@ function gameLoop() {
       pb.space = null;
       projectileBodies.splice(i, 1);
     }
+  }
+
+  // ── Update timed switches (countdown) ──
+  for (const sw of switchBodies) {
+    if (sw.type === 'timed' && sw.active) {
+      sw.timer -= DT * 1000;
+      if (sw.timer <= 0) {
+        sw.timer = 0;
+        sw.active = false;
+        _updateGatesForGroup(sw.group);
+      }
+    }
+  }
+
+  // ── Update gate animation (swing open/close via rotation) ──
+  for (const gate of gateBodies) {
+    const targetAngle = gate.open ? Math.PI / 2 : 0;
+    if (Math.abs(gate.angle - targetAngle) > 0.01) {
+      const dir = targetAngle > gate.angle ? 1 : -1;
+      gate.angle += dir * GATE_OPEN_SPEED * DT;
+      // Clamp
+      if (dir > 0 && gate.angle > targetAngle) gate.angle = targetAngle;
+      if (dir < 0 && gate.angle < targetAngle) gate.angle = targetAngle;
+    }
+    // When gate is more than ~45° open, disable solid collision
+    // (PreListener handles the ACCEPT/IGNORE dynamically)
   }
 
   // ── Update buoys (stabilize at water surface) ──
@@ -2700,6 +3145,7 @@ function gameLoop() {
   const fishState = fishCtrl.getState();
   voxelRenderer.syncFrame(player, fishState, enemyBodies, DT, {
     sharkBodies, pufferfishBodies, crabBodies, toxicFishBodies, projectileBodies,
+    armoredFishBodies, spittingCoralBodies, switchBodies, gateBodies,
   });
 
   renderer.render(scene, camera);

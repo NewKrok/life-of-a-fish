@@ -64,6 +64,7 @@ export class VoxelRenderer {
     this.chestMeshes = [];   // { mesh, body, colorIndex, opened } pairs
     this.raftMeshes = [];   // { mesh, body } pairs
     this.crateMeshes = [];  // { mesh, body } pairs
+    this.breakableWallMeshes = [];  // { mesh, body } pairs
     this.waterMesh = null;
     this.bubbles = [];
     this._time = 0;
@@ -82,7 +83,13 @@ export class VoxelRenderer {
     this.toxicFishGroups = [];
     this.toxicFishTailPivots = [];
     this._toxicFlipAngles = [];
+    this.armoredFishGroups = [];
+    this.armoredFishTailPivots = [];
+    this._armoredFlipAngles = [];
+    this.spittingCoralGroups = [];
     this.projectileMeshes = [];    // { mesh, body } pairs for poison projectiles
+    this.switchMeshes = [];        // { mesh, body, type, padMesh } pairs
+    this.gateMeshes = [];          // { mesh, body, pivotGroup } pairs
 
     // New visual elements
     this.godRays = [];
@@ -117,6 +124,10 @@ export class VoxelRenderer {
     remove(this.toxicFishGroups);
     this.toxicFishTailPivots.length = 0;
     this._toxicFlipAngles.length = 0;
+    remove(this.armoredFishGroups);
+    this.armoredFishTailPivots.length = 0;
+    this._armoredFlipAngles.length = 0;
+    remove(this.spittingCoralGroups);
     // Pearls
     for (const p of this.pearlMeshes) {
       this.scene.remove(p.mesh);
@@ -142,6 +153,15 @@ export class VoxelRenderer {
     // Crates
     for (const c of this.crateMeshes) this.scene.remove(c.mesh);
     this.crateMeshes.length = 0;
+    // Breakable walls
+    for (const w of this.breakableWallMeshes) this.scene.remove(w.mesh);
+    this.breakableWallMeshes.length = 0;
+    // Switches
+    for (const s of this.switchMeshes) this.scene.remove(s.mesh);
+    this.switchMeshes.length = 0;
+    // Gates
+    for (const g of this.gateMeshes) this.scene.remove(g.mesh);
+    this.gateMeshes.length = 0;
   }
 
   // ── Generate procedural Minecraft-style texture for a tile type ──
@@ -387,6 +407,58 @@ export class VoxelRenderer {
       ctx.fillRect(0, 0, size, px);
       ctx.fillRect(0, 0, px, size);
       ctx.fillStyle = 'rgba(10, 40, 15, 0.4)';
+      ctx.fillRect(0, size - px, size, px);
+      ctx.fillRect(size - px, 0, px, size);
+
+    } else if (type === 27) {
+      // ── Breakable Wall: cracked stone — stone base with prominent crack lines ──
+      ctx.fillStyle = '#7a7a8a';
+      ctx.fillRect(0, 0, size, size);
+
+      // Random stone pixel patches (similar to stone but slightly darker)
+      for (let py = 0; py < 16; py++) {
+        for (let px2 = 0; px2 < 16; px2++) {
+          const r = rng(py * 16 + px2);
+          const brightness = 85 + r * 70; // 85-155 range (slightly darker than stone)
+          const blueShift = 3 + r * 8;
+          ctx.fillStyle = `rgb(${brightness}, ${brightness}, ${brightness + blueShift})`;
+          ctx.fillRect(px2 * px, py * px, px, px);
+        }
+      }
+
+      // Prominent crack lines (thicker and darker than stone's subtle cracks)
+      ctx.strokeStyle = 'rgba(20, 20, 30, 0.9)';
+      ctx.lineWidth = 2;
+      // Main diagonal crack from top-left area to bottom-right
+      ctx.beginPath();
+      ctx.moveTo(rng(700) * size * 0.3, rng(701) * size * 0.2);
+      ctx.lineTo(size * 0.4 + rng(702) * size * 0.2, size * 0.5 + rng(703) * size * 0.1);
+      ctx.lineTo(size * 0.7 + rng(704) * size * 0.2, size * 0.85 + rng(705) * size * 0.1);
+      ctx.stroke();
+      // Secondary crack branching off
+      ctx.beginPath();
+      ctx.moveTo(size * 0.4 + rng(706) * size * 0.1, size * 0.5 + rng(707) * size * 0.1);
+      ctx.lineTo(size * 0.8 + rng(708) * size * 0.15, size * 0.3 + rng(709) * size * 0.2);
+      ctx.stroke();
+      // Small crack from bottom
+      ctx.beginPath();
+      ctx.moveTo(size * 0.15 + rng(710) * size * 0.2, size * 0.9);
+      ctx.lineTo(size * 0.3 + rng(711) * size * 0.15, size * 0.65 + rng(712) * size * 0.1);
+      ctx.stroke();
+
+      // Crack fill pixels along fractures (lighter — exposed interior)
+      for (let i = 0; i < 10; i++) {
+        const gx = Math.floor(rng(i + 720) * 16) * px;
+        const gy = Math.floor(rng(i + 730) * 16) * px;
+        ctx.fillStyle = 'rgba(40, 40, 55, 0.8)';
+        ctx.fillRect(gx, gy, px, px);
+      }
+
+      // Block edge highlight (dimmer than regular stone)
+      ctx.fillStyle = 'rgba(140, 140, 160, 0.25)';
+      ctx.fillRect(0, 0, size, px);
+      ctx.fillRect(0, 0, px, size);
+      ctx.fillStyle = 'rgba(25, 25, 40, 0.5)';
       ctx.fillRect(0, size - px, size, px);
       ctx.fillRect(size - px, 0, px, size);
     }
@@ -1403,13 +1475,209 @@ export class VoxelRenderer {
     return wrapper;
   }
 
+  // ── Build armored fish enemy (dark metallic, thicker body, smaller fins) ──
+  buildArmoredFish() {
+    const THREE = this.THREE;
+    const group = new THREE.Group();
+    const V = 2;
+
+    const addVoxel = (x, y, z, color) => {
+      const geo = new THREE.BoxGeometry(V, V, V);
+      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.5 });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(x * V, y * V, z * V);
+      return mesh;
+    };
+
+    const ARMOR = 0x556677;
+    const ARMOR_DARK = 0x3a4a5a;
+    const ARMOR_LIGHT = 0x6a7a8a;
+    const BELLY = 0x778888;
+    const BELLY_LIGHT = 0x8a9a9a;
+    const FIN = 0x445566;
+    const FIN_DARK = 0x334455;
+    const EYE_WHITE = 0xccdddd;
+    const EYE_DARK = 0x881111;
+
+    const row = (xs, y, z, color) => {
+      for (const x of xs) group.add(addVoxel(x, y, z, color));
+    };
+
+    // Thicker body slices (wider than piranha)
+    const sliceOuter = (z) => {
+      row([3, 4, 5, 6, 7], 3, z, ARMOR);
+      row([3, 4, 5, 6, 7], 2, z, ARMOR_LIGHT);
+      row([4, 5, 6], 1, z, ARMOR_LIGHT);
+      row([4, 5, 6], 0, z, BELLY);
+      row([4, 5], -1, z, BELLY);
+    };
+
+    const sliceMid = (z) => {
+      row([2, 3, 4, 5, 6, 7, 8], 4, z, ARMOR);
+      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 3, z, ARMOR);
+      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 2, z, ARMOR_LIGHT);
+      row([2, 3, 4, 5, 6, 7, 8, 9], 1, z, ARMOR_LIGHT);
+      row([2, 3, 4, 5, 6, 7, 8], 0, z, BELLY);
+      row([3, 4, 5, 6, 7], -1, z, BELLY);
+      row([4, 5, 6], -2, z, BELLY_LIGHT);
+    };
+
+    const sliceCenter = (z) => {
+      row([3, 4, 5, 6, 7], 5, z, ARMOR_DARK);
+      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 4, z, ARMOR);
+      row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 3, z, ARMOR);
+      row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 2, z, ARMOR_LIGHT);
+      row([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 1, z, ARMOR_LIGHT);
+      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 0, z, BELLY);
+      row([2, 3, 4, 5, 6, 7, 8], -1, z, BELLY);
+      row([3, 4, 5, 6, 7], -2, z, BELLY_LIGHT);
+    };
+
+    // Build body — 6 slices deep for thicker profile
+    sliceOuter(-1); sliceOuter(6);
+    sliceMid(0); sliceMid(5);
+    sliceCenter(1); sliceCenter(2); sliceCenter(3); sliceCenter(4);
+
+    // Armored scale plates (darker patches on top)
+    for (const z of [0, 1, 2, 3, 4, 5]) {
+      row([3, 5, 7, 9], 4, z, ARMOR_DARK);
+      row([2, 4, 6, 8], 3, z, ARMOR_DARK);
+    }
+
+    // Small eyes (menacing, set deeper)
+    group.add(addVoxel(9, 3, -0.5, EYE_WHITE));
+    group.add(addVoxel(9, 2, -0.5, EYE_DARK));
+    group.add(addVoxel(9, 3, 5.5, EYE_WHITE));
+    group.add(addVoxel(9, 2, 5.5, EYE_DARK));
+
+    // Small dorsal fin (shorter than piranha — armored fish has compact build)
+    for (const x of [4, 5, 6]) {
+      for (const z of [2, 3]) {
+        group.add(addVoxel(x, 6, z, FIN));
+      }
+    }
+
+    // Tail (compact)
+    const tailPivot = new THREE.Group();
+    tailPivot.position.set(0, V * 1.5, V * 2.5);
+    const tailVoxels = [
+      [-1, 2, 0], [-1, 1, 0], [-1, 0, 0], [-1, -1, 0],
+      [-1, 2, 1], [-1, 1, 1], [-1, 0, 1], [-1, -1, 1],
+      [-2, 3, 0], [-2, 2, 0], [-2, 1, 0], [-2, 0, 0], [-2, -1, 0], [-2, -2, 0],
+      [-2, 3, 1], [-2, 2, 1], [-2, 1, 1], [-2, 0, 1], [-2, -1, 1], [-2, -2, 1],
+      [-3, 3, 0], [-3, -2, 0],
+      [-3, 3, 1], [-3, -2, 1],
+    ];
+    for (const [x, y, z] of tailVoxels) tailPivot.add(addVoxel(x, y, z, FIN_DARK));
+    group.add(tailPivot);
+
+    group.position.set(-5 * V, -1.5 * V, -2.5 * V);
+    group.scale.set(1.2, 1.2, 1.2);
+
+    const wrapper = new this.THREE.Group();
+    wrapper.add(group);
+    this.scene.add(wrapper);
+    this.armoredFishGroups.push(wrapper);
+    this.armoredFishTailPivots.push(tailPivot);
+    return wrapper;
+  }
+
+  // ── Build spitting coral (ground-fixed polyp enemy) ──
+  buildSpittingCoral() {
+    const THREE = this.THREE;
+    const group = new THREE.Group();
+    const V = 2;
+
+    const addVoxel = (x, y, z, color) => {
+      const geo = new THREE.BoxGeometry(V, V, V);
+      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.7, metalness: 0.1 });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(x * V, y * V, z * V);
+      return mesh;
+    };
+
+    const BASE = 0x554433;
+    const BASE_DARK = 0x443322;
+    const TUBE = 0x884466;
+    const TUBE_DARK = 0x663355;
+    const TUBE_LIGHT = 0xaa5577;
+    const TIP = 0xdd77aa;
+    const TIP_GLOW = 0xff99cc;
+    const SPOT = 0x55aa66;
+
+    const row = (xs, y, z, color) => {
+      for (const x of xs) group.add(addVoxel(x, y, z, color));
+    };
+
+    // Rocky base (wide, flat)
+    for (const z of [0, 1, 2, 3, 4]) {
+      row([1, 2, 3, 4, 5, 6, 7, 8], 0, z, BASE);
+      row([2, 3, 4, 5, 6, 7], -1, z, BASE_DARK);
+    }
+
+    // Left tube (x=2-3, z=1-3)
+    for (const z of [1, 2, 3]) {
+      row([2, 3], 1, z, TUBE);
+      row([2, 3], 2, z, TUBE);
+      row([2, 3], 3, z, TUBE_LIGHT);
+      row([2, 3], 4, z, TIP);
+    }
+    // Left tube tip
+    for (const z of [1, 2, 3]) {
+      row([2, 3], 5, z, TIP_GLOW);
+    }
+
+    // Center tube (x=4-5, z=1-3) — tallest
+    for (const z of [1, 2, 3]) {
+      row([4, 5], 1, z, TUBE);
+      row([4, 5], 2, z, TUBE);
+      row([4, 5], 3, z, TUBE_DARK);
+      row([4, 5], 4, z, TUBE);
+      row([4, 5], 5, z, TUBE_LIGHT);
+      row([4, 5], 6, z, TIP);
+    }
+    // Center tube tip (the "mouth")
+    for (const z of [1, 2, 3]) {
+      row([4, 5], 7, z, TIP_GLOW);
+    }
+
+    // Right tube (x=6-7, z=1-3)
+    for (const z of [1, 2, 3]) {
+      row([6, 7], 1, z, TUBE);
+      row([6, 7], 2, z, TUBE);
+      row([6, 7], 3, z, TUBE_LIGHT);
+      row([6, 7], 4, z, TIP);
+    }
+    // Right tube tip
+    for (const z of [1, 2, 3]) {
+      row([6, 7], 5, z, TIP_GLOW);
+    }
+
+    // Green toxic spots on tubes
+    for (const z of [2]) {
+      group.add(addVoxel(3, 2, z, SPOT));
+      group.add(addVoxel(5, 3, z, SPOT));
+      group.add(addVoxel(7, 2, z, SPOT));
+    }
+
+    group.position.set(-4.5 * V, -1 * V, -2 * V);
+
+    const wrapper = new this.THREE.Group();
+    wrapper.add(group);
+    this.scene.add(wrapper);
+    this.spittingCoralGroups.push(wrapper);
+    return wrapper;
+  }
+
   // ── Build poison projectile mesh ──
-  buildProjectile(body) {
+  buildProjectile(body, isCoral = false) {
     const THREE = this.THREE;
     const geo = new THREE.BoxGeometry(6, 6, 6);
+    const color = isCoral ? 0xcc44ff : 0x88ff00;
+    const emissive = isCoral ? 0x8822cc : 0x44cc00;
     const mat = new THREE.MeshStandardMaterial({
-      color: 0x88ff00,
-      emissive: 0x44cc00,
+      color,
+      emissive,
       emissiveIntensity: 0.6,
       roughness: 0.4,
       metalness: 0.0,
@@ -1537,6 +1805,8 @@ export class VoxelRenderer {
     for (const g of this.pufferfishGroups) g.visible = true;
     for (const g of this.crabGroups) g.visible = true;
     for (const g of this.toxicFishGroups) g.visible = true;
+    for (const g of this.armoredFishGroups) g.visible = true;
+    for (const g of this.spittingCoralGroups) g.visible = true;
   }
 
   // ── Build boulder meshes ──
@@ -1655,6 +1925,182 @@ export class VoxelRenderer {
       group.position.set(body.position.x, -body.position.y, 0);
       this.scene.add(group);
       this.crateMeshes.push({ mesh: group, body });
+    }
+  }
+
+  // ── Build breakable wall meshes (cracked stone blocks) ──
+  buildBreakableWalls(breakableWallBodies) {
+    for (const w of this.breakableWallMeshes) this.scene.remove(w.mesh);
+    this.breakableWallMeshes.length = 0;
+
+    const THREE = this.THREE;
+    const V = 3; // voxel size
+
+    for (const body of breakableWallBodies) {
+      const group = new THREE.Group();
+
+      const addVoxel = (x, y, z, color) => {
+        const geo = new THREE.BoxGeometry(V, V, V);
+        const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.95, metalness: 0.0 });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(x * V, y * V, z * V);
+        group.add(mesh);
+      };
+
+      const STONE_BASE = 0x8a8a9a;
+      const STONE_DARK = 0x6a6a7a;
+      const CRACK_COLOR = 0x3a3a4a;
+      const STONE_LIGHT = 0x9a9aaa;
+
+      // Seed for variation
+      const seed = body.position.x * 7 + body.position.y * 13;
+      const rng = (i) => {
+        const x = Math.sin(seed + i * 9871) * 43758.5453;
+        return x - Math.floor(x);
+      };
+
+      // Block shape: 5×5×3 voxels (fills ~32px tile)
+      let idx = 0;
+      for (let y = -2; y <= 2; y++) {
+        for (let x = -5; x <= 5; x++) {
+          for (let z = -2; z <= 2; z++) {
+            // Shell only
+            const isEdgeX = x === -5 || x === 5;
+            const isEdgeY = y === -2 || y === 2;
+            const isEdgeZ = z === -2 || z === 2;
+            if (!isEdgeX && !isEdgeY && !isEdgeZ) continue;
+
+            const rv = rng(idx++);
+            let color;
+            // Crack lines: vertical and diagonal patterns
+            const isCrack = (x === 0 && z === 0) ||
+              (x === -2 && y === 1) ||
+              (x === 2 && y === -1) ||
+              (isEdgeX && isEdgeZ);
+            if (isCrack) {
+              color = CRACK_COLOR;
+            } else {
+              color = rv < 0.3 ? STONE_DARK : rv < 0.8 ? STONE_BASE : STONE_LIGHT;
+            }
+            addVoxel(x, y, z, color);
+          }
+        }
+      }
+
+      group.position.set(body.position.x, -body.position.y, 0);
+      this.scene.add(group);
+      this.breakableWallMeshes.push({ mesh: group, body });
+    }
+  }
+
+  // ── Build switch meshes (flat glowing pads) ──
+  buildSwitches(switchBodies) {
+    for (const s of this.switchMeshes) this.scene.remove(s.mesh);
+    this.switchMeshes.length = 0;
+
+    const THREE = this.THREE;
+    const V = 3;
+
+    const COLORS = {
+      toggle:   { base: 0x22aa44, glow: 0x44ff66, dark: 0x116622 },  // green
+      pressure: { base: 0x3366cc, glow: 0x5588ff, dark: 0x224488 },  // blue
+      timed:    { base: 0xcc8822, glow: 0xffaa44, dark: 0x885511 },  // orange
+    };
+
+    for (const sw of switchBodies) {
+      const group = new THREE.Group();
+      const c = COLORS[sw.type] || COLORS.toggle;
+
+      // Base platform: 8×2×6 voxels (flat pad)
+      for (let x = -4; x <= 3; x++) {
+        for (let z = -3; z <= 2; z++) {
+          const isEdge = x === -4 || x === 3 || z === -3 || z === 2;
+          const geo = new THREE.BoxGeometry(V, V * 0.5, V);
+          const mat = new THREE.MeshStandardMaterial({
+            color: isEdge ? c.dark : c.base,
+            roughness: 0.5, metalness: 0.3,
+          });
+          const m = new THREE.Mesh(geo, mat);
+          m.position.set(x * V, -V * 0.25, z * V);
+          group.add(m);
+        }
+      }
+
+      // Glowing center button (raised pad)
+      const padGeo = new THREE.BoxGeometry(V * 4, V * 0.8, V * 3);
+      const padMat = new THREE.MeshStandardMaterial({
+        color: c.glow, roughness: 0.2, metalness: 0.5,
+        emissive: c.glow, emissiveIntensity: 0.3,
+      });
+      const padMesh = new THREE.Mesh(padGeo, padMat);
+      padMesh.position.set(-V * 0.5, V * 0.2, -V * 0.5);
+      group.add(padMesh);
+
+      group.position.set(sw.body.position.x, -sw.body.position.y, 0);
+      this.scene.add(group);
+      this.switchMeshes.push({ mesh: group, body: sw.body, type: sw.type, padMesh, switchRef: sw });
+    }
+  }
+
+  // ── Build gate meshes (2-tile-tall metal grate, pivots at top) ──
+  buildGates(gateBodies) {
+    for (const g of this.gateMeshes) this.scene.remove(g.mesh);
+    this.gateMeshes.length = 0;
+
+    const THREE = this.THREE;
+    const V = 3;
+    const GATE_H = 64; // 2 tiles in px
+    const BAR_COLOR = 0x888899;
+    const BAR_DARK = 0x555566;
+    const FRAME_COLOR = 0x666677;
+
+    for (const gate of gateBodies) {
+      // Outer group positioned at the gate body center
+      const outerGroup = new THREE.Group();
+      // Pivot group: rotation pivot at top edge of the gate
+      const pivotGroup = new THREE.Group();
+      // Shift pivot up by half gate height so rotation is around the top
+      pivotGroup.position.y = GATE_H / 2;
+
+      // Gate mesh group (bars hang down from the pivot)
+      const gateGroup = new THREE.Group();
+      gateGroup.position.y = -GATE_H / 2; // offset down from pivot
+
+      // Horizontal frame bars (top and bottom)
+      for (const yOff of [GATE_H / 2 - V, -GATE_H / 2 + V]) {
+        const geo = new THREE.BoxGeometry(V * 3, V, V * 3);
+        const mat = new THREE.MeshStandardMaterial({ color: FRAME_COLOR, roughness: 0.4, metalness: 0.7 });
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set(0, yOff, 0);
+        gateGroup.add(m);
+      }
+
+      // Vertical bars
+      const barSpacing = V * 2.5;
+      for (let i = -1; i <= 1; i++) {
+        const geo = new THREE.BoxGeometry(V * 0.5, GATE_H - V * 2, V * 0.5);
+        const mat = new THREE.MeshStandardMaterial({
+          color: i === 0 ? BAR_COLOR : BAR_DARK,
+          roughness: 0.3, metalness: 0.8,
+        });
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set(i * barSpacing, 0, 0);
+        gateGroup.add(m);
+      }
+
+      // Cross bar in the middle
+      const crossGeo = new THREE.BoxGeometry(V * 3, V * 0.5, V * 0.5);
+      const crossMat = new THREE.MeshStandardMaterial({ color: BAR_DARK, roughness: 0.4, metalness: 0.7 });
+      const crossMesh = new THREE.Mesh(crossGeo, crossMat);
+      crossMesh.position.set(0, 0, 0);
+      gateGroup.add(crossMesh);
+
+      pivotGroup.add(gateGroup);
+      outerGroup.add(pivotGroup);
+
+      outerGroup.position.set(gate.body.position.x, -gate.body.position.y, 0);
+      this.scene.add(outerGroup);
+      this.gateMeshes.push({ mesh: outerGroup, body: gate.body, pivotGroup, gateRef: gate });
     }
   }
 
@@ -2688,6 +3134,45 @@ export class VoxelRenderer {
     }
   }
 
+  // ── Spawn breakable wall debris (rock fragments) ──
+  spawnBreakableWallDebris(x, y) {
+    const THREE = this.THREE;
+    const colors = [0x7a7a8a, 0x6a6a7a, 0x8a8a9a, 0x5a5a6a, 0x4a4a5a];
+    const count = 24;
+
+    for (let i = 0; i < count; i++) {
+      // Jagged rock fragments (cubic)
+      const size = 2 + Math.random() * 6;
+      const geo = new THREE.BoxGeometry(size, size, size);
+      const mat = new THREE.MeshStandardMaterial({
+        color: colors[Math.floor(Math.random() * colors.length)],
+        roughness: 0.95,
+        metalness: 0.0,
+        transparent: true,
+        opacity: 0.9,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(
+        x + (Math.random() - 0.5) * 28,
+        -y + (Math.random() - 0.5) * 28,
+        (Math.random() - 0.5) * 24
+      );
+      mesh.rotation.set(
+        Math.random() * Math.PI,
+        Math.random() * Math.PI,
+        Math.random() * Math.PI
+      );
+      this.scene.add(mesh);
+      this.bubbles.push({
+        mesh,
+        vy: (Math.random() - 0.4) * 100,
+        vx: (Math.random() - 0.5) * 150,
+        life: 0.9 + Math.random() * 0.9,
+        _isRock: true,
+      });
+    }
+  }
+
   // ── Spawn chest open particles (colored sparkles + wood splinters) ──
   spawnChestOpen(x, y, colorIndex) {
     const THREE = this.THREE;
@@ -2883,6 +3368,15 @@ export class VoxelRenderer {
       c.mesh.rotation.z = -c.body.rotation;
     }
 
+    // ── Sync breakable walls (remove destroyed) ──
+    for (let i = this.breakableWallMeshes.length - 1; i >= 0; i--) {
+      const w = this.breakableWallMeshes[i];
+      if (!w.body.space) {
+        this.scene.remove(w.mesh);
+        this.breakableWallMeshes.splice(i, 1);
+      }
+    }
+
     // ── Sync keys (position + rotation, remove destroyed) ──
     for (let i = this.keyMeshes.length - 1; i >= 0; i--) {
       const k = this.keyMeshes[i];
@@ -2902,7 +3396,7 @@ export class VoxelRenderer {
     }
 
     // ── Sync sharks ──
-    const { sharkBodies, pufferfishBodies, crabBodies, toxicFishBodies, projectileBodies } = extras;
+    const { sharkBodies, pufferfishBodies, crabBodies, toxicFishBodies, projectileBodies, armoredFishBodies, spittingCoralBodies, switchBodies: _swB, gateBodies: _gtB } = extras;
     if (sharkBodies) {
       for (let i = 0; i < sharkBodies.length && i < this.sharkGroups.length; i++) {
         const sb = sharkBodies[i];
@@ -2987,6 +3481,66 @@ export class VoxelRenderer {
           const amp = 0.25 + Math.min(speed / 300, 0.35);
           this.toxicFishTailPivots[i].rotation.y = Math.sin(this._time * freq + i * 2) * amp;
         }
+      }
+    }
+
+    // ── Sync armored fish ──
+    if (armoredFishBodies) {
+      for (let i = 0; i < armoredFishBodies.length && i < this.armoredFishGroups.length; i++) {
+        const af = armoredFishBodies[i];
+        const ag = this.armoredFishGroups[i];
+        if (!af.space) { ag.visible = false; continue; }
+        ag.position.set(af.position.x, -af.position.y, 0);
+        ag.rotation.z = -af.rotation;
+        if (this._armoredFlipAngles[i] === undefined) this._armoredFlipAngles[i] = 0;
+        let targetFlip = this._armoredFlipAngles[i];
+        const vx = af.velocity.x;
+        const vy = af.velocity.y;
+        // Flip based on primary movement direction
+        if (Math.abs(vx) > 1 || Math.abs(vy) > 1) {
+          targetFlip = vx < -1 ? Math.PI : vx > 1 ? 0 : targetFlip;
+        }
+        this._armoredFlipAngles[i] += (targetFlip - this._armoredFlipAngles[i]) * 0.12;
+        ag.rotation.y = this._armoredFlipAngles[i];
+        // Tail animation (slower wag for heavy armored fish)
+        if (this.armoredFishTailPivots[i]) {
+          const speed = Math.sqrt(vx * vx + vy * vy);
+          const freq = 4 + speed * 0.03;
+          const amp = 0.2 + Math.min(speed / 300, 0.25);
+          this.armoredFishTailPivots[i].rotation.y = Math.sin(this._time * freq + i * 2) * amp;
+        }
+      }
+    }
+
+    // ── Sync spitting coral (static, hide dead) ──
+    if (spittingCoralBodies) {
+      for (let i = 0; i < spittingCoralBodies.length && i < this.spittingCoralGroups.length; i++) {
+        const sc = spittingCoralBodies[i];
+        const sg = this.spittingCoralGroups[i];
+        if (!sc.space) { sg.visible = false; continue; }
+        sg.position.set(sc.position.x, -sc.position.y, 0);
+      }
+    }
+
+    // ── Sync switches (active glow animation) ──
+    if (_swB) {
+      for (const sm of this.switchMeshes) {
+        const sw = sm.switchRef;
+        if (!sw) continue;
+        // Animate pad: pressed down when active, glow brighter
+        const targetY = sw.active ? -1.5 : 0.6;
+        sm.padMesh.position.y += (targetY - sm.padMesh.position.y) * 0.15;
+        sm.padMesh.material.emissiveIntensity = sw.active ? 0.8 + Math.sin(this._time * 6) * 0.2 : 0.3;
+      }
+    }
+
+    // ── Sync gates (swing rotation animation) ──
+    if (_gtB) {
+      for (const gm of this.gateMeshes) {
+        const gate = gm.gateRef;
+        if (!gate) continue;
+        // Rotate pivotGroup around X axis (swing open into the background)
+        gm.pivotGroup.rotation.x = gate.angle;
       }
     }
 

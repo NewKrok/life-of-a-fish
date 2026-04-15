@@ -25,11 +25,18 @@ const PALETTE = [
   { id: 10, char: 'R', label: 'Boulder',     color: '#888',    category: 'items',   previewKey: 'boulder' },
   { id: 11, char: 'T', label: 'Raft',        color: '#8b5a2b', category: 'items',   previewKey: 'raft' },
   { id: 26, char: 'W', label: 'Crate',       color: '#8B6914', category: 'items',   previewKey: 'crate' },
+  { id: 27, char: 'K', label: 'Breakable Wall', color: '#7a7a8a', category: 'terrain', previewKey: 'breakableWall' },
   { id: 6,  char: 'e', label: 'Piranha',     color: '#ff6060', category: 'enemies', previewKey: 'piranha' },
+  { id: 28, char: 'A', label: 'Armored Fish', color: '#6a7a8a', category: 'enemies', previewKey: 'armoredFish' },
   { id: 12, char: 'S', label: 'Shark',       color: '#6080c0', category: 'enemies', previewKey: 'shark' },
   { id: 13, char: 'U', label: 'Pufferfish',  color: '#c0a060', category: 'enemies', previewKey: 'pufferfish' },
   { id: 14, char: 'C', label: 'Crab',        color: '#d04020', category: 'enemies', previewKey: 'crab' },
   { id: 15, char: 'F', label: 'Toxic Fish',  color: '#50c050', category: 'enemies', previewKey: 'toxicFish' },
+  { id: 29, char: 'P', label: 'Spit Coral', color: '#cc6688', category: 'enemies', previewKey: 'spittingCoral' },
+  { id: 30, char: 'V', label: 'Sw Toggle',  color: '#22aa44', category: 'items',   previewKey: 'switchToggle' },
+  { id: 31, char: 'N', label: 'Sw Pressure', color: '#3366cc', category: 'items',  previewKey: 'switchPressure' },
+  { id: 32, char: 'O', label: 'Sw Timed',   color: '#cc8822', category: 'items',   previewKey: 'switchTimed' },
+  { id: 33, char: 'G', label: 'Gate',        color: '#888899', category: 'items',   previewKey: 'gate' },
   { id: 16, char: '1', label: 'Key Red',     color: '#ff4444', category: 'keys',    previewKey: 'keyRed' },
   { id: 17, char: '2', label: 'Key Blue',    color: '#4488ff', category: 'keys',    previewKey: 'keyBlue' },
   { id: 18, char: '3', label: 'Key Green',   color: '#44cc44', category: 'keys',    previewKey: 'keyGreen' },
@@ -57,15 +64,16 @@ const ID_TO_CHAR = {};
 for (const p of PALETTE) ID_TO_CHAR[p.id] = p.char;
 
 // Entity tile IDs (non-terrain — stored as entity positions)
-const ENTITY_IDS = new Set([5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26]);
+const ENTITY_IDS = new Set([5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29]);
 
 // Enemies with patrol ranges
 const PATROL_DEFAULTS = {
-  6:  { axis: 'x', range: 80 },   // piranha
-  12: { axis: 'x', range: 100 },  // shark
-  13: { axis: 'y', range: 60 },   // pufferfish
-  14: { axis: 'x', range: 50 },   // crab
-  15: { axis: 'x', range: 60 },   // toxic fish
+  6:  { type: 'point', range: 80 },   // piranha (point-to-point, supports diagonal)
+  12: { axis: 'x', range: 100 },      // shark
+  13: { axis: 'y', range: 60 },       // pufferfish
+  14: { axis: 'x', range: 50 },       // crab
+  15: { axis: 'x', range: 60 },       // toxic fish
+  28: { type: 'point', range: 70 },   // armored fish (point-to-point, supports diagonal)
 };
 
 // ── Camera scroll speed ──
@@ -266,7 +274,12 @@ export class LevelEditor {
           const entry = { x: e.x, y: e.y, tileId };
           const pDef = PATROL_DEFAULTS[tileId];
           if (pDef) {
-            if (pDef.axis === 'x') {
+            if (pDef.type === 'point') {
+              entry.patrol = {
+                x1: snapCenter(e.x - pDef.range), y1: e.y,
+                x2: snapCenter(e.x + pDef.range), y2: e.y,
+              };
+            } else if (pDef.axis === 'x') {
               entry.patrol = { axis: 'x', min: snapCenter(e.x - pDef.range), max: snapCenter(e.x + pDef.range) };
             } else {
               entry.patrol = { axis: 'y', min: snapCenter(e.y - pDef.range), max: snapCenter(e.y + pDef.range) };
@@ -285,6 +298,12 @@ export class LevelEditor {
       if (knownEntities.pufferfish) addGroup(knownEntities.pufferfish, 13);
       if (knownEntities.crabs) addGroup(knownEntities.crabs, 14);
       if (knownEntities.toxicFish) addGroup(knownEntities.toxicFish, 15);
+      if (knownEntities.armoredFish) addGroup(knownEntities.armoredFish, 28);
+      if (knownEntities.spittingCoral) addGroup(knownEntities.spittingCoral, 29);
+      if (knownEntities.toggleSwitches) addGroup(knownEntities.toggleSwitches, 30);
+      if (knownEntities.pressureSwitches) addGroup(knownEntities.pressureSwitches, 31);
+      if (knownEntities.timedSwitches) addGroup(knownEntities.timedSwitches, 32);
+      if (knownEntities.gates) addGroup(knownEntities.gates, 33);
       if (knownEntities.crates) addGroup(knownEntities.crates, 26);
       if (knownEntities.keys) {
         for (const k of knownEntities.keys) list.push({ x: k.x, y: k.y, tileId: 16 + k.colorIndex });
@@ -356,8 +375,13 @@ export class LevelEditor {
         if (ent.patrol) {
           const dx = newX - ent.x;
           const dy = newY - ent.y;
-          ent.patrol.min += ent.patrol.axis === 'x' ? dx : dy;
-          ent.patrol.max += ent.patrol.axis === 'x' ? dx : dy;
+          if (ent.patrol.x1 !== undefined) {
+            ent.patrol.x1 += dx; ent.patrol.y1 += dy;
+            ent.patrol.x2 += dx; ent.patrol.y2 += dy;
+          } else {
+            ent.patrol.min += ent.patrol.axis === 'x' ? dx : dy;
+            ent.patrol.max += ent.patrol.axis === 'x' ? dx : dy;
+          }
         }
         ent.x = newX;
         ent.y = newY;
@@ -385,7 +409,7 @@ export class LevelEditor {
       this._placeTileAtMouse(getVisibleSize);
     }
 
-    // Drag patrol handle (snapped to tile edges)
+    // Drag patrol handle (snapped to tile centers)
     if (this._draggingPatrol && this._mouseDown) {
       const ent = this.entities[this._draggingPatrol.entityIdx];
       if (ent && ent.patrol) {
@@ -395,7 +419,16 @@ export class LevelEditor {
         // Snap to nearest tile center
         const snapX = Math.floor(rawX / TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
         const snapY = Math.floor(rawY / TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
-        if (ent.patrol.axis === 'x') {
+        if (ent.patrol.x1 !== undefined) {
+          // Point-to-point patrol — free drag both axes
+          if (this._draggingPatrol.handle === 'min') {
+            ent.patrol.x1 = snapX;
+            ent.patrol.y1 = snapY;
+          } else {
+            ent.patrol.x2 = snapX;
+            ent.patrol.y2 = snapY;
+          }
+        } else if (ent.patrol.axis === 'x') {
           if (this._draggingPatrol.handle === 'min') {
             ent.patrol.min = Math.min(snapX, ent.x - TILE_SIZE);
           } else {
@@ -539,7 +572,15 @@ export class LevelEditor {
         ctx.lineWidth = 1.5 / sx;
         ctx.setLineDash([4 / sx, 4 / sx]);
 
-        if (ent.patrol.axis === 'x') {
+        if (ent.patrol.x1 !== undefined) {
+          // Point-to-point patrol (piranha, armored fish)
+          ctx.beginPath();
+          ctx.moveTo(ent.patrol.x1, ent.patrol.y1);
+          ctx.lineTo(ent.patrol.x2, ent.patrol.y2);
+          ctx.stroke();
+          this._drawPatrolHandle(ctx, ent.patrol.x1, ent.patrol.y1, pColor, sx);
+          this._drawPatrolHandle(ctx, ent.patrol.x2, ent.patrol.y2, pColor, sx);
+        } else if (ent.patrol.axis === 'x') {
           ctx.beginPath();
           ctx.moveTo(ent.patrol.min, ent.y);
           ctx.lineTo(ent.patrol.max, ent.y);
@@ -893,7 +934,12 @@ export class LevelEditor {
       if (pDef) {
         // Snap patrol endpoints to tile centers
         const snapCenter = (v) => Math.floor(v / TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
-        if (pDef.axis === 'x') {
+        if (pDef.type === 'point') {
+          entry.patrol = {
+            x1: snapCenter(cx - pDef.range), y1: cy,
+            x2: snapCenter(cx + pDef.range), y2: cy,
+          };
+        } else if (pDef.axis === 'x') {
           entry.patrol = { axis: 'x', min: snapCenter(cx - pDef.range), max: snapCenter(cx + pDef.range) };
         } else {
           entry.patrol = { axis: 'y', min: snapCenter(cy - pDef.range), max: snapCenter(cy + pDef.range) };
@@ -981,7 +1027,15 @@ export class LevelEditor {
     for (let i = 0; i < this.entities.length; i++) {
       const ent = this.entities[i];
       if (!ent.patrol) continue;
-      if (ent.patrol.axis === 'x') {
+      if (ent.patrol.x1 !== undefined) {
+        // Point-to-point patrol
+        if (Math.abs(wx - ent.patrol.x1) < threshold && Math.abs(wy - ent.patrol.y1) < threshold) {
+          return { entityIdx: i, handle: 'min' };
+        }
+        if (Math.abs(wx - ent.patrol.x2) < threshold && Math.abs(wy - ent.patrol.y2) < threshold) {
+          return { entityIdx: i, handle: 'max' };
+        }
+      } else if (ent.patrol.axis === 'x') {
         if (Math.abs(wx - ent.patrol.min) < threshold && Math.abs(wy - ent.y) < threshold) {
           return { entityIdx: i, handle: 'min' };
         }
@@ -1059,7 +1113,9 @@ export class LevelEditor {
       for (const p of patrols) {
         const pal = PALETTE.find(pl => pl.id === p.tileId);
         const name = pal ? pal.label : 'unknown';
-        if (p.patrol.axis === 'x') {
+        if (p.patrol.x1 !== undefined) {
+          output += `// ${name} at (${Math.round(p.x)}, ${Math.round(p.y)}): patrol (${Math.round(p.patrol.x1)},${Math.round(p.patrol.y1)}) → (${Math.round(p.patrol.x2)},${Math.round(p.patrol.y2)})\n`;
+        } else if (p.patrol.axis === 'x') {
           const range = Math.round((p.patrol.max - p.patrol.min) / 2);
           output += `// ${name} at (${Math.round(p.x)}, ${Math.round(p.y)}): patrol range ±${range}px\n`;
         } else {
@@ -1603,6 +1659,34 @@ export class LevelEditor {
           if (entry) { tempScene.remove(entry.mesh); result = entry.mesh; }
           break;
         }
+        case 28: // Armored Fish
+          result = vr.buildArmoredFish();
+          tempScene.remove(result);
+          if (vr.armoredFishGroups) vr.armoredFishGroups.pop();
+          if (vr.armoredFishTailPivots) vr.armoredFishTailPivots.pop();
+          break;
+        case 29: // Spitting Coral
+          result = vr.buildSpittingCoral();
+          tempScene.remove(result);
+          if (vr.spittingCoralGroups) vr.spittingCoralGroups.pop();
+          break;
+        case 30: case 31: case 32: { // Switches
+          const swType = tileId === 30 ? 'toggle' : tileId === 31 ? 'pressure' : 'timed';
+          const fakeBody = { position: { x: 0, y: 0 } };
+          const fakeSw = { body: fakeBody, type: swType, group: 0, active: false, timer: 0 };
+          vr.buildSwitches([fakeSw]);
+          const entry = vr.switchMeshes.pop();
+          if (entry) { tempScene.remove(entry.mesh); result = entry.mesh; }
+          break;
+        }
+        case 33: { // Gate
+          const fakeBody = { position: { x: 0, y: 0 } };
+          const fakeGate = { body: fakeBody, group: 0, open: false, angle: 0 };
+          vr.buildGates([fakeGate]);
+          const entry = vr.gateMeshes.pop();
+          if (entry) { tempScene.remove(entry.mesh); result = entry.mesh; }
+          break;
+        }
       }
     } finally {
       vr.scene = origScene;
@@ -1637,6 +1721,7 @@ export function generateEditorPreviews(THREE, VoxelRendererClass, existingCodexP
   if (!previews.coral) previews.coral = _renderBlockPreview(THREE, offRenderer, vr, 3);
   if (!previews.hazard) previews.hazard = _renderBlockPreview(THREE, offRenderer, vr, 4);
   if (!previews.seagrass) previews.seagrass = _renderBlockPreview(THREE, offRenderer, vr, 8);
+  if (!previews.breakableWall) previews.breakableWall = _renderBlockPreview(THREE, offRenderer, vr, 27);
 
   // Per-color key previews
   const colorNames = ['Red', 'Blue', 'Green', 'Yellow', 'Purple'];
@@ -1668,6 +1753,28 @@ export function generateEditorPreviews(THREE, VoxelRendererClass, existingCodexP
     }
   }
 
+  // Armored fish preview
+  if (!previews.armoredFish) {
+    vr.buildArmoredFish();
+    const entry = vr.armoredFishGroups.pop();
+    if (entry) {
+      tempScene.remove(entry);
+      entry.position.set(0, 0, 0);
+      previews.armoredFish = _renderGroupPreview(THREE, offRenderer, entry, 40);
+    }
+  }
+
+  // Spitting coral preview
+  if (!previews.spittingCoral) {
+    vr.buildSpittingCoral();
+    const entry = vr.spittingCoralGroups.pop();
+    if (entry) {
+      tempScene.remove(entry);
+      entry.position.set(0, 0, 0);
+      previews.spittingCoral = _renderGroupPreview(THREE, offRenderer, entry, 40);
+    }
+  }
+
   // Crate preview
   if (!previews.crate) {
     vr.buildCrates([{ position: { x: 0, y: 0 } }]);
@@ -1676,6 +1783,34 @@ export function generateEditorPreviews(THREE, VoxelRendererClass, existingCodexP
       tempScene.remove(entry.mesh);
       entry.mesh.position.set(0, 0, 0);
       previews.crate = _renderGroupPreview(THREE, offRenderer, entry.mesh, 30);
+    }
+  }
+
+  // Switch previews
+  for (const [type, key] of [['toggle', 'switchToggle'], ['pressure', 'switchPressure'], ['timed', 'switchTimed']]) {
+    if (!previews[key]) {
+      const fakeBody = { position: { x: 0, y: 0 } };
+      const fakeSw = { body: fakeBody, type, group: 0, active: false, timer: 0 };
+      vr.buildSwitches([fakeSw]);
+      const entry = vr.switchMeshes.pop();
+      if (entry) {
+        tempScene.remove(entry.mesh);
+        entry.mesh.position.set(0, 0, 0);
+        previews[key] = _renderGroupPreview(THREE, offRenderer, entry.mesh, 30);
+      }
+    }
+  }
+
+  // Gate preview
+  if (!previews.gate) {
+    const fakeBody = { position: { x: 0, y: 0 } };
+    const fakeGate = { body: fakeBody, group: 0, open: false, angle: 0 };
+    vr.buildGates([fakeGate]);
+    const entry = vr.gateMeshes.pop();
+    if (entry) {
+      tempScene.remove(entry.mesh);
+      entry.mesh.position.set(0, 0, 0);
+      previews.gate = _renderGroupPreview(THREE, offRenderer, entry.mesh, 50);
     }
   }
 

@@ -78,11 +78,13 @@ In-game editor activated with **F4**. Works in both menu and game states. Pauses
 - Terrain: solid bodies built via greedy rectangle merging from tile map
 - Water: `FluidProperties` zone with density & viscosity for buoyancy
 - Player: dynamic body with `CharacterController` for ground detection
-- Enemies: kinematic bodies — piranha (patrol, killable by dash), shark (patrol+chase), pufferfish (vertical), crab (ground push), toxic fish (ranged)
+- Enemies: kinematic bodies — piranha (patrol, killable by dash), shark (patrol+chase), pufferfish (vertical), crab (ground push), toxic fish (ranged), spitting coral (fixed, fan projectiles)
 - Pearls / hazards: sensor shapes with `InteractionListener` callbacks
 - Keys: dynamic bodies like boulders, carriable/throwable, no enemy damage
 - Chests: static sensor bodies, opened by matching-color key collision
 - Crates: dynamic bodies (float/roll in water), destroyed by dashing, wood plank particles, ~30% pearl drop
+- Switches: static sensor bodies, 3 types (toggle/pressure/timed), activated by player or boulder/key contact
+- Gates: kinematic bodies (2 tiles tall, thin), linked to switches by group ID, swing open with rotation animation
 - Each entity class has its own `CbType` for collision filtering
 
 ### Rendering (Three.js)
@@ -130,8 +132,17 @@ Tile map is a string grid (125 cols × 25 rows, 32px tiles):
 | `y`  | Chest Yellow| 24      |
 | `q`  | Chest Purple| 25      |
 | `W`  | Crate       | 26      |
+| `K`  | Breakable Wall | 27   |
+| `A`  | Armored Fish | 28     |
+| `P`  | Spitting Coral | 29   |
+| `V`  | Toggle Switch | 30    |
+| `N`  | Pressure Switch | 31  |
+| `O`  | Timed Switch | 32     |
+| `G`  | Gate         | 33     |
 
 Keys are carriable/throwable like boulders but deal no damage. Throwing a key at its matching-color chest opens the chest with a particle effect and spawns a pearl. Chest pearls are included in `TOTAL_PEARLS` from level start.
+
+Switches and gates are linked by group IDs stored in `switchGateGroups` metadata per level. Toggle switches flip on player contact. Pressure switches stay active while a boulder/key rests on them. Timed switches activate for 5s then auto-close. Gates are 2-tile-tall metal grates that swing open around a top hinge.
 
 Water surface is at row 4 (128px).
 
@@ -143,6 +154,9 @@ Deep-dive docs live in `.claude/docs/`. Refer to these when working on the relev
 - [fish-controller.md](.claude/docs/fish-controller.md) — Player movement states, tuning constants, dash/jump mechanics, water detection
 - [voxel-renderer.md](.claude/docs/voxel-renderer.md) — Three.js rendering: terrain instancing, fish voxel models, water/bubble animation, lighting
 - [nape-physics-setup.md](.claude/docs/nape-physics-setup.md) — Physics space config, body types, CbType collision system, greedy rectangle merging
+- [workflow.md](.claude/docs/workflow.md) — **MANDATORY workflow for roadmap items** — summarize, implement, test, document, push
+
+**When the user requests a roadmap item by number (e.g. "#3"), MUST follow the workflow in [workflow.md](.claude/docs/workflow.md) before writing any code.**
 
 **After completing a task**, check whether the changes affect any of these docs and update them to stay in sync with the code.
 
@@ -155,4 +169,4 @@ Deep-dive docs live in `.claude/docs/`. Refer to these when working on the relev
 - **Section markers**: `// ── Section Name ──`
 - **Physics units**: pixels for position, px/s for velocity, px/s² for acceleration
 - **All assets are procedural** — no external images, textures, or audio files
-- **No tests** — prototype/demo project
+- **Tests**: Vitest — `npx vitest run`. Test files in `tests/`. Logic-only (no DOM/renderer mocking)

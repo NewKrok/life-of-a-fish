@@ -32,7 +32,9 @@ The game uses nape-js for all collision detection, rigid body dynamics, and flui
 - **Pufferfish** (`pufferfishTag`): Moves vertically up/down (±60px range, 30 px/s). Circle shape (r=14). Kills player on contact.
 - **Crab** (`crabTag`): Walks on ground, patrols ±50px at 25 px/s. Does NOT kill player — pushes them away (840 px/s impulse) from 2x sensor range (44×28 box).
 - **Toxic fish** (`toxicFishTag`): Slow patrol ±60px. Shoots poison projectiles at player within 180px range, 2s cooldown. Projectiles are kinematic circles that kill on contact, expire after 2.5s.
-- All enemies are kinematic = no physics response, position updated directly each frame
+- **Armored fish** (`armoredFishTag`): Point-to-point patrol (supports diagonal), 50 px/s. Dash bounces off with knockback (300 px/s, cancels dash). Killed only by boulder throw. Capsule shape (26×14).
+- **Spitting coral** (`spittingCoralTag`): Fixed on ground (static body), does not move. Fires 3 projectiles upward in fan pattern (left-up, straight up, right-up, 30° spread) every 3s. Projectiles are slower (100 px/s), expire after 2s. Killed by boulder throw, kills player on contact. Box shape (20×24).
+- All enemies are kinematic (except spitting coral which is static) — position updated directly each frame
 - Have sensor shapes for player contact detection
 
 ### Pearls (static, sensor)
@@ -71,6 +73,8 @@ Each entity class has a named `CbType` for collision filtering:
 - `playerTag`, `enemyTag`, `pearlTag`, `hazardTag`
 - `buoyTag`, `boulderTag`, `raftTag`
 - `sharkTag`, `pufferfishTag`, `crabTag`, `toxicFishTag`, `projectileTag`
+- `keyTag`, `chestTag`, `crateTag`, `breakableWallTag`, `armoredFishTag`, `spittingCoralTag`
+- `switchTag`, `gateTag`
 
 `InteractionListener` callbacks handle:
 - Player ↔ Pearl → collect pearl, destroy body
@@ -85,7 +89,42 @@ Each entity class has a named `CbType` for collision filtering:
 - Boulder ↔ Pufferfish (sensor) → kill pufferfish, remove from space
 - Boulder ↔ Crab (sensor) → kill crab, remove from space
 - Boulder ↔ Toxic fish (sensor) → kill toxic fish, remove from space
+- Boulder ↔ Armored fish (sensor) → kill armored fish, remove from space
+- Player ↔ Armored fish → if dashing, bounce player back with knockback (300 px/s), cancel dash; else respawn player
+- Player ↔ Spitting coral → respawn player
+- Boulder ↔ Spitting coral (sensor) → kill coral, remove from space
 - Boulder ↔ Player (collision) → respawn player if boulder speed > 80 px/s
+- Player ↔ Crate → if dashing, destroy crate, wood plank particles, ~30% pearl drop
+- Player ↔ Breakable Wall → if dashing, destroy wall, rock debris particles
+- Key ↔ Chest → if matching color, open chest, spawn pearl
+- Player ↔ Switch → activate switch (toggle flips, timed starts 5s timer)
+- Boulder/Key ↔ Switch (BEGIN) → activate switch
+- Boulder/Key ↔ Switch (END) → deactivate pressure switch only
+- Player/Boulder/Key ↔ Gate (PreListener) → IGNORE if gate open, ACCEPT if closed
+
+### Switches (static, sensor)
+- Static bodies with sensor shape (~0.8×0.3 tile)
+- `switchTag` CbType — shared by all 3 types
+- 3 types: toggle (flip on/off), pressure (active while weight on it), timed (5s countdown)
+- Linked to gates by group ID (from `switchGateGroups` level metadata)
+- Toggle: flips active state on player/boulder/key contact
+- Pressure: active while boulder/key overlaps, deactivates on END event
+- Timed: activates for `TIMED_SWITCH_DURATION` (5000ms), auto-closes
+
+### Gates (kinematic, 2 tiles tall)
+- Kinematic bodies, thin (8px wide) × 2 tiles tall (64px)
+- Solid collision shape + sensor overlay with `gateTag`
+- Linked to switches by group ID — opens when any switch in group is active
+- Open animation: `pivotGroup` rotates around top hinge (X axis, 0→π/2)
+- PreListener on player/boulder/key checks `gate.open` to IGNORE or ACCEPT collision
+- `GATE_OPEN_SPEED` = 3.0 rad/s for smooth swing animation
+
+### Breakable Walls (static, sensor overlay)
+- Static bodies with solid collision shape (32×32 px) + sensor overlay (34×34 px)
+- `breakableWallTag` CbType on sensor for dash detection
+- Destroyed only by player dash — rock debris particle effect
+- NOT merged into terrain (individual bodies for independent destruction)
+- Extracted as entities from tile data (tile ID 27, char `K`)
 
 ## Greedy Rectangle Merging Algorithm (level-data.js)
 
