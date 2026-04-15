@@ -99,12 +99,12 @@ describe('tile parsing', () => {
     }
   });
 
-  it('all tile values are valid (0-25)', () => {
+  it('all tile values are valid (0-27)', () => {
     for (let r = 0; r < LEVEL_ROWS; r++) {
       for (let c = 0; c < LEVEL_COLS; c++) {
         const t = TILES[r][c];
         expect(t).toBeGreaterThanOrEqual(0);
-        expect(t).toBeLessThanOrEqual(25);
+        expect(t).toBeLessThanOrEqual(27);
       }
     }
   });
@@ -170,6 +170,8 @@ describe('getLevelEntities', () => {
       ...ent.pufferfish,
       ...ent.crabs,
       ...ent.toxicFish,
+      ...ent.crates,
+      ...ent.breakableWalls,
     ];
     for (const pos of allPositions) {
       expect(pos.x).toBeGreaterThanOrEqual(0);
@@ -192,6 +194,31 @@ describe('getLevelEntities', () => {
     for (const chest of ent.chests) {
       expect(chest.colorIndex).toBeGreaterThanOrEqual(0);
       expect(chest.colorIndex).toBeLessThanOrEqual(4);
+    }
+  });
+
+  it('extracts breakable walls from level 1', () => {
+    const ent = getLevelEntities();
+    expect(ent.breakableWalls.length).toBeGreaterThan(0);
+    for (const bw of ent.breakableWalls) {
+      expect(bw.x).toBeGreaterThan(0);
+      expect(bw.y).toBeGreaterThan(0);
+    }
+  });
+
+  it('breakable walls are not included in merged solid bodies', () => {
+    const ent = getLevelEntities();
+    const bodies = getMergedSolidBodies();
+    // Breakable wall positions should not overlap with any merged solid body
+    for (const bw of ent.breakableWalls) {
+      for (const body of bodies) {
+        const left = body.x - body.w / 2;
+        const right = body.x + body.w / 2;
+        const top = body.y - body.h / 2;
+        const bottom = body.y + body.h / 2;
+        const inside = bw.x > left && bw.x < right && bw.y > top && bw.y < bottom;
+        expect(inside).toBe(false);
+      }
     }
   });
 });

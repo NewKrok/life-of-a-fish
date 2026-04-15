@@ -313,12 +313,7 @@ Plus ~25 hidden bottle messages and the Codex encyclopedia.
 
 ### Workflow
 
-1. User requests an item by number (e.g. "#3")
-2. Summarize scope + ask clarifying questions if needed
-3. Implement with editor integration + sandbox level placement
-4. Write Vitest tests where meaningful (logic, not pixels)
-5. Summarize results, next steps, and update docs
-6. Commit + push
+See [workflow.md](workflow.md) — **mandatory** for every roadmap item.
 
 ---
 

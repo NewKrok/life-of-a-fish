@@ -144,6 +144,9 @@ Deep-dive docs live in `.claude/docs/`. Refer to these when working on the relev
 - [fish-controller.md](.claude/docs/fish-controller.md) — Player movement states, tuning constants, dash/jump mechanics, water detection
 - [voxel-renderer.md](.claude/docs/voxel-renderer.md) — Three.js rendering: terrain instancing, fish voxel models, water/bubble animation, lighting
 - [nape-physics-setup.md](.claude/docs/nape-physics-setup.md) — Physics space config, body types, CbType collision system, greedy rectangle merging
+- [workflow.md](.claude/docs/workflow.md) — **MANDATORY workflow for roadmap items** — summarize, implement, test, document, push
+
+**When the user requests a roadmap item by number (e.g. "#3"), MUST follow the workflow in [workflow.md](.claude/docs/workflow.md) before writing any code.**
 
 **After completing a task**, check whether the changes affect any of these docs and update them to stay in sync with the code.
 
@@ -156,4 +159,4 @@ Deep-dive docs live in `.claude/docs/`. Refer to these when working on the relev
 - **Section markers**: `// ── Section Name ──`
 - **Physics units**: pixels for position, px/s for velocity, px/s² for acceleration
 - **All assets are procedural** — no external images, textures, or audio files
-- **No tests** — prototype/demo project
+- **Tests**: Vitest — `npx vitest run`. Test files in `tests/`. Logic-only (no DOM/renderer mocking)
