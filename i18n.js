@@ -15,6 +15,11 @@ export async function initI18n() {
 
 async function _loadLocale(lang) {
   const resp = await fetch(`./locales/${lang}.json`);
+  if (!resp.ok) {
+    console.warn(`Failed to load locale "${lang}" (${resp.status}), falling back to empty strings`);
+    _strings = {};
+    return;
+  }
   _strings = await resp.json();
 }
 
