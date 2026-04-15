@@ -131,6 +131,7 @@ Tile map is a string grid (125 cols × 25 rows, 32px tiles):
 | `q`  | Chest Purple| 25      |
 | `W`  | Crate       | 26      |
 | `K`  | Breakable Wall | 27   |
+| `A`  | Armored Fish | 28     |
 
 Keys are carriable/throwable like boulders but deal no damage. Throwing a key at its matching-color chest opens the chest with a particle effect and spawns a pearl. Chest pearls are included in `TOTAL_PEARLS` from level start.
 

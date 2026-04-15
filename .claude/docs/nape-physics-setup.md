@@ -32,6 +32,7 @@ The game uses nape-js for all collision detection, rigid body dynamics, and flui
 - **Pufferfish** (`pufferfishTag`): Moves vertically up/down (±60px range, 30 px/s). Circle shape (r=14). Kills player on contact.
 - **Crab** (`crabTag`): Walks on ground, patrols ±50px at 25 px/s. Does NOT kill player — pushes them away (840 px/s impulse) from 2x sensor range (44×28 box).
 - **Toxic fish** (`toxicFishTag`): Slow patrol ±60px. Shoots poison projectiles at player within 180px range, 2s cooldown. Projectiles are kinematic circles that kill on contact, expire after 2.5s.
+- **Armored fish** (`armoredFishTag`): Point-to-point patrol (supports diagonal), 50 px/s. Dash bounces off with knockback (300 px/s, cancels dash). Killed only by boulder throw. Capsule shape (26×14).
 - All enemies are kinematic = no physics response, position updated directly each frame
 - Have sensor shapes for player contact detection
 
@@ -71,7 +72,7 @@ Each entity class has a named `CbType` for collision filtering:
 - `playerTag`, `enemyTag`, `pearlTag`, `hazardTag`
 - `buoyTag`, `boulderTag`, `raftTag`
 - `sharkTag`, `pufferfishTag`, `crabTag`, `toxicFishTag`, `projectileTag`
-- `keyTag`, `chestTag`, `crateTag`, `breakableWallTag`
+- `keyTag`, `chestTag`, `crateTag`, `breakableWallTag`, `armoredFishTag`
 
 `InteractionListener` callbacks handle:
 - Player ↔ Pearl → collect pearl, destroy body
@@ -86,6 +87,8 @@ Each entity class has a named `CbType` for collision filtering:
 - Boulder ↔ Pufferfish (sensor) → kill pufferfish, remove from space
 - Boulder ↔ Crab (sensor) → kill crab, remove from space
 - Boulder ↔ Toxic fish (sensor) → kill toxic fish, remove from space
+- Boulder ↔ Armored fish (sensor) → kill armored fish, remove from space
+- Player ↔ Armored fish → if dashing, bounce player back with knockback (300 px/s), cancel dash; else respawn player
 - Boulder ↔ Player (collision) → respawn player if boulder speed > 80 px/s
 - Player ↔ Crate → if dashing, destroy crate, wood plank particles, ~30% pearl drop
 - Player ↔ Breakable Wall → if dashing, destroy wall, rock debris particles

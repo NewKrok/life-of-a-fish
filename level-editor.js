@@ -27,6 +27,7 @@ const PALETTE = [
   { id: 26, char: 'W', label: 'Crate',       color: '#8B6914', category: 'items',   previewKey: 'crate' },
   { id: 27, char: 'K', label: 'Breakable Wall', color: '#7a7a8a', category: 'terrain', previewKey: 'breakableWall' },
   { id: 6,  char: 'e', label: 'Piranha',     color: '#ff6060', category: 'enemies', previewKey: 'piranha' },
+  { id: 28, char: 'A', label: 'Armored Fish', color: '#6a7a8a', category: 'enemies', previewKey: 'armoredFish' },
   { id: 12, char: 'S', label: 'Shark',       color: '#6080c0', category: 'enemies', previewKey: 'shark' },
   { id: 13, char: 'U', label: 'Pufferfish',  color: '#c0a060', category: 'enemies', previewKey: 'pufferfish' },
   { id: 14, char: 'C', label: 'Crab',        color: '#d04020', category: 'enemies', previewKey: 'crab' },
@@ -58,15 +59,16 @@ const ID_TO_CHAR = {};
 for (const p of PALETTE) ID_TO_CHAR[p.id] = p.char;
 
 // Entity tile IDs (non-terrain — stored as entity positions)
-const ENTITY_IDS = new Set([5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27]);
+const ENTITY_IDS = new Set([5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]);
 
 // Enemies with patrol ranges
 const PATROL_DEFAULTS = {
-  6:  { axis: 'x', range: 80 },   // piranha
-  12: { axis: 'x', range: 100 },  // shark
-  13: { axis: 'y', range: 60 },   // pufferfish
-  14: { axis: 'x', range: 50 },   // crab
-  15: { axis: 'x', range: 60 },   // toxic fish
+  6:  { type: 'point', range: 80 },   // piranha (point-to-point, supports diagonal)
+  12: { axis: 'x', range: 100 },      // shark
+  13: { axis: 'y', range: 60 },       // pufferfish
+  14: { axis: 'x', range: 50 },       // crab
+  15: { axis: 'x', range: 60 },       // toxic fish
+  28: { type: 'point', range: 70 },   // armored fish (point-to-point, supports diagonal)
 };
 
 // ── Camera scroll speed ──
@@ -267,7 +269,12 @@ export class LevelEditor {
           const entry = { x: e.x, y: e.y, tileId };
           const pDef = PATROL_DEFAULTS[tileId];
           if (pDef) {
-            if (pDef.axis === 'x') {
+            if (pDef.type === 'point') {
+              entry.patrol = {
+                x1: snapCenter(e.x - pDef.range), y1: e.y,
+                x2: snapCenter(e.x + pDef.range), y2: e.y,
+              };
+            } else if (pDef.axis === 'x') {
               entry.patrol = { axis: 'x', min: snapCenter(e.x - pDef.range), max: snapCenter(e.x + pDef.range) };
             } else {
               entry.patrol = { axis: 'y', min: snapCenter(e.y - pDef.range), max: snapCenter(e.y + pDef.range) };
@@ -286,6 +293,7 @@ export class LevelEditor {
       if (knownEntities.pufferfish) addGroup(knownEntities.pufferfish, 13);
       if (knownEntities.crabs) addGroup(knownEntities.crabs, 14);
       if (knownEntities.toxicFish) addGroup(knownEntities.toxicFish, 15);
+      if (knownEntities.armoredFish) addGroup(knownEntities.armoredFish, 28);
       if (knownEntities.crates) addGroup(knownEntities.crates, 26);
       if (knownEntities.keys) {
         for (const k of knownEntities.keys) list.push({ x: k.x, y: k.y, tileId: 16 + k.colorIndex });
@@ -357,8 +365,13 @@ export class LevelEditor {
         if (ent.patrol) {
           const dx = newX - ent.x;
           const dy = newY - ent.y;
-          ent.patrol.min += ent.patrol.axis === 'x' ? dx : dy;
-          ent.patrol.max += ent.patrol.axis === 'x' ? dx : dy;
+          if (ent.patrol.x1 !== undefined) {
+            ent.patrol.x1 += dx; ent.patrol.y1 += dy;
+            ent.patrol.x2 += dx; ent.patrol.y2 += dy;
+          } else {
+            ent.patrol.min += ent.patrol.axis === 'x' ? dx : dy;
+            ent.patrol.max += ent.patrol.axis === 'x' ? dx : dy;
+          }
         }
         ent.x = newX;
         ent.y = newY;
@@ -386,7 +399,7 @@ export class LevelEditor {
       this._placeTileAtMouse(getVisibleSize);
     }
 
-    // Drag patrol handle (snapped to tile edges)
+    // Drag patrol handle (snapped to tile centers)
     if (this._draggingPatrol && this._mouseDown) {
       const ent = this.entities[this._draggingPatrol.entityIdx];
       if (ent && ent.patrol) {
@@ -396,7 +409,16 @@ export class LevelEditor {
         // Snap to nearest tile center
         const snapX = Math.floor(rawX / TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
         const snapY = Math.floor(rawY / TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
-        if (ent.patrol.axis === 'x') {
+        if (ent.patrol.x1 !== undefined) {
+          // Point-to-point patrol — free drag both axes
+          if (this._draggingPatrol.handle === 'min') {
+            ent.patrol.x1 = snapX;
+            ent.patrol.y1 = snapY;
+          } else {
+            ent.patrol.x2 = snapX;
+            ent.patrol.y2 = snapY;
+          }
+        } else if (ent.patrol.axis === 'x') {
           if (this._draggingPatrol.handle === 'min') {
             ent.patrol.min = Math.min(snapX, ent.x - TILE_SIZE);
           } else {
@@ -540,7 +562,15 @@ export class LevelEditor {
         ctx.lineWidth = 1.5 / sx;
         ctx.setLineDash([4 / sx, 4 / sx]);
 
-        if (ent.patrol.axis === 'x') {
+        if (ent.patrol.x1 !== undefined) {
+          // Point-to-point patrol (piranha, armored fish)
+          ctx.beginPath();
+          ctx.moveTo(ent.patrol.x1, ent.patrol.y1);
+          ctx.lineTo(ent.patrol.x2, ent.patrol.y2);
+          ctx.stroke();
+          this._drawPatrolHandle(ctx, ent.patrol.x1, ent.patrol.y1, pColor, sx);
+          this._drawPatrolHandle(ctx, ent.patrol.x2, ent.patrol.y2, pColor, sx);
+        } else if (ent.patrol.axis === 'x') {
           ctx.beginPath();
           ctx.moveTo(ent.patrol.min, ent.y);
           ctx.lineTo(ent.patrol.max, ent.y);
@@ -894,7 +924,12 @@ export class LevelEditor {
       if (pDef) {
         // Snap patrol endpoints to tile centers
         const snapCenter = (v) => Math.floor(v / TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
-        if (pDef.axis === 'x') {
+        if (pDef.type === 'point') {
+          entry.patrol = {
+            x1: snapCenter(cx - pDef.range), y1: cy,
+            x2: snapCenter(cx + pDef.range), y2: cy,
+          };
+        } else if (pDef.axis === 'x') {
           entry.patrol = { axis: 'x', min: snapCenter(cx - pDef.range), max: snapCenter(cx + pDef.range) };
         } else {
           entry.patrol = { axis: 'y', min: snapCenter(cy - pDef.range), max: snapCenter(cy + pDef.range) };
@@ -982,7 +1017,15 @@ export class LevelEditor {
     for (let i = 0; i < this.entities.length; i++) {
       const ent = this.entities[i];
       if (!ent.patrol) continue;
-      if (ent.patrol.axis === 'x') {
+      if (ent.patrol.x1 !== undefined) {
+        // Point-to-point patrol
+        if (Math.abs(wx - ent.patrol.x1) < threshold && Math.abs(wy - ent.patrol.y1) < threshold) {
+          return { entityIdx: i, handle: 'min' };
+        }
+        if (Math.abs(wx - ent.patrol.x2) < threshold && Math.abs(wy - ent.patrol.y2) < threshold) {
+          return { entityIdx: i, handle: 'max' };
+        }
+      } else if (ent.patrol.axis === 'x') {
         if (Math.abs(wx - ent.patrol.min) < threshold && Math.abs(wy - ent.y) < threshold) {
           return { entityIdx: i, handle: 'min' };
         }
@@ -1060,7 +1103,9 @@ export class LevelEditor {
       for (const p of patrols) {
         const pal = PALETTE.find(pl => pl.id === p.tileId);
         const name = pal ? pal.label : 'unknown';
-        if (p.patrol.axis === 'x') {
+        if (p.patrol.x1 !== undefined) {
+          output += `// ${name} at (${Math.round(p.x)}, ${Math.round(p.y)}): patrol (${Math.round(p.patrol.x1)},${Math.round(p.patrol.y1)}) → (${Math.round(p.patrol.x2)},${Math.round(p.patrol.y2)})\n`;
+        } else if (p.patrol.axis === 'x') {
           const range = Math.round((p.patrol.max - p.patrol.min) / 2);
           output += `// ${name} at (${Math.round(p.x)}, ${Math.round(p.y)}): patrol range ±${range}px\n`;
         } else {
@@ -1667,6 +1712,17 @@ export function generateEditorPreviews(THREE, VoxelRendererClass, existingCodexP
         entry.mesh.position.set(0, 0, 0);
         previews[key] = _renderGroupPreview(THREE, offRenderer, entry.mesh, 50);
       }
+    }
+  }
+
+  // Armored fish preview
+  if (!previews.armoredFish) {
+    vr.buildArmoredFish();
+    const entry = vr.armoredFishGroups.pop();
+    if (entry) {
+      tempScene.remove(entry);
+      entry.position.set(0, 0, 0);
+      previews.armoredFish = _renderGroupPreview(THREE, offRenderer, entry, 40);
     }
   }
 

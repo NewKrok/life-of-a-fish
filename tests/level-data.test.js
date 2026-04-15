@@ -99,12 +99,12 @@ describe('tile parsing', () => {
     }
   });
 
-  it('all tile values are valid (0-27)', () => {
+  it('all tile values are valid (0-28)', () => {
     for (let r = 0; r < LEVEL_ROWS; r++) {
       for (let c = 0; c < LEVEL_COLS; c++) {
         const t = TILES[r][c];
         expect(t).toBeGreaterThanOrEqual(0);
-        expect(t).toBeLessThanOrEqual(27);
+        expect(t).toBeLessThanOrEqual(28);
       }
     }
   });
@@ -172,6 +172,7 @@ describe('getLevelEntities', () => {
       ...ent.toxicFish,
       ...ent.crates,
       ...ent.breakableWalls,
+      ...ent.armoredFish,
     ];
     for (const pos of allPositions) {
       expect(pos.x).toBeGreaterThanOrEqual(0);
@@ -203,6 +204,15 @@ describe('getLevelEntities', () => {
     for (const bw of ent.breakableWalls) {
       expect(bw.x).toBeGreaterThan(0);
       expect(bw.y).toBeGreaterThan(0);
+    }
+  });
+
+  it('extracts armored fish from level 1', () => {
+    const ent = getLevelEntities();
+    expect(ent.armoredFish.length).toBeGreaterThan(0);
+    for (const af of ent.armoredFish) {
+      expect(af.x).toBeGreaterThan(0);
+      expect(af.y).toBeGreaterThan(0);
     }
   });
 

@@ -83,6 +83,9 @@ export class VoxelRenderer {
     this.toxicFishGroups = [];
     this.toxicFishTailPivots = [];
     this._toxicFlipAngles = [];
+    this.armoredFishGroups = [];
+    this.armoredFishTailPivots = [];
+    this._armoredFlipAngles = [];
     this.projectileMeshes = [];    // { mesh, body } pairs for poison projectiles
 
     // New visual elements
@@ -118,6 +121,9 @@ export class VoxelRenderer {
     remove(this.toxicFishGroups);
     this.toxicFishTailPivots.length = 0;
     this._toxicFlipAngles.length = 0;
+    remove(this.armoredFishGroups);
+    this.armoredFishTailPivots.length = 0;
+    this._armoredFlipAngles.length = 0;
     // Pearls
     for (const p of this.pearlMeshes) {
       this.scene.remove(p.mesh);
@@ -1459,6 +1465,113 @@ export class VoxelRenderer {
     return wrapper;
   }
 
+  // ── Build armored fish enemy (dark metallic, thicker body, smaller fins) ──
+  buildArmoredFish() {
+    const THREE = this.THREE;
+    const group = new THREE.Group();
+    const V = 2;
+
+    const addVoxel = (x, y, z, color) => {
+      const geo = new THREE.BoxGeometry(V, V, V);
+      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.5 });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(x * V, y * V, z * V);
+      return mesh;
+    };
+
+    const ARMOR = 0x556677;
+    const ARMOR_DARK = 0x3a4a5a;
+    const ARMOR_LIGHT = 0x6a7a8a;
+    const BELLY = 0x778888;
+    const BELLY_LIGHT = 0x8a9a9a;
+    const FIN = 0x445566;
+    const FIN_DARK = 0x334455;
+    const EYE_WHITE = 0xccdddd;
+    const EYE_DARK = 0x881111;
+
+    const row = (xs, y, z, color) => {
+      for (const x of xs) group.add(addVoxel(x, y, z, color));
+    };
+
+    // Thicker body slices (wider than piranha)
+    const sliceOuter = (z) => {
+      row([3, 4, 5, 6, 7], 3, z, ARMOR);
+      row([3, 4, 5, 6, 7], 2, z, ARMOR_LIGHT);
+      row([4, 5, 6], 1, z, ARMOR_LIGHT);
+      row([4, 5, 6], 0, z, BELLY);
+      row([4, 5], -1, z, BELLY);
+    };
+
+    const sliceMid = (z) => {
+      row([2, 3, 4, 5, 6, 7, 8], 4, z, ARMOR);
+      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 3, z, ARMOR);
+      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 2, z, ARMOR_LIGHT);
+      row([2, 3, 4, 5, 6, 7, 8, 9], 1, z, ARMOR_LIGHT);
+      row([2, 3, 4, 5, 6, 7, 8], 0, z, BELLY);
+      row([3, 4, 5, 6, 7], -1, z, BELLY);
+      row([4, 5, 6], -2, z, BELLY_LIGHT);
+    };
+
+    const sliceCenter = (z) => {
+      row([3, 4, 5, 6, 7], 5, z, ARMOR_DARK);
+      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 4, z, ARMOR);
+      row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 3, z, ARMOR);
+      row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 2, z, ARMOR_LIGHT);
+      row([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 1, z, ARMOR_LIGHT);
+      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 0, z, BELLY);
+      row([2, 3, 4, 5, 6, 7, 8], -1, z, BELLY);
+      row([3, 4, 5, 6, 7], -2, z, BELLY_LIGHT);
+    };
+
+    // Build body — 6 slices deep for thicker profile
+    sliceOuter(-1); sliceOuter(6);
+    sliceMid(0); sliceMid(5);
+    sliceCenter(1); sliceCenter(2); sliceCenter(3); sliceCenter(4);
+
+    // Armored scale plates (darker patches on top)
+    for (const z of [0, 1, 2, 3, 4, 5]) {
+      row([3, 5, 7, 9], 4, z, ARMOR_DARK);
+      row([2, 4, 6, 8], 3, z, ARMOR_DARK);
+    }
+
+    // Small eyes (menacing, set deeper)
+    group.add(addVoxel(9, 3, -0.5, EYE_WHITE));
+    group.add(addVoxel(9, 2, -0.5, EYE_DARK));
+    group.add(addVoxel(9, 3, 5.5, EYE_WHITE));
+    group.add(addVoxel(9, 2, 5.5, EYE_DARK));
+
+    // Small dorsal fin (shorter than piranha — armored fish has compact build)
+    for (const x of [4, 5, 6]) {
+      for (const z of [2, 3]) {
+        group.add(addVoxel(x, 6, z, FIN));
+      }
+    }
+
+    // Tail (compact)
+    const tailPivot = new THREE.Group();
+    tailPivot.position.set(0, V * 1.5, V * 2.5);
+    const tailVoxels = [
+      [-1, 2, 0], [-1, 1, 0], [-1, 0, 0], [-1, -1, 0],
+      [-1, 2, 1], [-1, 1, 1], [-1, 0, 1], [-1, -1, 1],
+      [-2, 3, 0], [-2, 2, 0], [-2, 1, 0], [-2, 0, 0], [-2, -1, 0], [-2, -2, 0],
+      [-2, 3, 1], [-2, 2, 1], [-2, 1, 1], [-2, 0, 1], [-2, -1, 1], [-2, -2, 1],
+      [-3, 3, 0], [-3, -2, 0],
+      [-3, 3, 1], [-3, -2, 1],
+    ];
+    for (const [x, y, z] of tailVoxels) tailPivot.add(addVoxel(x, y, z, FIN_DARK));
+    group.add(tailPivot);
+
+    group.position.set(-5 * V, -1.5 * V, -2.5 * V);
+    group.scale.set(1.2, 1.2, 1.2);
+
+    const wrapper = new this.THREE.Group();
+    wrapper.add(group);
+    this.scene.add(wrapper);
+    this.armoredFishGroups.push(wrapper);
+    this.armoredFishTailPivots.push(tailPivot);
+    return wrapper;
+  }
+
   // ── Build poison projectile mesh ──
   buildProjectile(body) {
     const THREE = this.THREE;
@@ -1593,6 +1706,7 @@ export class VoxelRenderer {
     for (const g of this.pufferfishGroups) g.visible = true;
     for (const g of this.crabGroups) g.visible = true;
     for (const g of this.toxicFishGroups) g.visible = true;
+    for (const g of this.armoredFishGroups) g.visible = true;
   }
 
   // ── Build boulder meshes ──
@@ -3071,7 +3185,7 @@ export class VoxelRenderer {
     }
 
     // ── Sync sharks ──
-    const { sharkBodies, pufferfishBodies, crabBodies, toxicFishBodies, projectileBodies } = extras;
+    const { sharkBodies, pufferfishBodies, crabBodies, toxicFishBodies, projectileBodies, armoredFishBodies } = extras;
     if (sharkBodies) {
       for (let i = 0; i < sharkBodies.length && i < this.sharkGroups.length; i++) {
         const sb = sharkBodies[i];
@@ -3155,6 +3269,34 @@ export class VoxelRenderer {
           const freq = 6 + speed * 0.04;
           const amp = 0.25 + Math.min(speed / 300, 0.35);
           this.toxicFishTailPivots[i].rotation.y = Math.sin(this._time * freq + i * 2) * amp;
+        }
+      }
+    }
+
+    // ── Sync armored fish ──
+    if (armoredFishBodies) {
+      for (let i = 0; i < armoredFishBodies.length && i < this.armoredFishGroups.length; i++) {
+        const af = armoredFishBodies[i];
+        const ag = this.armoredFishGroups[i];
+        if (!af.space) { ag.visible = false; continue; }
+        ag.position.set(af.position.x, -af.position.y, 0);
+        ag.rotation.z = -af.rotation;
+        if (this._armoredFlipAngles[i] === undefined) this._armoredFlipAngles[i] = 0;
+        let targetFlip = this._armoredFlipAngles[i];
+        const vx = af.velocity.x;
+        const vy = af.velocity.y;
+        // Flip based on primary movement direction
+        if (Math.abs(vx) > 1 || Math.abs(vy) > 1) {
+          targetFlip = vx < -1 ? Math.PI : vx > 1 ? 0 : targetFlip;
+        }
+        this._armoredFlipAngles[i] += (targetFlip - this._armoredFlipAngles[i]) * 0.12;
+        ag.rotation.y = this._armoredFlipAngles[i];
+        // Tail animation (slower wag for heavy armored fish)
+        if (this.armoredFishTailPivots[i]) {
+          const speed = Math.sqrt(vx * vx + vy * vy);
+          const freq = 4 + speed * 0.03;
+          const amp = 0.2 + Math.min(speed / 300, 0.25);
+          this.armoredFishTailPivots[i].rotation.y = Math.sin(this._time * freq + i * 2) * amp;
         }
       }
     }

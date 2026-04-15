@@ -37,6 +37,8 @@ import * as THREE from "three";
 const GRAVITY = 200;
 const DT = 1 / 60;
 const ENEMY_SPEED = 60;
+const ARMORED_FISH_SPEED = 50;         // px/s — slightly slower than piranha
+const ARMORED_KNOCKBACK = 300;         // px/s — half of crab push force
 const SHARK_PATROL_SPEED = 50;        // px/s — patrol speed
 const SHARK_CHASE_SPEED = 110;        // px/s — chase speed
 const SHARK_DETECT_RADIUS = 150;      // px — detection radius
@@ -1000,6 +1002,7 @@ const keyTag = new CbType();
 const chestTag = new CbType();
 const crateTag = new CbType();
 const breakableWallTag = new CbType();
+const armoredFishTag = new CbType();
 
 // ── Build terrain bodies from merged tiles ──
 const mergedBodies = getMergedSolidBodies();
@@ -1038,6 +1041,7 @@ _capturedEntities = {
   toxicFish: entities.toxicFish.map(e => ({ ...e })),
   crates: entities.crates.map(e => ({ ...e })),
   breakableWalls: entities.breakableWalls.map(e => ({ ...e })),
+  armoredFish: entities.armoredFish.map(e => ({ ...e })),
 };
 
 // ── Hazard bodies (seaweed/spiky plants) ──
@@ -1074,8 +1078,8 @@ for (const en of entities.enemies) {
   b.shapes.add(shape);
   b.space = space;
   b._patrol = {
-    minX: en.x - 80,
-    maxX: en.x + 80,
+    x1: en.x - 80, y1: en.y,
+    x2: en.x + 80, y2: en.y,
     speed: ENEMY_SPEED,
     _dir: 1,
   };
@@ -1162,6 +1166,25 @@ for (const tf of entities.toxicFish) {
   b._shoot = { cooldown: 0 };
   toxicFishBodies.push(b);
   voxelRenderer.buildToxicFish();
+}
+
+// ── Armored fish enemies (dash-proof, killed by boulder only) ──
+const armoredFishBodies = [];
+for (const af of entities.armoredFish) {
+  const b = new Body(BodyType.KINEMATIC, new Vec2(af.x, af.y));
+  const shape = new Capsule(26, 14);
+  shape.sensorEnabled = true;
+  shape.cbTypes.add(armoredFishTag);
+  b.shapes.add(shape);
+  b.space = space;
+  b._patrol = {
+    x1: af.x - 70, y1: af.y,
+    x2: af.x + 70, y2: af.y,
+    speed: ARMORED_FISH_SPEED,
+    _dir: 1,
+  };
+  armoredFishBodies.push(b);
+  voxelRenderer.buildArmoredFish();
 }
 
 // ── Buoys (floating on water surface) ──
@@ -1335,6 +1358,32 @@ const piranhaListener = new InteractionListener(
 );
 piranhaListener.space = space;
 
+// Armored fish collision -> dash bounces off (knockback), else death
+const armoredFishListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, playerTag, armoredFishTag,
+  (cb) => {
+    if (fishCtrl.dashing) {
+      // Dash bounces off — knockback player, cancel dash
+      const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+      const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+      const afBody = armoredFishBodies.find(a => a === b1 || a === b2);
+      if (afBody) {
+        const dx = player.position.x - afBody.position.x;
+        const dy = player.position.y - afBody.position.y;
+        const len = Math.sqrt(dx * dx + dy * dy) || 1;
+        fishCtrl.knockback(
+          (dx / len) * ARMORED_KNOCKBACK,
+          (dy / len) * ARMORED_KNOCKBACK,
+        );
+        sfx.crabPush();
+      }
+    } else {
+      triggerDeath();
+    }
+  },
+);
+armoredFishListener.space = space;
+
 // Hazard collision -> death
 const hazardListener = new InteractionListener(
   CbEvent.BEGIN, InteractionType.SENSOR, playerTag, hazardTag,
@@ -1498,6 +1547,30 @@ const boulderToxicListener = new InteractionListener(
   },
 );
 boulderToxicListener.space = space;
+
+// Boulder hits armored fish -> both die
+const boulderArmoredListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, boulderTag, armoredFishTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const boulderBody = boulderBodies.find(br => br === b1 || br === b2);
+    if (boulderBody === grabbedBoulder) return;
+    const afBody = armoredFishBodies.find(a => a === b1 || a === b2);
+    if (afBody && afBody.space) {
+      const cx = afBody.position.x;
+      const cy = afBody.position.y;
+      afBody.space = null;
+      sfx.enemyDeath();
+      if (boulderBody && boulderBody.space) {
+        if (grabbedBoulder === boulderBody) grabbedBoulder = null;
+        boulderBody.space = null;
+        voxelRenderer.spawnBoulderBreak(cx, cy);
+      }
+    }
+  },
+);
+boulderArmoredListener.space = space;
 
 // ── Key-Chest collision: matching color opens chest, spawns pearl ──
 const keyChestListener = new InteractionListener(
@@ -1983,6 +2056,16 @@ function _resetEntities() {
     b.velocity = new Vec2(0, 0);
     b._patrol._dir = 1;
     b._shoot.cooldown = 0;
+    if (!b.space) b.space = space;
+  }
+
+  // ── Armored fish ──
+  for (let i = 0; i < armoredFishBodies.length; i++) {
+    const b = armoredFishBodies[i];
+    const af = entities.armoredFish[i];
+    b.position = new Vec2(af.x, af.y);
+    b.velocity = new Vec2(0, 0);
+    b._patrol._dir = 1;
     if (!b.space) b.space = space;
   }
 
@@ -2486,14 +2569,40 @@ function gameLoop() {
     }
   }
 
-  // ── Update piranha patrol ──
+  // ── Update piranha patrol (point-to-point, supports diagonal) ──
   for (const eb of enemyBodies) {
     if (!eb._patrol || !eb.space) continue;
     const p = eb._patrol;
-    const px = eb.position.x;
-    if (px >= p.maxX) p._dir = -1;
-    if (px <= p.minX) p._dir = 1;
-    eb.velocity = new Vec2(p._dir * p.speed, 0);
+    const pdx = p.x2 - p.x1;
+    const pdy = p.y2 - p.y1;
+    const pathLen = Math.sqrt(pdx * pdx + pdy * pdy) || 1;
+    eb.velocity = new Vec2((pdx / pathLen) * p.speed * p._dir, (pdy / pathLen) * p.speed * p._dir);
+    const tx = p._dir === 1 ? p.x2 : p.x1;
+    const ty = p._dir === 1 ? p.y2 : p.y1;
+    const dot = (tx - eb.position.x) * pdx * p._dir + (ty - eb.position.y) * pdy * p._dir;
+    if (dot <= 0) {
+      eb.position.x = tx;
+      eb.position.y = ty;
+      p._dir *= -1;
+    }
+  }
+
+  // ── Update armored fish patrol (point-to-point, supports diagonal) ──
+  for (const af of armoredFishBodies) {
+    if (!af._patrol || !af.space) continue;
+    const p = af._patrol;
+    const pdx = p.x2 - p.x1;
+    const pdy = p.y2 - p.y1;
+    const pathLen = Math.sqrt(pdx * pdx + pdy * pdy) || 1;
+    af.velocity = new Vec2((pdx / pathLen) * p.speed * p._dir, (pdy / pathLen) * p.speed * p._dir);
+    const tx = p._dir === 1 ? p.x2 : p.x1;
+    const ty = p._dir === 1 ? p.y2 : p.y1;
+    const dot = (tx - af.position.x) * pdx * p._dir + (ty - af.position.y) * pdy * p._dir;
+    if (dot <= 0) {
+      af.position.x = tx;
+      af.position.y = ty;
+      p._dir *= -1;
+    }
   }
 
   // ── Check if player is hidden in seagrass ──
@@ -2746,6 +2855,7 @@ function gameLoop() {
   const fishState = fishCtrl.getState();
   voxelRenderer.syncFrame(player, fishState, enemyBodies, DT, {
     sharkBodies, pufferfishBodies, crabBodies, toxicFishBodies, projectileBodies,
+    armoredFishBodies,
   });
 
   renderer.render(scene, camera);
