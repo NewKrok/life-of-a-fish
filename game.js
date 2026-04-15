@@ -1385,14 +1385,10 @@ for (const g of entities.gates) {
   // Gate body: KINEMATIC so we can rotate it; pivot at top edge
   // Position is at the tile center, body shape extends downward 2 tiles
   const b = new Body(BodyType.KINEMATIC, new Vec2(g.x, g.y));
-  // Solid shape blocks passage when closed
+  // Solid shape blocks passage when closed — tagged so PreListener can IGNORE when open
   const shape = new Polygon(Polygon.box(GATE_WIDTH, GATE_HEIGHT));
+  shape.cbTypes.add(gateTag);
   b.shapes.add(shape);
-  // Sensor overlay for collision events
-  const sensor = new Polygon(Polygon.box(GATE_WIDTH + 4, GATE_HEIGHT + 4));
-  sensor.sensorEnabled = true;
-  sensor.cbTypes.add(gateTag);
-  b.shapes.add(sensor);
   b.allowRotation = false;  // we control rotation manually
   b.space = space;
   gateBodies.push({ body: b, group: g.group, open: false, angle: 0 });

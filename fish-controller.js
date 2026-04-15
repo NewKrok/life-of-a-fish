@@ -255,6 +255,9 @@ export class FishController {
   knockback(vx, vy, frames = 20) {
     this.body.velocity = new Vec2(vx, vy);
     this.knockbackTimer = frames;
+    // Cancel any active dash so it doesn't resume after knockback ends
+    this.dashing = false;
+    this.dashTimer = 0;
   }
 
   respawn(x, y) {

@@ -1959,14 +1959,14 @@ export class VoxelRenderer {
         return x - Math.floor(x);
       };
 
-      // Block shape: 5×5×3 voxels (fills ~32px tile)
+      // Block shape: 11×11×5 voxels (fills ~32px tile, same as stone)
       let idx = 0;
-      for (let y = -2; y <= 2; y++) {
+      for (let y = -5; y <= 5; y++) {
         for (let x = -5; x <= 5; x++) {
           for (let z = -2; z <= 2; z++) {
             // Shell only
             const isEdgeX = x === -5 || x === 5;
-            const isEdgeY = y === -2 || y === 2;
+            const isEdgeY = y === -5 || y === 5;
             const isEdgeZ = z === -2 || z === 2;
             if (!isEdgeX && !isEdgeY && !isEdgeZ) continue;
 
@@ -1974,8 +1974,10 @@ export class VoxelRenderer {
             let color;
             // Crack lines: vertical and diagonal patterns
             const isCrack = (x === 0 && z === 0) ||
-              (x === -2 && y === 1) ||
-              (x === 2 && y === -1) ||
+              (x === -3 && y === 2) ||
+              (x === 3 && y === -2) ||
+              (x === 1 && y === 4) ||
+              (x === -1 && y === -3) ||
               (isEdgeX && isEdgeZ);
             if (isCrack) {
               color = CRACK_COLOR;
