@@ -64,6 +64,7 @@ export class VoxelRenderer {
     this.chestMeshes = [];   // { mesh, body, colorIndex, opened } pairs
     this.raftMeshes = [];   // { mesh, body } pairs
     this.crateMeshes = [];  // { mesh, body } pairs
+    this.breakableWallMeshes = [];  // { mesh, body } pairs
     this.waterMesh = null;
     this.bubbles = [];
     this._time = 0;
@@ -142,6 +143,9 @@ export class VoxelRenderer {
     // Crates
     for (const c of this.crateMeshes) this.scene.remove(c.mesh);
     this.crateMeshes.length = 0;
+    // Breakable walls
+    for (const w of this.breakableWallMeshes) this.scene.remove(w.mesh);
+    this.breakableWallMeshes.length = 0;
   }
 
   // ── Generate procedural Minecraft-style texture for a tile type ──
@@ -387,6 +391,58 @@ export class VoxelRenderer {
       ctx.fillRect(0, 0, size, px);
       ctx.fillRect(0, 0, px, size);
       ctx.fillStyle = 'rgba(10, 40, 15, 0.4)';
+      ctx.fillRect(0, size - px, size, px);
+      ctx.fillRect(size - px, 0, px, size);
+
+    } else if (type === 27) {
+      // ── Breakable Wall: cracked stone — stone base with prominent crack lines ──
+      ctx.fillStyle = '#7a7a8a';
+      ctx.fillRect(0, 0, size, size);
+
+      // Random stone pixel patches (similar to stone but slightly darker)
+      for (let py = 0; py < 16; py++) {
+        for (let px2 = 0; px2 < 16; px2++) {
+          const r = rng(py * 16 + px2);
+          const brightness = 85 + r * 70; // 85-155 range (slightly darker than stone)
+          const blueShift = 3 + r * 8;
+          ctx.fillStyle = `rgb(${brightness}, ${brightness}, ${brightness + blueShift})`;
+          ctx.fillRect(px2 * px, py * px, px, px);
+        }
+      }
+
+      // Prominent crack lines (thicker and darker than stone's subtle cracks)
+      ctx.strokeStyle = 'rgba(20, 20, 30, 0.9)';
+      ctx.lineWidth = 2;
+      // Main diagonal crack from top-left area to bottom-right
+      ctx.beginPath();
+      ctx.moveTo(rng(700) * size * 0.3, rng(701) * size * 0.2);
+      ctx.lineTo(size * 0.4 + rng(702) * size * 0.2, size * 0.5 + rng(703) * size * 0.1);
+      ctx.lineTo(size * 0.7 + rng(704) * size * 0.2, size * 0.85 + rng(705) * size * 0.1);
+      ctx.stroke();
+      // Secondary crack branching off
+      ctx.beginPath();
+      ctx.moveTo(size * 0.4 + rng(706) * size * 0.1, size * 0.5 + rng(707) * size * 0.1);
+      ctx.lineTo(size * 0.8 + rng(708) * size * 0.15, size * 0.3 + rng(709) * size * 0.2);
+      ctx.stroke();
+      // Small crack from bottom
+      ctx.beginPath();
+      ctx.moveTo(size * 0.15 + rng(710) * size * 0.2, size * 0.9);
+      ctx.lineTo(size * 0.3 + rng(711) * size * 0.15, size * 0.65 + rng(712) * size * 0.1);
+      ctx.stroke();
+
+      // Crack fill pixels along fractures (lighter — exposed interior)
+      for (let i = 0; i < 10; i++) {
+        const gx = Math.floor(rng(i + 720) * 16) * px;
+        const gy = Math.floor(rng(i + 730) * 16) * px;
+        ctx.fillStyle = 'rgba(40, 40, 55, 0.8)';
+        ctx.fillRect(gx, gy, px, px);
+      }
+
+      // Block edge highlight (dimmer than regular stone)
+      ctx.fillStyle = 'rgba(140, 140, 160, 0.25)';
+      ctx.fillRect(0, 0, size, px);
+      ctx.fillRect(0, 0, px, size);
+      ctx.fillStyle = 'rgba(25, 25, 40, 0.5)';
       ctx.fillRect(0, size - px, size, px);
       ctx.fillRect(size - px, 0, px, size);
     }
@@ -1658,6 +1714,71 @@ export class VoxelRenderer {
     }
   }
 
+  // ── Build breakable wall meshes (cracked stone blocks) ──
+  buildBreakableWalls(breakableWallBodies) {
+    for (const w of this.breakableWallMeshes) this.scene.remove(w.mesh);
+    this.breakableWallMeshes.length = 0;
+
+    const THREE = this.THREE;
+    const V = 3; // voxel size
+
+    for (const body of breakableWallBodies) {
+      const group = new THREE.Group();
+
+      const addVoxel = (x, y, z, color) => {
+        const geo = new THREE.BoxGeometry(V, V, V);
+        const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.95, metalness: 0.0 });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(x * V, y * V, z * V);
+        group.add(mesh);
+      };
+
+      const STONE_BASE = 0x8a8a9a;
+      const STONE_DARK = 0x6a6a7a;
+      const CRACK_COLOR = 0x3a3a4a;
+      const STONE_LIGHT = 0x9a9aaa;
+
+      // Seed for variation
+      const seed = body.position.x * 7 + body.position.y * 13;
+      const rng = (i) => {
+        const x = Math.sin(seed + i * 9871) * 43758.5453;
+        return x - Math.floor(x);
+      };
+
+      // Block shape: 5×5×3 voxels (fills ~32px tile)
+      let idx = 0;
+      for (let y = -2; y <= 2; y++) {
+        for (let x = -5; x <= 5; x++) {
+          for (let z = -2; z <= 2; z++) {
+            // Shell only
+            const isEdgeX = x === -5 || x === 5;
+            const isEdgeY = y === -2 || y === 2;
+            const isEdgeZ = z === -2 || z === 2;
+            if (!isEdgeX && !isEdgeY && !isEdgeZ) continue;
+
+            const rv = rng(idx++);
+            let color;
+            // Crack lines: vertical and diagonal patterns
+            const isCrack = (x === 0 && z === 0) ||
+              (x === -2 && y === 1) ||
+              (x === 2 && y === -1) ||
+              (isEdgeX && isEdgeZ);
+            if (isCrack) {
+              color = CRACK_COLOR;
+            } else {
+              color = rv < 0.3 ? STONE_DARK : rv < 0.8 ? STONE_BASE : STONE_LIGHT;
+            }
+            addVoxel(x, y, z, color);
+          }
+        }
+      }
+
+      group.position.set(body.position.x, -body.position.y, 0);
+      this.scene.add(group);
+      this.breakableWallMeshes.push({ mesh: group, body });
+    }
+  }
+
   // ── Build key meshes (colored key shapes) ──
   buildKeys(keyBodies) {
     for (const k of this.keyMeshes) this.scene.remove(k.mesh);
@@ -2688,6 +2809,45 @@ export class VoxelRenderer {
     }
   }
 
+  // ── Spawn breakable wall debris (rock fragments) ──
+  spawnBreakableWallDebris(x, y) {
+    const THREE = this.THREE;
+    const colors = [0x7a7a8a, 0x6a6a7a, 0x8a8a9a, 0x5a5a6a, 0x4a4a5a];
+    const count = 24;
+
+    for (let i = 0; i < count; i++) {
+      // Jagged rock fragments (cubic)
+      const size = 2 + Math.random() * 6;
+      const geo = new THREE.BoxGeometry(size, size, size);
+      const mat = new THREE.MeshStandardMaterial({
+        color: colors[Math.floor(Math.random() * colors.length)],
+        roughness: 0.95,
+        metalness: 0.0,
+        transparent: true,
+        opacity: 0.9,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(
+        x + (Math.random() - 0.5) * 28,
+        -y + (Math.random() - 0.5) * 28,
+        (Math.random() - 0.5) * 24
+      );
+      mesh.rotation.set(
+        Math.random() * Math.PI,
+        Math.random() * Math.PI,
+        Math.random() * Math.PI
+      );
+      this.scene.add(mesh);
+      this.bubbles.push({
+        mesh,
+        vy: (Math.random() - 0.4) * 100,
+        vx: (Math.random() - 0.5) * 150,
+        life: 0.9 + Math.random() * 0.9,
+        _isRock: true,
+      });
+    }
+  }
+
   // ── Spawn chest open particles (colored sparkles + wood splinters) ──
   spawnChestOpen(x, y, colorIndex) {
     const THREE = this.THREE;
@@ -2881,6 +3041,15 @@ export class VoxelRenderer {
       }
       c.mesh.position.set(c.body.position.x, -c.body.position.y, 0);
       c.mesh.rotation.z = -c.body.rotation;
+    }
+
+    // ── Sync breakable walls (remove destroyed) ──
+    for (let i = this.breakableWallMeshes.length - 1; i >= 0; i--) {
+      const w = this.breakableWallMeshes[i];
+      if (!w.body.space) {
+        this.scene.remove(w.mesh);
+        this.breakableWallMeshes.splice(i, 1);
+      }
     }
 
     // ── Sync keys (position + rotation, remove destroyed) ──

@@ -71,6 +71,7 @@ Each entity class has a named `CbType` for collision filtering:
 - `playerTag`, `enemyTag`, `pearlTag`, `hazardTag`
 - `buoyTag`, `boulderTag`, `raftTag`
 - `sharkTag`, `pufferfishTag`, `crabTag`, `toxicFishTag`, `projectileTag`
+- `keyTag`, `chestTag`, `crateTag`, `breakableWallTag`
 
 `InteractionListener` callbacks handle:
 - Player ↔ Pearl → collect pearl, destroy body
@@ -86,6 +87,16 @@ Each entity class has a named `CbType` for collision filtering:
 - Boulder ↔ Crab (sensor) → kill crab, remove from space
 - Boulder ↔ Toxic fish (sensor) → kill toxic fish, remove from space
 - Boulder ↔ Player (collision) → respawn player if boulder speed > 80 px/s
+- Player ↔ Crate → if dashing, destroy crate, wood plank particles, ~30% pearl drop
+- Player ↔ Breakable Wall → if dashing, destroy wall, rock debris particles
+- Key ↔ Chest → if matching color, open chest, spawn pearl
+
+### Breakable Walls (static, sensor overlay)
+- Static bodies with solid collision shape (32×32 px) + sensor overlay (34×34 px)
+- `breakableWallTag` CbType on sensor for dash detection
+- Destroyed only by player dash — rock debris particle effect
+- NOT merged into terrain (individual bodies for independent destruction)
+- Extracted as entities from tile data (tile ID 27, char `K`)
 
 ## Greedy Rectangle Merging Algorithm (level-data.js)
 

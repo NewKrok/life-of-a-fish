@@ -999,6 +999,7 @@ const projectileTag = new CbType();
 const keyTag = new CbType();
 const chestTag = new CbType();
 const crateTag = new CbType();
+const breakableWallTag = new CbType();
 
 // ── Build terrain bodies from merged tiles ──
 const mergedBodies = getMergedSolidBodies();
@@ -1036,6 +1037,7 @@ _capturedEntities = {
   crabs: entities.crabs.map(e => ({ ...e })),
   toxicFish: entities.toxicFish.map(e => ({ ...e })),
   crates: entities.crates.map(e => ({ ...e })),
+  breakableWalls: entities.breakableWalls.map(e => ({ ...e })),
 };
 
 // ── Hazard bodies (seaweed/spiky plants) ──
@@ -1255,6 +1257,21 @@ for (const cr of entities.crates) {
   crateBodies.push(b);
 }
 
+// ── Breakable walls (cracked stone, destroyed by dashing) ──
+const breakableWallBodies = [];
+for (const bw of entities.breakableWalls) {
+  const b = new Body(BodyType.STATIC, new Vec2(bw.x, bw.y));
+  const solid = new Polygon(Polygon.box(TILE_SIZE, TILE_SIZE), undefined, new Material(0.8, 0.1, 0.5, 2.0));
+  b.shapes.add(solid);
+  // Sensor overlay for dash detection
+  const sensor = new Polygon(Polygon.box(TILE_SIZE + 2, TILE_SIZE + 2));
+  sensor.sensorEnabled = true;
+  sensor.cbTypes.add(breakableWallTag);
+  b.shapes.add(sensor);
+  b.space = space;
+  breakableWallBodies.push(b);
+}
+
 // Build dynamic object meshes
 voxelRenderer.buildBuoys(buoyBodies);
 voxelRenderer.buildBoulders(boulderBodies);
@@ -1262,6 +1279,7 @@ voxelRenderer.buildKeys(keyBodies);
 voxelRenderer.buildChests(chestBodies);
 voxelRenderer.buildRafts(raftBodies);
 voxelRenderer.buildCrates(crateBodies);
+voxelRenderer.buildBreakableWalls(breakableWallBodies);
 
 // ── Player fish ──
 const player = new Body(BodyType.DYNAMIC, new Vec2(entities.playerSpawn.x, entities.playerSpawn.y));
@@ -1549,6 +1567,25 @@ const crateListener = new InteractionListener(
   },
 );
 crateListener.space = space;
+
+// Dash into breakable wall -> destroy wall, rock debris particles
+const breakableWallListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, playerTag, breakableWallTag,
+  (cb) => {
+    if (!fishCtrl.dashing) return;
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const wallBody = breakableWallBodies.find(w => w === b1 || w === b2);
+    if (wallBody && wallBody.space) {
+      const cx = wallBody.position.x;
+      const cy = wallBody.position.y;
+      wallBody.space = null;
+      voxelRenderer.spawnBreakableWallDebris(cx, cy);
+      sfx.crateBreak();
+    }
+  },
+);
+breakableWallListener.space = space;
 
 // Player-key collision: ignored while carrying
 const keyPlayerPre = new PreListener(
@@ -1979,6 +2016,15 @@ function _resetEntities() {
     if (!b.space) b.space = space;
   }
   voxelRenderer.buildCrates(crateBodies);
+
+  // ── Breakable walls ──
+  for (let i = 0; i < breakableWallBodies.length; i++) {
+    const b = breakableWallBodies[i];
+    const bw = entities.breakableWalls[i];
+    b.position = new Vec2(bw.x, bw.y);
+    if (!b.space) b.space = space;
+  }
+  voxelRenderer.buildBreakableWalls(breakableWallBodies);
 
   // ── Keys ──
   for (let i = 0; i < keyBodies.length; i++) {

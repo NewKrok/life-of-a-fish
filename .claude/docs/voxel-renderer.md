@@ -13,6 +13,7 @@ Each tile type gets its own `InstancedMesh` with a single `BoxGeometry(TILE_SIZE
 | Coral   | Vibrant pinks/reds with polyp bumps and highlights   |
 | Hazard  | Red with spike/cross pattern and dark edges           |
 | Seagrass | Green kelp blades with lighter vertical streaks       |
+| Breakable Wall | Dark grays with prominent diagonal crack lines  |
 
 Each pixel in the 16x16 grid is drawn as a 4x4 block on a 64x64 canvas. Block edges have highlight (top/left bright) and shadow (bottom/right dark) for a 3D pixel-art look.
 
@@ -190,6 +191,14 @@ Built via `buildRafts(raftBodies)`:
 - Ripple math: outward-traveling sine wave (`sin(dist×0.12 - age×8)`) with exponential distance falloff and quadratic lifetime fade
 - Composited additively onto the base wave animation in the vertex loop
 - Auto-removed when `age ≥ decay`
+
+### Rock Debris Particles (Breakable Walls)
+- `spawnBreakableWallDebris(x, y)` — spawns 24 cubic rock fragments
+- Gray stone colors (5 shades from `0x4a4a5a` to `0x8a8a9a`)
+- Box geometries (2–8px), random rotation on all axes
+- Wider spread (±28px) and faster lateral velocity (±150 px/s) than boulder break
+- Uses `_isRock: true` flag for gravity-affected bubble update (no surface fade)
+- Lifetime 0.9–1.8s with opacity fade
 
 ### Ambient Bubbles
 - `AMBIENT_BUBBLE_COUNT` (30) small cubes (`BoxGeometry`) scattered throughout the underwater area

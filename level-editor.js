@@ -25,6 +25,7 @@ const PALETTE = [
   { id: 10, char: 'R', label: 'Boulder',     color: '#888',    category: 'items',   previewKey: 'boulder' },
   { id: 11, char: 'T', label: 'Raft',        color: '#8b5a2b', category: 'items',   previewKey: 'raft' },
   { id: 26, char: 'W', label: 'Crate',       color: '#8B6914', category: 'items',   previewKey: 'crate' },
+  { id: 27, char: 'K', label: 'Breakable Wall', color: '#7a7a8a', category: 'terrain', previewKey: 'breakableWall' },
   { id: 6,  char: 'e', label: 'Piranha',     color: '#ff6060', category: 'enemies', previewKey: 'piranha' },
   { id: 12, char: 'S', label: 'Shark',       color: '#6080c0', category: 'enemies', previewKey: 'shark' },
   { id: 13, char: 'U', label: 'Pufferfish',  color: '#c0a060', category: 'enemies', previewKey: 'pufferfish' },
@@ -57,7 +58,7 @@ const ID_TO_CHAR = {};
 for (const p of PALETTE) ID_TO_CHAR[p.id] = p.char;
 
 // Entity tile IDs (non-terrain — stored as entity positions)
-const ENTITY_IDS = new Set([5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26]);
+const ENTITY_IDS = new Set([5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27]);
 
 // Enemies with patrol ranges
 const PATROL_DEFAULTS = {
@@ -1637,6 +1638,7 @@ export function generateEditorPreviews(THREE, VoxelRendererClass, existingCodexP
   if (!previews.coral) previews.coral = _renderBlockPreview(THREE, offRenderer, vr, 3);
   if (!previews.hazard) previews.hazard = _renderBlockPreview(THREE, offRenderer, vr, 4);
   if (!previews.seagrass) previews.seagrass = _renderBlockPreview(THREE, offRenderer, vr, 8);
+  if (!previews.breakableWall) previews.breakableWall = _renderBlockPreview(THREE, offRenderer, vr, 27);
 
   // Per-color key previews
   const colorNames = ['Red', 'Blue', 'Green', 'Yellow', 'Purple'];
