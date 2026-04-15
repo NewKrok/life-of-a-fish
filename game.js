@@ -29,9 +29,34 @@ import { MusicSystem } from './music-system.js';
 import { SfxSystem } from './sfx-system.js';
 import { LevelEditor, generateEditorPreviews } from './level-editor.js';
 import { generateCodexPreviews } from './codex-renderer.js';
+import { initI18n, t, translateDOM, setLocale, getLocale, onLocaleChange } from './i18n.js';
 
 // ── Three.js import ──
 import * as THREE from "three";
+
+// ── i18n init (must resolve before any text rendering) ──
+await initI18n();
+translateDOM();
+
+// Sync language selector to current locale
+const _langSelect = document.getElementById('langSelect');
+if (_langSelect) {
+  _langSelect.value = getLocale();
+  _langSelect.addEventListener('change', async () => {
+    await setLocale(_langSelect.value);
+  });
+}
+
+onLocaleChange(() => {
+  translateDOM();
+  _buildLevelCards();
+  // Rebuild codex if open
+  const codexPanel = document.getElementById('codexPanel');
+  if (codexPanel && codexPanel.classList.contains('visible')) {
+    const activeTab = document.querySelector('.codex-tab.active');
+    _buildCodexEntries(activeTab?.dataset.category || 'all');
+  }
+});
 
 // ── Constants ──
 const GRAVITY = 200;
@@ -404,9 +429,9 @@ function _buildLevelCards() {
     const card = document.createElement('div');
     card.className = 'level-card';
     card.innerHTML =
-      `<div class="level-card-number">Level ${lv.index + 1}</div>` +
-      `<div class="level-card-name">${lv.name}</div>` +
-      `<div class="level-card-desc">${lv.description}</div>`;
+      `<div class="level-card-number">${t('levelSelect.levelNumber', { n: lv.index + 1 })}</div>` +
+      `<div class="level-card-name">${t(`level.${lv.id}.name`)}</div>` +
+      `<div class="level-card-desc">${t(`level.${lv.id}.desc`)}</div>`;
     card.addEventListener('click', () => _startLevel(lv.index, card));
     levelCards.appendChild(card);
   }
@@ -499,159 +524,34 @@ document.getElementById('aboutBack').addEventListener('click', () => {
 // ── Codex (Encyclopedia) ──
 const CODEX_DATA = [
   // ── Player ──
-  {
-    category: 'player', preview: 'player', name: 'You (Clownfish)',
-    tag: 'friendly', tagLabel: 'Player',
-    desc: 'A brave little clownfish on a quest for pearls. Small but surprisingly agile — can swim, dash, and even jump out of the water!',
-    tip: 'Tip: Master the dash to dodge enemies and break through obstacles.',
-  },
+  { category: 'player', preview: 'player', i18nKey: 'player', tag: 'friendly' },
   // ── Enemies ──
-  {
-    category: 'enemies', preview: 'piranha', name: 'Piranha',
-    tag: 'danger', tagLabel: 'Enemy',
-    desc: 'A vicious red predator that patrols its territory relentlessly. One bite is enough to ruin your day.',
-    tip: 'Tip: Dash into it or throw a boulder to defeat it. Timing is everything.',
-  },
-  {
-    category: 'enemies', preview: 'shark', name: 'Shark',
-    tag: 'danger', tagLabel: 'Predator',
-    desc: 'Silent shadow of the deep. It glides through the water with an eerie calm — until it catches your scent. Then there is no calm, only teeth and speed. Nothing can stop it. Nothing... except disappearing.',
-    tip: 'Tip: Hide in seagrass to break the chase. The shark loses sight of you among the swaying blades.',
-  },
-  {
-    category: 'enemies', preview: 'pufferfish', name: 'Pufferfish',
-    tag: 'danger', tagLabel: 'Enemy',
-    desc: 'A spiky ball of pain that bobs up and down. Touching it from any direction hurts — but a well-aimed boulder can pop it.',
-    tip: 'Tip: Watch its rhythm and swim past, or throw a boulder to get rid of it for good.',
-  },
-  {
-    category: 'enemies', preview: 'crab', name: 'Crab',
-    tag: 'danger', tagLabel: 'Enemy',
-    desc: 'A stubborn bottom-dweller guarding narrow passages. Won\'t hurt you directly, but its powerful claws shove you into danger.',
-    tip: 'Tip: It pushes you on contact. Use the momentum or avoid tight spaces near it.',
-  },
-  {
-    category: 'enemies', preview: 'toxicFish', name: 'Toxic Fish',
-    tag: 'danger', tagLabel: 'Ranged',
-    desc: 'A venomous lurker that spits poison projectiles when you get close. Keeps its distance and attacks from afar.',
-    tip: 'Tip: Dash through the projectiles or time your approach between shots.',
-  },
-  {
-    category: 'enemies', preview: 'armoredFish', name: 'Armored Fish',
-    tag: 'danger', tagLabel: 'Armored',
-    desc: 'Its scales are harder than stone. Your dash just makes it angry. Hit it with something heavier — or learn to sneak past.',
-    tip: 'Tip: Throw a boulder or key at it. Dashing only bounces you back!',
-  },
-  {
-    category: 'enemies', preview: 'spittingCoral', name: 'Spitting Coral',
-    tag: 'danger', tagLabel: 'Ranged',
-    desc: 'A crusty polyp that spits venom in a triple fan. Every. Few. Seconds. Stand to the side and wait — or shut it up with a boulder.',
-    tip: 'Tip: The projectiles always go up in a fan pattern. Stay below and to the side, or throw a boulder to destroy it.',
-  },
+  { category: 'enemies', preview: 'piranha', i18nKey: 'piranha', tag: 'danger' },
+  { category: 'enemies', preview: 'shark', i18nKey: 'shark', tag: 'danger' },
+  { category: 'enemies', preview: 'pufferfish', i18nKey: 'pufferfish', tag: 'danger' },
+  { category: 'enemies', preview: 'crab', i18nKey: 'crab', tag: 'danger' },
+  { category: 'enemies', preview: 'toxicFish', i18nKey: 'toxicFish', tag: 'danger' },
+  { category: 'enemies', preview: 'armoredFish', i18nKey: 'armoredFish', tag: 'danger' },
+  { category: 'enemies', preview: 'spittingCoral', i18nKey: 'spittingCoral', tag: 'danger' },
   // ── Items ──
-  {
-    category: 'items', preview: 'pearl', name: 'Pearl',
-    tag: 'item', tagLabel: 'Collectible',
-    desc: 'Shimmering golden pearls scattered across the ocean floor. Collect them all to complete each level.',
-    tip: 'Tip: Some are hidden behind obstacles or locked inside chests.',
-  },
-  {
-    category: 'items', preview: 'key', name: 'Key',
-    tag: 'item', tagLabel: 'Key Item',
-    desc: 'Colorful keys in five variants — Red, Blue, Green, Yellow, and Purple. Carry one to its matching chest to unlock a hidden pearl.',
-    tip: 'Tip: Grab a key and throw it at the chest with the same color. Keys float, so plan your route!',
-  },
-  {
-    category: 'items', preview: 'chest', name: 'Chest',
-    tag: 'item', tagLabel: 'Locked',
-    desc: 'Mysterious treasure chests sealed with a colorful lock. Each one holds a precious pearl — if you bring the right key.',
-    tip: 'Tip: Match the key color to the chest. You\'ll hear a satisfying click when it opens.',
-  },
-  {
-    category: 'items', preview: 'boulder', name: 'Boulder',
-    tag: 'item', tagLabel: 'Throwable',
-    desc: 'Heavy underwater rocks that can be picked up and thrown. They sink fast and hit hard.',
-    tip: 'Tip: Throw boulders at piranhas to defeat them from a safe distance.',
-  },
-  {
-    category: 'items', preview: 'crate', name: 'Underwater Crate',
-    tag: 'item', tagLabel: 'Breakable',
-    desc: 'Old wooden crates from who knows where. Smash them for fun — sometimes there\'s a pearl inside. Mostly just splinters.',
-    tip: 'Tip: Dash into crates to break them. About 1 in 3 contains a pearl!',
-  },
+  { category: 'items', preview: 'pearl', i18nKey: 'pearl', tag: 'item' },
+  { category: 'items', preview: 'key', i18nKey: 'key', tag: 'item' },
+  { category: 'items', preview: 'chest', i18nKey: 'chest', tag: 'item' },
+  { category: 'items', preview: 'boulder', i18nKey: 'boulder', tag: 'item' },
+  { category: 'items', preview: 'crate', i18nKey: 'crate', tag: 'item' },
   // ── Terrain ──
-  {
-    category: 'terrain', preview: 'breakableWall', name: 'Breakable Wall',
-    tag: 'terrain', tagLabel: 'Destructible',
-    desc: 'Cracked stone that can\'t take a hit. One good dash and it crumbles — revealing whatever\'s behind.',
-    tip: 'Tip: Look for cracks in walls. Dash through to find hidden rooms, shortcuts, and bonus pearls.',
-  },
-  {
-    category: 'terrain', preview: 'switchToggle', name: 'Toggle Switch',
-    tag: 'terrain', tagLabel: 'Mechanism',
-    desc: 'A green pressure pad with a spring-loaded button. One touch and the linked gate opens permanently — no going back.',
-    tip: 'Tip: These are the easiest switches. Just swim over it and the gate stays open forever.',
-  },
-  {
-    category: 'terrain', preview: 'switchPressure', name: 'Pressure Switch',
-    tag: 'terrain', tagLabel: 'Mechanism',
-    desc: 'A blue pressure pad that needs constant weight. The gate stays open only while something rests on it — step off and it closes.',
-    tip: 'Tip: Push a boulder or crate onto it to keep the gate open while you swim through!',
-  },
-  {
-    category: 'terrain', preview: 'switchTimed', name: 'Timed Switch',
-    tag: 'terrain', tagLabel: 'Mechanism',
-    desc: 'An orange lever on a pedestal. Hit it and the linked gate opens for 5 seconds — watch the lever drift back as time runs out.',
-    tip: 'Tip: Plan your route before activating it. 5 seconds goes fast!',
-  },
-  {
-    category: 'terrain', preview: 'gate', name: 'Gate',
-    tag: 'terrain', tagLabel: 'Barrier',
-    desc: 'Metal grates that block your path. They only open when their linked switch is activated.',
-    tip: 'Tip: Find the matching switch to open the gate. Some gates need a boulder placed on a pressure switch to stay open.',
-  },
-  {
-    category: 'terrain', preview: 'coral', name: 'Coral',
-    tag: 'terrain', tagLabel: 'Block',
-    desc: 'Vibrant coral formations that build the reef landscape. Solid and impassable — the backbone of every level.',
-    tip: '',
-  },
-  {
-    category: 'terrain', preview: 'sand', name: 'Sand',
-    tag: 'terrain', tagLabel: 'Block',
-    desc: 'Soft sandy blocks found on the ocean floor. Just as solid as stone, but with a warmer look.',
-    tip: '',
-  },
-  {
-    category: 'terrain', preview: 'seagrass', name: 'Seagrass',
-    tag: 'terrain', tagLabel: 'Cover',
-    desc: 'Tall swaying seagrass that grows in shallow waters. Its dense blades offer the perfect hiding spot — even the mighty shark loses your trail among the green.',
-    tip: 'Tip: Dive into seagrass when a shark is on your tail. It will give up the chase instantly.',
-  },
-  {
-    category: 'terrain', preview: 'hazard', name: 'Hazard (Spikes)',
-    tag: 'danger', tagLabel: 'Trap',
-    desc: 'Sharp spikes hidden along walls and floors. Instant damage on contact — and dashing won\'t save you. These bite through everything.',
-    tip: 'Tip: There\'s no shortcut past spikes. Find another way around.',
-  },
-  {
-    category: 'terrain', preview: 'buoy', name: 'Buoy',
-    tag: 'terrain', tagLabel: 'Marker',
-    desc: 'Floating buoys bobbing at the surface. They mark boundaries and give you something to rest on above water.',
-    tip: '',
-  },
-  {
-    category: 'terrain', preview: 'raft', name: 'Raft',
-    tag: 'terrain', tagLabel: 'Platform',
-    desc: 'Wooden rafts drifting lazily on the surface. No real use for a fish — but it\'s fun to flop around on them for a moment.',
-    tip: '',
-  },
-  {
-    category: 'terrain', preview: 'water', name: 'Water Surface',
-    tag: 'terrain', tagLabel: 'Zone',
-    desc: 'Where the ocean meets the sky. Cross it to jump into the air — your fish flops around up there, so don\'t stay long!',
-    tip: 'Tip: Jump out for hard-to-reach pearls, but gravity pulls you back fast.',
-  },
+  { category: 'terrain', preview: 'breakableWall', i18nKey: 'breakableWall', tag: 'terrain' },
+  { category: 'terrain', preview: 'switchToggle', i18nKey: 'switchToggle', tag: 'terrain' },
+  { category: 'terrain', preview: 'switchPressure', i18nKey: 'switchPressure', tag: 'terrain' },
+  { category: 'terrain', preview: 'switchTimed', i18nKey: 'switchTimed', tag: 'terrain' },
+  { category: 'terrain', preview: 'gate', i18nKey: 'gate', tag: 'terrain' },
+  { category: 'terrain', preview: 'coral', i18nKey: 'coral', tag: 'terrain' },
+  { category: 'terrain', preview: 'sand', i18nKey: 'sand', tag: 'terrain' },
+  { category: 'terrain', preview: 'seagrass', i18nKey: 'seagrass', tag: 'terrain' },
+  { category: 'terrain', preview: 'hazard', i18nKey: 'hazard', tag: 'danger' },
+  { category: 'terrain', preview: 'buoy', i18nKey: 'buoy', tag: 'terrain' },
+  { category: 'terrain', preview: 'raft', i18nKey: 'raft', tag: 'terrain' },
+  { category: 'terrain', preview: 'water', i18nKey: 'water', tag: 'terrain' },
 ];
 
 // Lazy-generated preview images (rendered on first Codex open)
@@ -668,6 +568,12 @@ function _buildCodexEntries(category) {
     : CODEX_DATA.filter(e => e.category === category);
 
   for (const entry of entries) {
+    const k = entry.i18nKey;
+    const name = t(`codex.${k}.name`);
+    const tagLabel = t(`codex.${k}.tagLabel`);
+    const desc = t(`codex.${k}.desc`);
+    const tip = t(`codex.${k}.tip`);
+
     const tagClass = {
       danger: 'codex-tag-danger',
       friendly: 'codex-tag-friendly',
@@ -675,13 +581,13 @@ function _buildCodexEntries(category) {
       terrain: 'codex-tag-terrain',
     }[entry.tag] || 'codex-tag-terrain';
 
-    const tipHtml = entry.tip
-      ? `<div class="codex-entry-tip">${entry.tip}</div>`
+    const tipHtml = tip && tip !== `codex.${k}.tip`
+      ? `<div class="codex-entry-tip">${tip}</div>`
       : '';
 
     const previewSrc = _codexPreviews[entry.preview] || '';
     const iconHtml = previewSrc
-      ? `<img class="codex-entry-icon" src="${previewSrc}" alt="${entry.name}">`
+      ? `<img class="codex-entry-icon" src="${previewSrc}" alt="${name}">`
       : `<span class="codex-entry-icon">?</span>`;
 
     const el = document.createElement('div');
@@ -689,10 +595,10 @@ function _buildCodexEntries(category) {
     el.innerHTML =
       `<div class="codex-entry-header">` +
         iconHtml +
-        `<span class="codex-entry-name">${entry.name}</span>` +
-        `<span class="codex-entry-tag ${tagClass}">${entry.tagLabel}</span>` +
+        `<span class="codex-entry-name">${name}</span>` +
+        `<span class="codex-entry-tag ${tagClass}">${tagLabel}</span>` +
       `</div>` +
-      `<div class="codex-entry-desc">${entry.desc}</div>` +
+      `<div class="codex-entry-desc">${desc}</div>` +
       tipHtml;
     container.appendChild(el);
   }
@@ -2292,7 +2198,7 @@ function renderPhysicsDebug() {
   hudCtx.setTransform(1, 0, 0, 1, 0, 0);
   hudCtx.fillStyle = 'rgba(255,255,0,0.8)';
   hudCtx.font = "bold 10px 'Silkscreen', monospace";
-  hudCtx.fillText('PHYSICS DEBUG (F3)', 10, H - 10);
+  hudCtx.fillText(t('hud.physicsDebug'), 10, H - 10);
   hudCtx.restore();
 }
 
@@ -2334,7 +2240,7 @@ function showGameOver() {
   gamePaused = true;
   pauseBtn.classList.remove('visible');
   touchControls.hide();
-  document.getElementById('goStatPearls').textContent = `${pearlCount} / ${TOTAL_PEARLS}`;
+  document.getElementById('goStatPearls').textContent = t('hud.pearlCount', { current: pearlCount, total: TOTAL_PEARLS });
   gameOverPanel.classList.add('visible');
 }
 
@@ -2352,7 +2258,8 @@ function showVictory() {
   const mins = Math.floor(timeRemaining / 60);
   const secs = Math.floor(timeRemaining % 60);
   document.getElementById('vicStatLives').textContent = `${lives} / ${MAX_LIVES}`;
-  document.getElementById('vicStatTime').textContent = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  const timeStr = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  document.getElementById('vicStatTime').textContent = timeStr;
 
   const score = calculateScore(lives, timeRemaining);
   document.getElementById('vicStatScore').textContent = String(score);
@@ -2361,9 +2268,9 @@ function showVictory() {
   const highScoreEl = document.getElementById('vicHighScore');
   if (score > highScore) {
     saveHighScore(score);
-    highScoreEl.textContent = 'New High Score!';
+    highScoreEl.textContent = t('victory.newHighScore');
   } else {
-    highScoreEl.textContent = `High Score: ${highScore}`;
+    highScoreEl.textContent = t('victory.highScore', { score: highScore });
   }
 
   victoryPanel.classList.add('visible');
@@ -2795,7 +2702,7 @@ function renderHUD() {
   hudCtx.fillStyle = '#ffffff';
   hudCtx.font = "bold 16px 'Silkscreen', monospace";
   hudCtx.textAlign = 'center';
-  hudCtx.fillText(`${pearlCount} / ${TOTAL_PEARLS}`, barX + barW / 2, barY + barH - 7);
+  hudCtx.fillText(t('hud.pearlCount', { current: pearlCount, total: TOTAL_PEARLS }), barX + barW / 2, barY + barH - 7);
 
   // ── Lives (hearts) — top-left ──
   const heartSize = 28;

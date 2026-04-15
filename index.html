@@ -926,25 +926,25 @@
           <div class="joystick-inner" id="joystickInner"></div>
         </div>
       </div>
-      <div class="dash-btn" id="dashBtn">DASH</div>
-      <div class="grab-btn" id="grabBtn">GRAB</div>
+      <div class="dash-btn" id="dashBtn" data-i18n="touch.dash">DASH</div>
+      <div class="grab-btn" id="grabBtn" data-i18n="touch.grab">GRAB</div>
     </div>
 
     <!-- Main Menu Overlay -->
     <div id="menuOverlay">
-      <div class="menu-title">Life of a Fish</div>
+      <div class="menu-title" data-i18n="menu.title">Life of a Fish</div>
       <div class="menu-items" id="menuMain">
-        <button class="menu-btn" id="btnStartGame">Start Game</button>
-        <button class="menu-btn" id="btnAquarium">Aquarium</button>
-        <button class="menu-btn" id="btnCodex">Codex</button>
-        <button class="menu-btn" id="btnSettings">Settings</button>
-        <button class="menu-btn" id="btnAbout">About</button>
+        <button class="menu-btn" id="btnStartGame" data-i18n="menu.btn.startGame">Start Game</button>
+        <button class="menu-btn" id="btnAquarium" data-i18n="menu.btn.aquarium">Aquarium</button>
+        <button class="menu-btn" id="btnCodex" data-i18n="menu.btn.codex">Codex</button>
+        <button class="menu-btn" id="btnSettings" data-i18n="menu.btn.settings">Settings</button>
+        <button class="menu-btn" id="btnAbout" data-i18n="menu.btn.about">About</button>
       </div>
       <!-- Level Select (hidden by default, shown when Start Game is clicked) -->
       <div class="menu-items hidden" id="levelSelect">
-        <div class="level-select-title">Select Level</div>
+        <div class="level-select-title" data-i18n="levelSelect.title">Select Level</div>
         <div class="level-cards" id="levelCards"></div>
-        <button class="menu-btn level-back-btn" id="levelSelectBack">
+        <button class="menu-btn level-back-btn" id="levelSelectBack" data-i18n="menu.btn.back">
           Back
         </button>
       </div>
@@ -956,9 +956,9 @@
     <!-- Settings Panel -->
     <div class="menu-panel" id="settingsPanel">
       <div class="panel-box">
-        <div class="panel-title">Settings</div>
+        <div class="panel-title" data-i18n="settings.title">Settings</div>
         <div class="settings-row">
-          <label class="settings-label" for="musicVolume">Music</label>
+          <label class="settings-label" for="musicVolume" data-i18n="settings.music">Music</label>
           <input
             type="range"
             id="musicVolume"
@@ -970,7 +970,7 @@
           <span class="settings-value" id="musicVolumeVal">30%</span>
         </div>
         <div class="settings-row">
-          <label class="settings-label" for="sfxVolume">SFX</label>
+          <label class="settings-label" for="sfxVolume" data-i18n="settings.sfx">SFX</label>
           <input
             type="range"
             id="sfxVolume"
@@ -981,7 +981,14 @@
           />
           <span class="settings-value" id="sfxVolumeVal">50%</span>
         </div>
-        <button class="panel-back-btn" id="settingsBack">Back</button>
+        <div class="settings-row">
+          <label class="settings-label" data-i18n="settings.language">Language</label>
+          <select id="langSelect" style="flex:1;height:28px;border-radius:6px;background:rgba(10,40,70,0.7);border:1.5px solid rgba(100,180,255,0.3);color:#c8e6ff;font:bold 11px 'Silkscreen',monospace;padding:0 8px;cursor:pointer;outline:none;">
+            <option value="en">English</option>
+            <option value="hu">Magyar</option>
+          </select>
+        </div>
+        <button class="panel-back-btn" id="settingsBack" data-i18n="menu.btn.back">Back</button>
       </div>
     </div>
 
@@ -990,16 +997,16 @@
 
     <!-- Editor Play Test Controls -->
     <div class="editor-test-controls" id="editorTestControls">
-      <button id="editorTestRestart" title="Restart">&#8635;</button>
-      <button id="editorTestExit" title="Back to Editor">&#10005;</button>
+      <button id="editorTestRestart" data-i18n-title="editor.restartTitle" title="Restart">&#8635;</button>
+      <button id="editorTestExit" data-i18n-title="editor.exitTitle" title="Back to Editor">&#10005;</button>
     </div>
 
     <!-- Pause Modal -->
     <div class="menu-panel" id="pausePanel">
       <div class="panel-box">
-        <div class="panel-title">Paused</div>
+        <div class="panel-title" data-i18n="pause.title">Paused</div>
         <div class="settings-row">
-          <label class="settings-label" for="pauseMusicVol">Music</label>
+          <label class="settings-label" for="pauseMusicVol" data-i18n="settings.music">Music</label>
           <input
             type="range"
             id="pauseMusicVol"
@@ -1011,7 +1018,7 @@
           <span class="settings-value" id="pauseMusicVolVal">30%</span>
         </div>
         <div class="settings-row">
-          <label class="settings-label" for="pauseSfxVol">SFX</label>
+          <label class="settings-label" for="pauseSfxVol" data-i18n="settings.sfx">SFX</label>
           <input
             type="range"
             id="pauseSfxVol"
@@ -1023,9 +1030,9 @@
           <span class="settings-value" id="pauseSfxVolVal">50%</span>
         </div>
         <div class="pause-actions">
-          <button class="menu-btn" id="pauseResume">Resume</button>
-          <button class="menu-btn" id="pauseRestart">Restart</button>
-          <button class="menu-btn" id="pauseExit">Exit to Menu</button>
+          <button class="menu-btn" id="pauseResume" data-i18n="pause.resume">Resume</button>
+          <button class="menu-btn" id="pauseRestart" data-i18n="pause.restart">Restart</button>
+          <button class="menu-btn" id="pauseExit" data-i18n="pause.exit">Exit to Menu</button>
         </div>
       </div>
     </div>
@@ -1033,17 +1040,17 @@
     <!-- Game Over Modal -->
     <div class="menu-panel" id="gameOverPanel">
       <div class="panel-box">
-        <div class="result-title gameover">Game Over</div>
-        <div class="result-subtitle">Better luck next time!</div>
+        <div class="result-title gameover" data-i18n="gameOver.title">Game Over</div>
+        <div class="result-subtitle" data-i18n="gameOver.subtitle">Better luck next time!</div>
         <div class="result-stats">
           <div class="result-stat-row">
-            <span class="result-stat-label">Pearls</span>
+            <span class="result-stat-label" data-i18n="gameOver.pearls">Pearls</span>
             <span class="result-stat-value" id="goStatPearls">0 / 0</span>
           </div>
         </div>
         <div class="pause-actions">
-          <button class="menu-btn" id="goRestart">Restart</button>
-          <button class="menu-btn" id="goExit">Exit to Menu</button>
+          <button class="menu-btn" id="goRestart" data-i18n="pause.restart">Restart</button>
+          <button class="menu-btn" id="goExit" data-i18n="pause.exit">Exit to Menu</button>
         </div>
       </div>
     </div>
@@ -1051,27 +1058,27 @@
     <!-- Victory Modal -->
     <div class="menu-panel" id="victoryPanel">
       <div class="panel-box">
-        <div class="result-title victory">Victory!</div>
-        <div class="result-subtitle">All pearls collected!</div>
+        <div class="result-title victory" data-i18n="victory.title">Victory!</div>
+        <div class="result-subtitle" data-i18n="victory.subtitle">All pearls collected!</div>
         <div class="result-stats">
           <div class="result-stat-row">
-            <span class="result-stat-label">Lives</span>
+            <span class="result-stat-label" data-i18n="victory.lives">Lives</span>
             <span class="result-stat-value" id="vicStatLives">3 / 3</span>
           </div>
           <div class="result-stat-row">
-            <span class="result-stat-label">Time Left</span>
+            <span class="result-stat-label" data-i18n="victory.timeLeft">Time Left</span>
             <span class="result-stat-value" id="vicStatTime">0:00</span>
           </div>
           <div class="result-divider"></div>
           <div class="result-score-row">
-            <span class="result-score-label">Score</span>
+            <span class="result-score-label" data-i18n="victory.score">Score</span>
             <span class="result-score-value" id="vicStatScore">0</span>
           </div>
         </div>
         <div class="result-highscore" id="vicHighScore"></div>
         <div class="pause-actions">
-          <button class="menu-btn" id="vicRestart">Restart</button>
-          <button class="menu-btn" id="vicExit">Exit to Menu</button>
+          <button class="menu-btn" id="vicRestart" data-i18n="pause.restart">Restart</button>
+          <button class="menu-btn" id="vicExit" data-i18n="pause.exit">Exit to Menu</button>
         </div>
       </div>
     </div>
@@ -1080,15 +1087,15 @@
     <div class="codex-panel" id="codexPanel">
       <div class="codex-box">
         <div class="codex-header">
-          <div class="codex-title">Codex</div>
-          <button class="codex-back-btn" id="codexBack">Back</button>
+          <div class="codex-title" data-i18n="codex.title">Codex</div>
+          <button class="codex-back-btn" id="codexBack" data-i18n="menu.btn.back">Back</button>
         </div>
         <div class="codex-tabs" id="codexTabs">
-          <button class="codex-tab active" data-category="all">All</button>
-          <button class="codex-tab" data-category="enemies">Enemies</button>
-          <button class="codex-tab" data-category="items">Items</button>
-          <button class="codex-tab" data-category="terrain">Terrain</button>
-          <button class="codex-tab" data-category="player">Player</button>
+          <button class="codex-tab active" data-category="all" data-i18n="codex.tab.all">All</button>
+          <button class="codex-tab" data-category="enemies" data-i18n="codex.tab.enemies">Enemies</button>
+          <button class="codex-tab" data-category="items" data-i18n="codex.tab.items">Items</button>
+          <button class="codex-tab" data-category="terrain" data-i18n="codex.tab.terrain">Terrain</button>
+          <button class="codex-tab" data-category="player" data-i18n="codex.tab.player">Player</button>
         </div>
         <div class="codex-entries" id="codexEntries"></div>
       </div>
@@ -1097,8 +1104,8 @@
     <!-- About Panel -->
     <div class="menu-panel" id="aboutPanel">
       <div class="panel-box">
-        <div class="panel-title">About</div>
-        <div class="panel-text">
+        <div class="panel-title" data-i18n="about.title">About</div>
+        <div class="panel-text" data-i18n-html="about.text">
           Life of a Fish<br />
           An underwater platformer<br /><br />
           Built with Three.js &amp; Nape-JS<br />
@@ -1120,7 +1127,7 @@
             >X / Twitter</a
           >
         </div>
-        <button class="panel-back-btn" id="aboutBack">Back</button>
+        <button class="panel-back-btn" id="aboutBack" data-i18n="menu.btn.back">Back</button>
       </div>
     </div>
 
