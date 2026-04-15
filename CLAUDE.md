@@ -83,8 +83,8 @@ In-game editor activated with **F4**. Works in both menu and game states. Pauses
 - Keys: dynamic bodies like boulders, carriable/throwable, no enemy damage
 - Chests: static sensor bodies, opened by matching-color key collision
 - Crates: dynamic bodies (float/roll in water), destroyed by dashing, wood plank particles, ~30% pearl drop
-- Switches: static sensor bodies, 3 types (toggle/pressure/timed), activated by player or boulder/key contact
-- Gates: kinematic bodies (2 tiles tall, thin), linked to switches by group ID, swing open with rotation animation
+- Switches: static sensor bodies, 3 types: toggle (one-shot, stays open), pressure (open while weight on it), timed (5s then closes). Activated by player/boulder/key/crate contact
+- Gates: kinematic bodies (2 tiles tall, 1 tile wide), linked to switches by group ID, swing open sideways around left-edge hinge
 - Each entity class has its own `CbType` for collision filtering
 
 ### Rendering (Three.js)

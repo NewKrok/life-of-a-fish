@@ -571,6 +571,40 @@
         display: flex;
       }
 
+      /* ── Editor Play Test Controls ── */
+      .editor-test-controls {
+        position: absolute;
+        top: 12px;
+        right: 16px;
+        display: none;
+        gap: 8px;
+        z-index: 12;
+      }
+      .editor-test-controls.visible {
+        display: flex;
+      }
+      .editor-test-controls button {
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        background: rgba(10, 30, 60, 0.5);
+        border: 1.5px solid rgba(100, 180, 255, 0.3);
+        color: rgba(200, 230, 255, 0.7);
+        font: bold 16px "Silkscreen", monospace;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        line-height: 1;
+        padding: 0;
+      }
+      .editor-test-controls button:hover {
+        background: rgba(20, 50, 90, 0.8);
+        border-color: rgba(100, 200, 255, 0.6);
+        color: #ffffff;
+      }
+
       .pause-actions {
         display: flex;
         flex-direction: column;
@@ -953,6 +987,12 @@
 
     <!-- Pause Button (in-game) -->
     <button id="pauseBtn">&#9646;&#9646;</button>
+
+    <!-- Editor Play Test Controls -->
+    <div class="editor-test-controls" id="editorTestControls">
+      <button id="editorTestRestart" title="Restart">&#8635;</button>
+      <button id="editorTestExit" title="Back to Editor">&#10005;</button>
+    </div>
 
     <!-- Pause Modal -->
     <div class="menu-panel" id="pausePanel">

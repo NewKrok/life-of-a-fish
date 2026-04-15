@@ -33,7 +33,7 @@ const PALETTE = [
   { id: 14, char: 'C', label: 'Crab',        color: '#d04020', category: 'enemies', previewKey: 'crab' },
   { id: 15, char: 'F', label: 'Toxic Fish',  color: '#50c050', category: 'enemies', previewKey: 'toxicFish' },
   { id: 29, char: 'P', label: 'Spit Coral', color: '#cc6688', category: 'enemies', previewKey: 'spittingCoral' },
-  { id: 30, char: 'V', label: 'Sw Toggle',  color: '#22aa44', category: 'items',   previewKey: 'switchToggle' },
+  { id: 30, char: 'V', label: 'Sw Toggle',   color: '#22aa44', category: 'items',  previewKey: 'switchToggle' },
   { id: 31, char: 'N', label: 'Sw Pressure', color: '#3366cc', category: 'items',  previewKey: 'switchPressure' },
   { id: 32, char: 'O', label: 'Sw Timed',   color: '#cc8822', category: 'items',   previewKey: 'switchTimed' },
   { id: 33, char: 'G', label: 'Gate',        color: '#888899', category: 'items',   previewKey: 'gate' },
@@ -64,7 +64,7 @@ const ID_TO_CHAR = {};
 for (const p of PALETTE) ID_TO_CHAR[p.id] = p.char;
 
 // Entity tile IDs (non-terrain — stored as entity positions)
-const ENTITY_IDS = new Set([5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29]);
+const ENTITY_IDS = new Set([5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33]);
 
 // Enemies with patrol ranges
 const PATROL_DEFAULTS = {
@@ -75,6 +75,9 @@ const PATROL_DEFAULTS = {
   15: { axis: 'x', range: 60 },       // toxic fish
   28: { type: 'point', range: 70 },   // armored fish (point-to-point, supports diagonal)
 };
+
+// Ground-based entities — visually aligned to tile bottom instead of center
+const GROUND_ENTITY_IDS = new Set([14, 29, 30, 31, 32, 33]); // crab, spit coral, switches, gate
 
 // ── Camera scroll speed ──
 const CAM_SPEED = 400;          // px/s
@@ -146,6 +149,7 @@ export class LevelEditor {
     this._lastPlacedCell = null;
     this._dblClickTimer = 0;
     this._dblClickPos = null;
+    this._paintDelay = 0;
 
     // Right-click camera drag state
     this._rightDragStart = null;   // { screenX, screenY, camX, camY }
@@ -170,6 +174,10 @@ export class LevelEditor {
     // Grid visibility
     this.showGrid = true;
 
+    // Top bar button hit rects (set during render)
+    this._saveBtnRect = null;
+    this._playBtnRect = null;
+
     // Dirty flag for export
     this.dirty = false;
 
@@ -179,11 +187,12 @@ export class LevelEditor {
     // Rebuild callback — called when terrain or entities change
     this.onTerrainChange = null;
     this.onEntityChange = null;
+    this.onPlayTest = null;  // called when Play button is clicked
 
     // Throttle terrain rebuilds
     this._terrainDirty = false;
     this._terrainRebuildTimer = 0;
-    this._terrainRebuildInterval = 0.3; // seconds
+    this._terrainRebuildInterval = 0.08; // seconds — fast rebuild for responsive painting
 
     // Bound handlers (for cleanup)
     this._onKeyDown = this._handleKeyDown.bind(this);
@@ -285,6 +294,8 @@ export class LevelEditor {
               entry.patrol = { axis: 'y', min: snapCenter(e.y - pDef.range), max: snapCenter(e.y + pDef.range) };
             }
           }
+          // Preserve switch/gate group assignment
+          if (e.group !== undefined) entry.group = e.group;
           list.push(entry);
         }
       };
@@ -405,8 +416,13 @@ export class LevelEditor {
     }
 
     // Continuous painting while mouse held (skip if dragging patrol or in move mode)
+    // Delay first paint briefly to allow double-click detection
     if (this._mouseDown && !this._draggingPatrol && !this.moveMode) {
-      this._placeTileAtMouse(getVisibleSize);
+      if (this._paintDelay > 0) {
+        this._paintDelay -= dt;
+      } else {
+        this._placeTileAtMouse(getVisibleSize);
+      }
     }
 
     // Drag patrol handle (snapped to tile centers)
@@ -532,19 +548,23 @@ export class LevelEditor {
     for (let i = 0; i < this.entities.length; i++) {
       const ent = this.entities[i];
       const pal = PALETTE.find(p => p.id === ent.tileId);
-      const color = pal ? pal.color : '#fff';
+      const color = pal ? pal.color : '#ffffff';
+      // Normalize short hex (#RGB) to full hex (#RRGGBB) for alpha concatenation
+      const fullColor = color.length === 4
+        ? '#' + color[1] + color[1] + color[2] + color[2] + color[3] + color[3]
+        : color;
 
       // Entity marker — fill the whole tile cell
       const ex = ent.x - TILE_SIZE / 2;
       const ey = ent.y - TILE_SIZE / 2;
-      ctx.fillStyle = color + '55';
-      ctx.strokeStyle = color;
+      ctx.fillStyle = fullColor + '55';
+      ctx.strokeStyle = fullColor;
       ctx.lineWidth = 2 / sx;
       ctx.fillRect(ex, ey, TILE_SIZE, TILE_SIZE);
       ctx.strokeRect(ex, ey, TILE_SIZE, TILE_SIZE);
 
       // Inner icon circle
-      ctx.fillStyle = color + '99';
+      ctx.fillStyle = fullColor + '99';
       ctx.beginPath();
       ctx.arc(ent.x, ent.y, TILE_SIZE / 4, 0, Math.PI * 2);
       ctx.fill();
@@ -560,14 +580,14 @@ export class LevelEditor {
 
       // Label
       ctx.fillStyle = '#fff';
-      ctx.font = `${Math.max(8, 10 / sx)}px 'Silkscreen', monospace`;
+      ctx.font = `${Math.max(5, 7 / sx)}px 'Silkscreen', monospace`;
       ctx.textAlign = 'center';
       const label = pal ? pal.label : '?';
       ctx.fillText(label, ent.x, ent.y - TILE_SIZE / 2 - 3 / sx);
 
       // ── Patrol visualization ──
       if (ent.patrol) {
-        const pColor = color;
+        const pColor = fullColor;
         ctx.strokeStyle = pColor + 'aa';
         ctx.lineWidth = 1.5 / sx;
         ctx.setLineDash([4 / sx, 4 / sx]);
@@ -599,6 +619,9 @@ export class LevelEditor {
         ctx.setLineDash([]);
       }
     }
+
+    // ── Switch-gate connection lines ──
+    this._drawSwitchGateLinks(ctx, sx);
 
     ctx.restore();
 
@@ -663,7 +686,39 @@ export class LevelEditor {
     ctx.fillStyle = 'rgba(200,230,255,0.7)';
     ctx.font = "10px 'Silkscreen', monospace";
     const modeLabel = this.moveMode ? '  MOVE' : '';
-    ctx.fillText(`Col:${mCol} Row:${mRow}${modeLabel}  |  G=grid  Ctrl+C=copy  M=move  RClick=pan`, SIDEBAR_W + 170, 21);
+    ctx.fillText(`Col:${mCol} Row:${mRow}${modeLabel}  |  G=grid  Shift+click=link  M=move`, SIDEBAR_W + 170, 21);
+
+    // ── Top bar buttons (Save, Play) ──
+    const btnW = 60;
+    const btnH = 22;
+    const btnY = 5;
+    const btnGap = 8;
+
+    // Save button
+    const saveBtnX = W - btnW * 2 - btnGap - 10;
+    this._saveBtnRect = { x: saveBtnX, y: btnY, w: btnW, h: btnH };
+    ctx.fillStyle = 'rgba(40, 120, 60, 0.8)';
+    ctx.fillRect(saveBtnX, btnY, btnW, btnH);
+    ctx.strokeStyle = 'rgba(100, 255, 140, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(saveBtnX, btnY, btnW, btnH);
+    ctx.fillStyle = '#fff';
+    ctx.font = "bold 9px 'Silkscreen', monospace";
+    ctx.textAlign = 'center';
+    ctx.fillText('SAVE', saveBtnX + btnW / 2, btnY + 15);
+
+    // Play button
+    const playBtnX = W - btnW - 10;
+    this._playBtnRect = { x: playBtnX, y: btnY, w: btnW, h: btnH };
+    ctx.fillStyle = 'rgba(40, 80, 160, 0.8)';
+    ctx.fillRect(playBtnX, btnY, btnW, btnH);
+    ctx.strokeStyle = 'rgba(100, 180, 255, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(playBtnX, btnY, btnW, btnH);
+    ctx.fillStyle = '#fff';
+    ctx.font = "bold 9px 'Silkscreen', monospace";
+    ctx.textAlign = 'center';
+    ctx.fillText('\u25B6 PLAY', playBtnX + btnW / 2, btnY + 15);
 
     ctx.restore();
   }
@@ -681,6 +736,82 @@ export class LevelEditor {
     ctx.fill();
     ctx.stroke();
     ctx.restore();
+  }
+
+  // ── Switch-gate group connection lines ──
+  _drawSwitchGateLinks(ctx, sx) {
+    const GROUP_COLORS = ['#44ff44', '#4488ff', '#ff8844', '#ff44ff', '#ffff44',
+                          '#44ffff', '#ff4444', '#88ff88', '#8888ff', '#ff88ff'];
+    // Collect switches and gates by group
+    const switchesByGroup = {};
+    const gatesByGroup = {};
+    for (const ent of this.entities) {
+      if (ent.group === undefined) continue;
+      if (ent.tileId >= 30 && ent.tileId <= 32) {
+        if (!switchesByGroup[ent.group]) switchesByGroup[ent.group] = [];
+        switchesByGroup[ent.group].push(ent);
+      } else if (ent.tileId === 33) {
+        if (!gatesByGroup[ent.group]) gatesByGroup[ent.group] = [];
+        gatesByGroup[ent.group].push(ent);
+      }
+    }
+
+    // Draw connection lines between switches and gates in the same group
+    for (const g of Object.keys(switchesByGroup)) {
+      const sw = switchesByGroup[g];
+      const gt = gatesByGroup[g];
+      if (!gt) continue;
+      const color = GROUP_COLORS[g % GROUP_COLORS.length];
+      ctx.strokeStyle = color + 'bb';
+      ctx.lineWidth = 2 / sx;
+      ctx.setLineDash([6 / sx, 4 / sx]);
+      for (const s of sw) {
+        for (const gate of gt) {
+          ctx.beginPath();
+          ctx.moveTo(s.x, s.y);
+          ctx.lineTo(gate.x, gate.y);
+          ctx.stroke();
+        }
+      }
+      ctx.setLineDash([]);
+
+      // Draw group number badge on each switch/gate
+      const badge = (ent) => {
+        const badgeR = 6 / sx;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(ent.x + TILE_SIZE / 2, ent.y - TILE_SIZE / 2, badgeR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#000';
+        ctx.font = `bold ${Math.max(4, 5 / sx)}px 'Silkscreen', monospace`;
+        ctx.textAlign = 'center';
+        ctx.fillText(g, ent.x + TILE_SIZE / 2, ent.y - TILE_SIZE / 2 + 2 / sx);
+      };
+      for (const s of sw) badge(s);
+      if (gt) for (const gate of gt) badge(gate);
+    }
+
+    // Also draw badges for unlinked switches/gates (no matching partner)
+    for (const ent of this.entities) {
+      if (!this._isSwitchOrGate(ent.tileId) || ent.group === undefined) continue;
+      const g = ent.group;
+      const color = GROUP_COLORS[g % GROUP_COLORS.length];
+      const hasPair = (ent.tileId === 33)
+        ? switchesByGroup[g] && switchesByGroup[g].length > 0
+        : gatesByGroup[g] && gatesByGroup[g].length > 0;
+      if (!hasPair) {
+        // Draw warning badge — no linked partner
+        const badgeR = 6 / sx;
+        ctx.fillStyle = '#ff0000';
+        ctx.beginPath();
+        ctx.arc(ent.x + TILE_SIZE / 2, ent.y - TILE_SIZE / 2, badgeR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = `bold ${Math.max(4, 5 / sx)}px 'Silkscreen', monospace`;
+        ctx.textAlign = 'center';
+        ctx.fillText('?', ent.x + TILE_SIZE / 2, ent.y - TILE_SIZE / 2 + 2 / sx);
+      }
+    }
   }
 
   // ── Left sidebar — grid layout ──
@@ -945,6 +1076,10 @@ export class LevelEditor {
           entry.patrol = { axis: 'y', min: snapCenter(cy - pDef.range), max: snapCenter(cy + pDef.range) };
         }
       }
+      // Assign group for switches and gates
+      if (tileId >= 30 && tileId <= 33) {
+        entry.group = this._nextSwitchGateGroup();
+      }
       if (tileId === 7) {
         this.entities = this.entities.filter(e => e.tileId !== 7);
       }
@@ -999,7 +1134,8 @@ export class LevelEditor {
       if (this.tiles[row][col] !== 0) {
         this.tiles[row][col] = 0;
         this.dirty = true;
-        this._terrainDirty = true;
+        // Force immediate terrain rebuild for responsive delete feedback
+        if (this.onTerrainChange) this.onTerrainChange();
       }
     }
   }
@@ -1052,6 +1188,29 @@ export class LevelEditor {
       }
     }
     return null;
+  }
+
+  // ── Switch/gate group helpers ──
+  _isSwitchOrGate(tileId) { return tileId >= 30 && tileId <= 33; }
+
+  _nextSwitchGateGroup() {
+    // Find the highest group in use and return +1, or 0 if none
+    let maxGroup = -1;
+    for (const e of this.entities) {
+      if (this._isSwitchOrGate(e.tileId) && e.group !== undefined) {
+        maxGroup = Math.max(maxGroup, e.group);
+      }
+    }
+    return maxGroup + 1;
+  }
+
+  _cycleSwitchGateGroup(entityIdx) {
+    const ent = this.entities[entityIdx];
+    if (!ent || !this._isSwitchOrGate(ent.tileId)) return;
+    const maxGroup = this._nextSwitchGateGroup();
+    ent.group = ((ent.group || 0) + 1) % Math.max(maxGroup + 1, 1);
+    this.dirty = true;
+    if (this.onEntityChange) this.onEntityChange(this.entities);
   }
 
   // ── Export level as string array ──
@@ -1125,11 +1284,40 @@ export class LevelEditor {
       }
     }
 
+    // Switch-gate group data
+    const groups = this._exportSwitchGateGroups();
+    if (groups.length > 0) {
+      output += '\n// ── Switch-Gate Groups ──\n';
+      output += 'switchGateGroups: [\n';
+      for (const g of groups) {
+        const swParts = g.switches.map(s => `{ row: ${s.row}, col: ${s.col} }`).join(', ');
+        const gtParts = g.gates.map(gt => `{ row: ${gt.row}, col: ${gt.col} }`).join(', ');
+        output += `  { id: ${g.id}, switches: [${swParts}], gates: [${gtParts}] },\n`;
+      }
+      output += ']\n';
+    }
+
     navigator.clipboard.writeText(output).then(() => {
       this._showToast('Level data copied to clipboard!');
     }).catch(() => {
       this._showToast('Copy failed — check clipboard permissions');
     });
+  }
+
+  _exportSwitchGateGroups() {
+    const groups = {};
+    for (const ent of this.entities) {
+      if (!this._isSwitchOrGate(ent.tileId) || ent.group === undefined) continue;
+      if (!groups[ent.group]) groups[ent.group] = { id: ent.group, switches: [], gates: [] };
+      const col = Math.round((ent.x - TILE_SIZE / 2) / TILE_SIZE);
+      const row = Math.round((ent.y - TILE_SIZE / 2) / TILE_SIZE);
+      if (ent.tileId === 33) {
+        groups[ent.group].gates.push({ row, col });
+      } else {
+        groups[ent.group].switches.push({ row, col });
+      }
+    }
+    return Object.values(groups);
   }
 
   // ── Toast notification ──
@@ -1234,6 +1422,25 @@ export class LevelEditor {
         return;
       }
 
+      // Check top bar button clicks
+      if (this._saveBtnRect && e.clientY < TOP_BAR_H) {
+        const r = this._saveBtnRect;
+        if (e.clientX >= r.x && e.clientX <= r.x + r.w && e.clientY >= r.y && e.clientY <= r.y + r.h) {
+          this.copyToClipboard();
+          return;
+        }
+        const p = this._playBtnRect;
+        if (p && e.clientX >= p.x && e.clientX <= p.x + p.w && e.clientY >= p.y && e.clientY <= p.y + p.h) {
+          if (this.onPlayTest) this.onPlayTest();
+          return;
+        }
+      }
+
+      // Shift-click on switch/gate to cycle group
+      if (e.shiftKey && e.clientX > SIDEBAR_W) {
+        this._pendingGroupCycle = { screenX: e.clientX, screenY: e.clientY };
+      }
+
       // Check double-click
       const now = performance.now();
       if (this._dblClickPos &&
@@ -1255,6 +1462,7 @@ export class LevelEditor {
 
       this._mouseDown = true;
       this._lastPlacedCell = null;
+      this._paintDelay = 0.15; // 150ms delay to allow double-click detection
     } else if (e.button === 2) {
       // Right-click: start camera drag
       this._rightMouseDown = true;
@@ -1271,7 +1479,12 @@ export class LevelEditor {
 
   _handleMouseUp(e) {
     if (e.button === 0) {
+      // Single click: if paint delay hasn't expired yet, place one tile now
+      if (this._mouseDown && this._paintDelay > 0 && !this._draggingPatrol && !this.moveMode) {
+        this._pendingSinglePlace = true;
+      }
       this._mouseDown = false;
+      this._paintDelay = 0;
       this._draggingPatrol = null;
       this._movingEntity = null;
     } else if (e.button === 2) {
@@ -1460,6 +1673,27 @@ export class LevelEditor {
       }
       this._pendingMovePickup = null;
     }
+
+    // Shift-click: cycle switch/gate group
+    if (this._pendingGroupCycle) {
+      const { visW, visH } = getVisibleSize();
+      const viewW = this.hudCanvas.width - SIDEBAR_W;
+      const wx = this.camX + ((this._pendingGroupCycle.screenX - SIDEBAR_W) / viewW) * visW;
+      const wy = this.camY + (this._pendingGroupCycle.screenY / this.hudCanvas.height) * visH;
+      const idx = this._findEntityAt(wx, wy);
+      if (idx >= 0 && this._isSwitchOrGate(this.entities[idx].tileId)) {
+        this._cycleSwitchGateGroup(idx);
+        this._showToast(`Group → ${this.entities[idx].group}`);
+      }
+      this._pendingGroupCycle = null;
+    }
+
+    // Single click placement (mouse released before paint delay expired)
+    if (this._pendingSinglePlace) {
+      this._lastPlacedCell = null; // reset so placement isn't skipped
+      this._placeTileAtMouse(getVisibleSize);
+      this._pendingSinglePlace = false;
+    }
   }
 
   // ── 3D ghost model at cursor ──
@@ -1492,8 +1726,9 @@ export class LevelEditor {
     if (!this._ghostGroup) return;
 
     // Position ghost at grid cell (Three.js Y is flipped)
+    // Ground entities snap to tile bottom instead of center
     const wx = col * TILE_SIZE + TILE_SIZE / 2;
-    const wy = row * TILE_SIZE + TILE_SIZE / 2;
+    const wy = row * TILE_SIZE + (GROUND_ENTITY_IDS.has(this.selectedTile) ? TILE_SIZE : TILE_SIZE / 2);
     this._ghostGroup.position.set(wx, -wy, 0);
     this._ghostGroup.visible = true;
     this._ghostCol = col;
@@ -1657,6 +1892,25 @@ export class LevelEditor {
           vr.buildChests([{ body: fakeBody, colorIndex }]);
           const entry = vr.chestMeshes.pop();
           if (entry) { tempScene.remove(entry.mesh); result = entry.mesh; }
+          break;
+        }
+        case 26: { // Crate
+          const fakeBody = { position: { x: 0, y: 0 } };
+          vr.buildCrates([fakeBody]);
+          const entry = vr.crateMeshes.pop();
+          if (entry) { tempScene.remove(entry.mesh); result = entry.mesh; }
+          break;
+        }
+        case 27: { // Breakable Wall — rendered as terrain block
+          const texture = vr._generateTileTexture(27);
+          const geo = new this._three.BoxGeometry(TILE_SIZE, TILE_SIZE, TILE_SIZE);
+          const mat = new this._three.MeshStandardMaterial({
+            map: texture, roughness: 0.9, metalness: 0.0,
+            transparent: true, opacity: 0.5,
+          });
+          const mesh = new this._three.Mesh(geo, mat);
+          result = new this._three.Group();
+          result.add(mesh);
           break;
         }
         case 28: // Armored Fish

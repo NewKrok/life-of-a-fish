@@ -58,7 +58,7 @@ const CORAL_FAN_ANGLE = Math.PI / 6;  // 30° spread on each side
 const TIMED_SWITCH_DURATION = 5000;   // ms — how long a timed switch stays open
 const GATE_OPEN_SPEED = 3.0;          // rad/s — gate swing rotation speed
 const GATE_HEIGHT = 2 * 32;           // px — gate is 2 tiles tall
-const GATE_WIDTH = 8;                 // px — thin like a raft
+const GATE_WIDTH = 32;                // px — one tile wide to match visual
 const PLAYER_CAPSULE_W = 24;
 const PLAYER_CAPSULE_H = 12;
 
@@ -102,6 +102,10 @@ let menuEditor = null;    // LevelEditor for menu level
 let _capturedEntities = null;  // snapshot of game entities for editor init
 let _gameCamX = 0;       // exposed camera X from game loop
 let _gameCamY = 0;       // exposed camera Y from game loop
+let _editorPlayTest = false;   // true when play-testing from editor
+let _editorPlayTestTiles = null;  // saved tile state (terrain only) for returning to editor
+let _editorPlayTestTilesWithEntities = null;  // saved tile state (with entities) for restart
+let _editorPlayTestEntities = null;  // saved entity state for editor play test
 
 // ── Music & SFX ──
 const music = new MusicSystem();
@@ -146,6 +150,11 @@ const pauseMusicSlider = document.getElementById('pauseMusicVol');
 const pauseMusicLabel = document.getElementById('pauseMusicVolVal');
 const pauseSfxSlider = document.getElementById('pauseSfxVol');
 const pauseSfxLabel = document.getElementById('pauseSfxVolVal');
+
+// ── Editor Play Test Controls ──
+const editorTestControls = document.getElementById('editorTestControls');
+const editorTestRestart = document.getElementById('editorTestRestart');
+const editorTestExit = document.getElementById('editorTestExit');
 
 // ── Touch Controls (module-level so menu/pause helpers can access) ──
 const touchControls = new TouchControls();
@@ -347,7 +356,7 @@ function _irisStandaloneLoop() {
     menuScene.stop();
     appState = 'game';
     music.play('game');
-    pauseBtn.classList.add('visible');
+    if (!_editorPlayTest) pauseBtn.classList.add('visible');
     _startWithExpand = true;
     startGame();
     return;
@@ -527,6 +536,18 @@ const CODEX_DATA = [
     desc: 'A venomous lurker that spits poison projectiles when you get close. Keeps its distance and attacks from afar.',
     tip: 'Tip: Dash through the projectiles or time your approach between shots.',
   },
+  {
+    category: 'enemies', preview: 'armoredFish', name: 'Armored Fish',
+    tag: 'danger', tagLabel: 'Armored',
+    desc: 'Its scales are harder than stone. Your dash just makes it angry. Hit it with something heavier — or learn to sneak past.',
+    tip: 'Tip: Throw a boulder or key at it. Dashing only bounces you back!',
+  },
+  {
+    category: 'enemies', preview: 'spittingCoral', name: 'Spitting Coral',
+    tag: 'danger', tagLabel: 'Ranged',
+    desc: 'A crusty polyp that spits venom in a triple fan. Every. Few. Seconds. Stand to the side and wait — or shut it up with a boulder.',
+    tip: 'Tip: The projectiles always go up in a fan pattern. Stay below and to the side, or throw a boulder to destroy it.',
+  },
   // ── Items ──
   {
     category: 'items', preview: 'pearl', name: 'Pearl',
@@ -552,7 +573,43 @@ const CODEX_DATA = [
     desc: 'Heavy underwater rocks that can be picked up and thrown. They sink fast and hit hard.',
     tip: 'Tip: Throw boulders at piranhas to defeat them from a safe distance.',
   },
+  {
+    category: 'items', preview: 'crate', name: 'Underwater Crate',
+    tag: 'item', tagLabel: 'Breakable',
+    desc: 'Old wooden crates from who knows where. Smash them for fun — sometimes there\'s a pearl inside. Mostly just splinters.',
+    tip: 'Tip: Dash into crates to break them. About 1 in 3 contains a pearl!',
+  },
   // ── Terrain ──
+  {
+    category: 'terrain', preview: 'breakableWall', name: 'Breakable Wall',
+    tag: 'terrain', tagLabel: 'Destructible',
+    desc: 'Cracked stone that can\'t take a hit. One good dash and it crumbles — revealing whatever\'s behind.',
+    tip: 'Tip: Look for cracks in walls. Dash through to find hidden rooms, shortcuts, and bonus pearls.',
+  },
+  {
+    category: 'terrain', preview: 'switchToggle', name: 'Toggle Switch',
+    tag: 'terrain', tagLabel: 'Mechanism',
+    desc: 'A green pressure pad with a spring-loaded button. One touch and the linked gate opens permanently — no going back.',
+    tip: 'Tip: These are the easiest switches. Just swim over it and the gate stays open forever.',
+  },
+  {
+    category: 'terrain', preview: 'switchPressure', name: 'Pressure Switch',
+    tag: 'terrain', tagLabel: 'Mechanism',
+    desc: 'A blue pressure pad that needs constant weight. The gate stays open only while something rests on it — step off and it closes.',
+    tip: 'Tip: Push a boulder or crate onto it to keep the gate open while you swim through!',
+  },
+  {
+    category: 'terrain', preview: 'switchTimed', name: 'Timed Switch',
+    tag: 'terrain', tagLabel: 'Mechanism',
+    desc: 'An orange lever on a pedestal. Hit it and the linked gate opens for 5 seconds — watch the lever drift back as time runs out.',
+    tip: 'Tip: Plan your route before activating it. 5 seconds goes fast!',
+  },
+  {
+    category: 'terrain', preview: 'gate', name: 'Gate',
+    tag: 'terrain', tagLabel: 'Barrier',
+    desc: 'Metal grates that block your path. They only open when their linked switch is activated.',
+    tip: 'Tip: Find the matching switch to open the gate. Some gates need a boulder placed on a pressure switch to stay open.',
+  },
   {
     category: 'terrain', preview: 'coral', name: 'Coral',
     tag: 'terrain', tagLabel: 'Block',
@@ -688,7 +745,7 @@ function _showPauseModal() {
 
 function _hidePauseModal() {
   pausePanel.classList.remove('visible');
-  if (appState === 'game') pauseBtn.classList.add('visible');
+  if (appState === 'game' && !_editorPlayTest) pauseBtn.classList.add('visible');
 }
 
 pauseBtn.addEventListener('click', () => {
@@ -800,8 +857,10 @@ function _activateEditor() {
       gameEditor.onEntityChange = (entities) => {
         _rebuildGameEntityVisuals(entities);
       };
+      gameEditor.onPlayTest = () => _startEditorPlayTest();
       gameEditor.activate(_gameCamX, _gameCamY, entityList);
     } else {
+      gameEditor.onPlayTest = () => _startEditorPlayTest();
       gameEditor.activate(_gameCamX, _gameCamY, gameEditor.entities);
     }
     // Detach from menu
@@ -861,9 +920,14 @@ function _rebuildMenuEntityVisuals(entities) {
 function _buildEditorEntities(vr, entities) {
   // Collect entities by type for batch building
   const pearls = [], buoys = [], boulders = [], rafts = [], keys = [], chests = [];
+  const crates = [], switches = [], gates = [];
+
+  // Ground-based entities — visual position shifted to tile bottom
+  const GROUND_IDS = new Set([14, 29, 30, 31, 32, 33]);
 
   for (const ent of entities) {
-    const fakeBody = { position: { x: ent.x, y: ent.y } };
+    const yOff = GROUND_IDS.has(ent.tileId) ? TILE_SIZE / 2 : 0;
+    const fakeBody = { position: { x: ent.x, y: ent.y + yOff } };
     switch (ent.tileId) {
       case 5: pearls.push(fakeBody); break;
       case 6: vr.buildEnemyFish(); break;
@@ -875,6 +939,13 @@ function _buildEditorEntities(vr, entities) {
       case 13: vr.buildPufferfish(); break;
       case 14: vr.buildCrab(); break;
       case 15: vr.buildToxicFish(); break;
+      case 26: crates.push(fakeBody); break;
+      case 28: vr.buildArmoredFish(); break;
+      case 29: vr.buildSpittingCoral(); break;
+      case 30: switches.push({ body: fakeBody, type: 'toggle', group: ent.group || 0, active: false, timer: 0 }); break;
+      case 31: switches.push({ body: fakeBody, type: 'pressure', group: ent.group || 0, active: false, timer: 0 }); break;
+      case 32: switches.push({ body: fakeBody, type: 'timed', group: ent.group || 0, active: false, timer: 0 }); break;
+      case 33: gates.push({ body: fakeBody, group: ent.group || 0, open: false, angle: 0 }); break;
       default:
         if (ent.tileId >= 16 && ent.tileId <= 20) {
           keys.push({ body: fakeBody, colorIndex: ent.tileId - 16 });
@@ -890,14 +961,20 @@ function _buildEditorEntities(vr, entities) {
   if (rafts.length) vr.buildRafts(rafts);
   if (keys.length) vr.buildKeys(keys);
   if (chests.length) vr.buildChests(chests);
+  if (crates.length) vr.buildCrates(crates);
+  if (switches.length) vr.buildSwitches(switches);
+  if (gates.length) vr.buildGates(gates);
 }
 
 // Position editor entity visuals at their world positions
 function _positionEditorEntities(vr, entities) {
-  let ei = 0, si = 0, pi = 0, ci = 0, ti = 0;
+  // Ground-based entities get visual offset to tile bottom
+  const GROUND_IDS = new Set([14, 29, 30, 31, 32, 33]);
+  let ei = 0, si = 0, pi = 0, ci = 0, ti = 0, ai = 0, sci = 0;
   for (const ent of entities) {
     const x = ent.x;
-    const y = -ent.y; // Three.js Y is flipped
+    const groundOff = GROUND_IDS.has(ent.tileId) ? TILE_SIZE / 2 : 0;
+    const y = -(ent.y + groundOff); // Three.js Y is flipped
     if (ent.tileId === 6 && ei < vr.enemyGroups.length) {
       vr.enemyGroups[ei].position.set(x, y, 0);
       vr.enemyGroups[ei].visible = true;
@@ -918,9 +995,17 @@ function _positionEditorEntities(vr, entities) {
       vr.toxicFishGroups[ti].position.set(x, y, 0);
       vr.toxicFishGroups[ti].visible = true;
       ti++;
+    } else if (ent.tileId === 28 && ai < vr.armoredFishGroups.length) {
+      vr.armoredFishGroups[ai].position.set(x, y, 0);
+      vr.armoredFishGroups[ai].visible = true;
+      ai++;
+    } else if (ent.tileId === 29 && sci < vr.spittingCoralGroups.length) {
+      vr.spittingCoralGroups[sci].position.set(x, y, 0);
+      vr.spittingCoralGroups[sci].visible = true;
+      sci++;
     }
-    // Pearl, buoy, boulder, raft, key, chest positions are already set
-    // by the build methods via the fakeBody positions
+    // Pearl, buoy, boulder, raft, key, chest, crate, switch, gate positions
+    // are already set by the build methods via the fakeBody positions
   }
 }
 
@@ -941,6 +1026,121 @@ function _getActiveEditor() {
   if (appState === 'game' && gameInitialized) return gameEditor;
   return menuEditor;
 }
+
+// ── Editor Play Test ──
+function _startEditorPlayTest() {
+  if (!gameEditor || !editorActive) return;
+
+  // Save editor state for returning (terrain-only tiles, before writing entities)
+  _editorPlayTestTiles = gameEditor.tiles.map(row => [...row]);
+  _editorPlayTestEntities = JSON.parse(JSON.stringify(gameEditor.entities));
+
+  // Write editor entities into TILES so getLevelEntities() can find them
+  for (const ent of gameEditor.entities) {
+    const col = Math.round((ent.x - TILE_SIZE / 2) / TILE_SIZE);
+    const row = Math.round((ent.y - TILE_SIZE / 2) / TILE_SIZE);
+    if (row >= 0 && row < LEVEL_ROWS && col >= 0 && col < LEVEL_COLS) {
+      TILES[row][col] = ent.tileId;
+    }
+  }
+  // Save tiles with entities for restart
+  _editorPlayTestTilesWithEntities = TILES.map(row => [...row]);
+
+  // Deactivate editor
+  _deactivateEditor();
+
+  // Reset game initialization so startGame rebuilds everything from current TILES
+  gameInitialized = false;
+  gameEditor = null; // force re-creation when editor is re-opened
+
+  // Start the game — tiles are already modified in place by the editor
+  _editorPlayTest = true;
+  appState = 'game';
+
+  // Stop menu scene
+  menuScene.stop();
+  menuOverlay.classList.add('hidden');
+
+  // Show editor test controls instead of pause button
+  pauseBtn.classList.remove('visible');
+  editorTestControls.classList.add('visible');
+
+  startGame();
+}
+
+function _exitEditorPlayTest() {
+  _editorPlayTest = false;
+  editorTestControls.classList.remove('visible');
+  pauseBtn.classList.remove('visible');
+
+  // Restore tile state with entities (so getLevelEntities works on re-init)
+  if (_editorPlayTestTilesWithEntities) {
+    for (let r = 0; r < _editorPlayTestTilesWithEntities.length; r++) {
+      for (let c = 0; c < _editorPlayTestTilesWithEntities[r].length; c++) {
+        TILES[r][c] = _editorPlayTestTilesWithEntities[r][c];
+      }
+    }
+  }
+
+  // Stop game loop
+  if (gameAnimId) {
+    cancelAnimationFrame(gameAnimId);
+    gameAnimId = null;
+  }
+  gameInitialized = false;
+  gameEditor = null;
+
+  // Re-start game with editor's tile state (skip resetTiles)
+  appState = 'game';
+  _editorPlayTest = true; // temporarily to skip resetTiles
+  startGame();
+  _editorPlayTest = false;
+
+  // Now open editor and restore entity list
+  _activateEditor();
+  if (gameEditor && _editorPlayTestEntities) {
+    gameEditor.entities = _editorPlayTestEntities;
+    // Restore terrain-only tiles for editor (entities tracked separately)
+    if (_editorPlayTestTiles) {
+      for (let r = 0; r < _editorPlayTestTiles.length; r++) {
+        for (let c = 0; c < _editorPlayTestTiles[r].length; c++) {
+          TILES[r][c] = _editorPlayTestTiles[r][c];
+        }
+      }
+    }
+    if (gameEditor.onEntityChange) gameEditor.onEntityChange(_editorPlayTestEntities);
+    gameEditor.onTerrainChange?.();
+  }
+}
+
+function _restartEditorPlayTest() {
+  // Restore tile state with entities for a fresh start
+  if (_editorPlayTestTilesWithEntities) {
+    for (let r = 0; r < _editorPlayTestTilesWithEntities.length; r++) {
+      for (let c = 0; c < _editorPlayTestTilesWithEntities[r].length; c++) {
+        TILES[r][c] = _editorPlayTestTilesWithEntities[r][c];
+      }
+    }
+  }
+
+  // Reset game initialization
+  gameInitialized = false;
+  gameEditor = null;
+  if (gameAnimId) {
+    cancelAnimationFrame(gameAnimId);
+    gameAnimId = null;
+  }
+
+  // Show editor test controls
+  editorTestControls.classList.add('visible');
+  pauseBtn.classList.remove('visible');
+
+  // Restart
+  startGame();
+}
+
+editorTestExit.addEventListener('click', () => _exitEditorPlayTest());
+editorTestRestart.addEventListener('click', () => _restartEditorPlayTest());
 
 // Start the menu scene immediately
 menuScene.start();
@@ -970,7 +1170,8 @@ function startGame() {
   gameInitialized = true;
 
   // Reset tile data so entities are re-extracted cleanly on re-start
-  resetTiles();
+  // Skip if play-testing from editor — tiles are already in the desired state
+  if (!_editorPlayTest) resetTiles();
 
   camera = new THREE.PerspectiveCamera(
     CAM_FOV, window.innerWidth / window.innerHeight, 1, 3000
@@ -1335,7 +1536,10 @@ const allSwitchEntities = [
 ];
 for (const sw of allSwitchEntities) {
   const b = new Body(BodyType.STATIC, new Vec2(sw.x, sw.y));
-  const shape = new Polygon(Polygon.box(TILE_SIZE * 0.8, TILE_SIZE * 0.3));
+  // Timed lever is taller so needs a taller sensor; pad switches are flat
+  const sW = sw.type === 'timed' ? TILE_SIZE * 0.4 : TILE_SIZE * 0.8;
+  const sH = sw.type === 'timed' ? TILE_SIZE * 0.6 : TILE_SIZE * 0.3;
+  const shape = new Polygon(Polygon.box(sW, sH));
   shape.sensorEnabled = true;
   shape.cbTypes.add(switchTag);
   b.shapes.add(shape);
@@ -1349,14 +1553,10 @@ for (const g of entities.gates) {
   // Gate body: KINEMATIC so we can rotate it; pivot at top edge
   // Position is at the tile center, body shape extends downward 2 tiles
   const b = new Body(BodyType.KINEMATIC, new Vec2(g.x, g.y));
-  // Solid shape blocks passage when closed
+  // Solid shape blocks passage when closed — tagged so PreListener can IGNORE when open
   const shape = new Polygon(Polygon.box(GATE_WIDTH, GATE_HEIGHT));
+  shape.cbTypes.add(gateTag);
   b.shapes.add(shape);
-  // Sensor overlay for collision events
-  const sensor = new Polygon(Polygon.box(GATE_WIDTH + 4, GATE_HEIGHT + 4));
-  sensor.sensorEnabled = true;
-  sensor.cbTypes.add(gateTag);
-  b.shapes.add(sensor);
   b.allowRotation = false;  // we control rotation manually
   b.space = space;
   gateBodies.push({ body: b, group: g.group, open: false, angle: 0 });
@@ -1805,7 +2005,18 @@ const switchKeyListener = new InteractionListener(
 );
 switchKeyListener.space = space;
 
-// ── Pressure switch deactivation: boulder/key leaves switch ──
+// ── Pressure switch deactivation: player/boulder/key/crate leaves switch ──
+const switchPlayerEndListener = new InteractionListener(
+  CbEvent.END, InteractionType.SENSOR, playerTag, switchTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const sw = switchBodies.find(s => s.body === b1 || s.body === b2);
+    if (sw && sw.type === 'pressure') _deactivateSwitch(sw);
+  },
+);
+switchPlayerEndListener.space = space;
+
 const switchBoulderEndListener = new InteractionListener(
   CbEvent.END, InteractionType.SENSOR, boulderTag, switchTag,
   (cb) => {
@@ -1827,6 +2038,29 @@ const switchKeyEndListener = new InteractionListener(
   },
 );
 switchKeyEndListener.space = space;
+
+const switchCrateListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, crateTag, switchTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const sw = switchBodies.find(s => s.body === b1 || s.body === b2);
+    if (!sw) return;
+    _activateSwitch(sw);
+  },
+);
+switchCrateListener.space = space;
+
+const switchCrateEndListener = new InteractionListener(
+  CbEvent.END, InteractionType.SENSOR, crateTag, switchTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const sw = switchBodies.find(s => s.body === b1 || s.body === b2);
+    if (sw && sw.type === 'pressure') _deactivateSwitch(sw);
+  },
+);
+switchCrateEndListener.space = space;
 
 // Player-gate collision: solid when closed, pass through when open
 const gatePlayerPre = new PreListener(
@@ -1866,7 +2100,8 @@ gateKeyPre.space = space;
 // ── Switch/Gate state management ──
 function _activateSwitch(sw) {
   if (sw.type === 'toggle') {
-    sw.active = !sw.active;
+    if (sw.active) return; // one-shot: already activated, ignore
+    sw.active = true;
   } else if (sw.type === 'pressure') {
     sw.active = true;
   } else if (sw.type === 'timed') {
@@ -1878,6 +2113,7 @@ function _activateSwitch(sw) {
 }
 
 function _deactivateSwitch(sw) {
+  if (sw.type === 'toggle') return; // one-shot: never deactivates
   sw.active = false;
   _updateGatesForGroup(sw.group);
 }
@@ -2414,7 +2650,7 @@ function restartGame() {
     // Transition from held black → open
     irisState = 'open_small';
     irisTimer = 0;
-    pauseBtn.classList.add('visible');
+    if (!_editorPlayTest) pauseBtn.classList.add('visible');
   } else {
     // Normal restart: close→open iris
     const { visW, visH } = getVisibleSize();
@@ -2429,9 +2665,9 @@ function restartGame() {
       const { visW: sw, visH: sh } = getVisibleSize();
       camX = Math.max(CAM_INSET, Math.min(entities.playerSpawn.x - sw / 2, WORLD_W - sw - CAM_INSET));
       camY = Math.max(CAM_TOP_INSET, Math.min(entities.playerSpawn.y - sh / 2 - 30, WORLD_H - sh - CAM_INSET));
-      irisOpenCx = (entities.playerSpawn.x - camX) / sw * hudCanvas.width;
+      irisOpenCx = (entities.playerSpawn.x - camX) / sw * hudCanvas.height;
       irisOpenCy = (entities.playerSpawn.y - camY) / sh * hudCanvas.height;
-      pauseBtn.classList.add('visible');
+      if (!_editorPlayTest) pauseBtn.classList.add('visible');
     });
   }
 }
@@ -2439,6 +2675,11 @@ function restartGame() {
 let _exitPending = false;
 
 function exitToMenu() {
+  // In editor play test mode, redirect to editor instead of menu
+  if (_editorPlayTest) {
+    _exitEditorPlayTest();
+    return;
+  }
   if (irisState !== 'none' && !_irisHoldBlack) return;
   const wasGameOver = gameOverActive;
   gamePaused = false;

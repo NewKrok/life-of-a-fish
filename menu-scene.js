@@ -568,6 +568,12 @@ export class MenuScene {
     this.camX = Math.max(camInset, Math.min(this.camX, MENU_WORLD_W - visW - camInset));
     this.camY = Math.max(camInset, Math.min(this.camY, MENU_WORLD_H - visH - camInset));
 
+    // Sync editor cam back so 2D overlay matches 3D camera
+    if (editorMode && this._editor) {
+      this._editor.camX = this.camX;
+      this._editor.camY = this.camY;
+    }
+
     // Position Three.js camera (editor = flat, normal = pitched)
     const lookX = this.camX + visW / 2;
     const lookY = -(this.camY + visH / 2);
