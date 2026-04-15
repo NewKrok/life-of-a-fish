@@ -102,6 +102,10 @@ let menuEditor = null;    // LevelEditor for menu level
 let _capturedEntities = null;  // snapshot of game entities for editor init
 let _gameCamX = 0;       // exposed camera X from game loop
 let _gameCamY = 0;       // exposed camera Y from game loop
+let _editorPlayTest = false;   // true when play-testing from editor
+let _editorPlayTestTiles = null;  // saved tile state (terrain only) for returning to editor
+let _editorPlayTestTilesWithEntities = null;  // saved tile state (with entities) for restart
+let _editorPlayTestEntities = null;  // saved entity state for editor play test
 
 // ── Music & SFX ──
 const music = new MusicSystem();
@@ -146,6 +150,11 @@ const pauseMusicSlider = document.getElementById('pauseMusicVol');
 const pauseMusicLabel = document.getElementById('pauseMusicVolVal');
 const pauseSfxSlider = document.getElementById('pauseSfxVol');
 const pauseSfxLabel = document.getElementById('pauseSfxVolVal');
+
+// ── Editor Play Test Controls ──
+const editorTestControls = document.getElementById('editorTestControls');
+const editorTestRestart = document.getElementById('editorTestRestart');
+const editorTestExit = document.getElementById('editorTestExit');
 
 // ── Touch Controls (module-level so menu/pause helpers can access) ──
 const touchControls = new TouchControls();
@@ -347,7 +356,7 @@ function _irisStandaloneLoop() {
     menuScene.stop();
     appState = 'game';
     music.play('game');
-    pauseBtn.classList.add('visible');
+    if (!_editorPlayTest) pauseBtn.classList.add('visible');
     _startWithExpand = true;
     startGame();
     return;
@@ -736,7 +745,7 @@ function _showPauseModal() {
 
 function _hidePauseModal() {
   pausePanel.classList.remove('visible');
-  if (appState === 'game') pauseBtn.classList.add('visible');
+  if (appState === 'game' && !_editorPlayTest) pauseBtn.classList.add('visible');
 }
 
 pauseBtn.addEventListener('click', () => {
@@ -848,8 +857,10 @@ function _activateEditor() {
       gameEditor.onEntityChange = (entities) => {
         _rebuildGameEntityVisuals(entities);
       };
+      gameEditor.onPlayTest = () => _startEditorPlayTest();
       gameEditor.activate(_gameCamX, _gameCamY, entityList);
     } else {
+      gameEditor.onPlayTest = () => _startEditorPlayTest();
       gameEditor.activate(_gameCamX, _gameCamY, gameEditor.entities);
     }
     // Detach from menu
@@ -909,9 +920,14 @@ function _rebuildMenuEntityVisuals(entities) {
 function _buildEditorEntities(vr, entities) {
   // Collect entities by type for batch building
   const pearls = [], buoys = [], boulders = [], rafts = [], keys = [], chests = [];
+  const crates = [], switches = [], gates = [];
+
+  // Ground-based entities — visual position shifted to tile bottom
+  const GROUND_IDS = new Set([14, 29, 30, 31, 32, 33]);
 
   for (const ent of entities) {
-    const fakeBody = { position: { x: ent.x, y: ent.y } };
+    const yOff = GROUND_IDS.has(ent.tileId) ? TILE_SIZE / 2 : 0;
+    const fakeBody = { position: { x: ent.x, y: ent.y + yOff } };
     switch (ent.tileId) {
       case 5: pearls.push(fakeBody); break;
       case 6: vr.buildEnemyFish(); break;
@@ -923,6 +939,13 @@ function _buildEditorEntities(vr, entities) {
       case 13: vr.buildPufferfish(); break;
       case 14: vr.buildCrab(); break;
       case 15: vr.buildToxicFish(); break;
+      case 26: crates.push(fakeBody); break;
+      case 28: vr.buildArmoredFish(); break;
+      case 29: vr.buildSpittingCoral(); break;
+      case 30: switches.push({ body: fakeBody, type: 'toggle', group: ent.group || 0, active: false, timer: 0 }); break;
+      case 31: switches.push({ body: fakeBody, type: 'pressure', group: ent.group || 0, active: false, timer: 0 }); break;
+      case 32: switches.push({ body: fakeBody, type: 'timed', group: ent.group || 0, active: false, timer: 0 }); break;
+      case 33: gates.push({ body: fakeBody, group: ent.group || 0, open: false, angle: 0 }); break;
       default:
         if (ent.tileId >= 16 && ent.tileId <= 20) {
           keys.push({ body: fakeBody, colorIndex: ent.tileId - 16 });
@@ -938,14 +961,20 @@ function _buildEditorEntities(vr, entities) {
   if (rafts.length) vr.buildRafts(rafts);
   if (keys.length) vr.buildKeys(keys);
   if (chests.length) vr.buildChests(chests);
+  if (crates.length) vr.buildCrates(crates);
+  if (switches.length) vr.buildSwitches(switches);
+  if (gates.length) vr.buildGates(gates);
 }
 
 // Position editor entity visuals at their world positions
 function _positionEditorEntities(vr, entities) {
-  let ei = 0, si = 0, pi = 0, ci = 0, ti = 0;
+  // Ground-based entities get visual offset to tile bottom
+  const GROUND_IDS = new Set([14, 29, 30, 31, 32, 33]);
+  let ei = 0, si = 0, pi = 0, ci = 0, ti = 0, ai = 0, sci = 0;
   for (const ent of entities) {
     const x = ent.x;
-    const y = -ent.y; // Three.js Y is flipped
+    const groundOff = GROUND_IDS.has(ent.tileId) ? TILE_SIZE / 2 : 0;
+    const y = -(ent.y + groundOff); // Three.js Y is flipped
     if (ent.tileId === 6 && ei < vr.enemyGroups.length) {
       vr.enemyGroups[ei].position.set(x, y, 0);
       vr.enemyGroups[ei].visible = true;
@@ -966,9 +995,17 @@ function _positionEditorEntities(vr, entities) {
       vr.toxicFishGroups[ti].position.set(x, y, 0);
       vr.toxicFishGroups[ti].visible = true;
       ti++;
+    } else if (ent.tileId === 28 && ai < vr.armoredFishGroups.length) {
+      vr.armoredFishGroups[ai].position.set(x, y, 0);
+      vr.armoredFishGroups[ai].visible = true;
+      ai++;
+    } else if (ent.tileId === 29 && sci < vr.spittingCoralGroups.length) {
+      vr.spittingCoralGroups[sci].position.set(x, y, 0);
+      vr.spittingCoralGroups[sci].visible = true;
+      sci++;
     }
-    // Pearl, buoy, boulder, raft, key, chest positions are already set
-    // by the build methods via the fakeBody positions
+    // Pearl, buoy, boulder, raft, key, chest, crate, switch, gate positions
+    // are already set by the build methods via the fakeBody positions
   }
 }
 
@@ -989,6 +1026,121 @@ function _getActiveEditor() {
   if (appState === 'game' && gameInitialized) return gameEditor;
   return menuEditor;
 }
+
+// ── Editor Play Test ──
+function _startEditorPlayTest() {
+  if (!gameEditor || !editorActive) return;
+
+  // Save editor state for returning (terrain-only tiles, before writing entities)
+  _editorPlayTestTiles = gameEditor.tiles.map(row => [...row]);
+  _editorPlayTestEntities = JSON.parse(JSON.stringify(gameEditor.entities));
+
+  // Write editor entities into TILES so getLevelEntities() can find them
+  for (const ent of gameEditor.entities) {
+    const col = Math.round((ent.x - TILE_SIZE / 2) / TILE_SIZE);
+    const row = Math.round((ent.y - TILE_SIZE / 2) / TILE_SIZE);
+    if (row >= 0 && row < LEVEL_ROWS && col >= 0 && col < LEVEL_COLS) {
+      TILES[row][col] = ent.tileId;
+    }
+  }
+  // Save tiles with entities for restart
+  _editorPlayTestTilesWithEntities = TILES.map(row => [...row]);
+
+  // Deactivate editor
+  _deactivateEditor();
+
+  // Reset game initialization so startGame rebuilds everything from current TILES
+  gameInitialized = false;
+  gameEditor = null; // force re-creation when editor is re-opened
+
+  // Start the game — tiles are already modified in place by the editor
+  _editorPlayTest = true;
+  appState = 'game';
+
+  // Stop menu scene
+  menuScene.stop();
+  menuOverlay.classList.add('hidden');
+
+  // Show editor test controls instead of pause button
+  pauseBtn.classList.remove('visible');
+  editorTestControls.classList.add('visible');
+
+  startGame();
+}
+
+function _exitEditorPlayTest() {
+  _editorPlayTest = false;
+  editorTestControls.classList.remove('visible');
+  pauseBtn.classList.remove('visible');
+
+  // Restore tile state with entities (so getLevelEntities works on re-init)
+  if (_editorPlayTestTilesWithEntities) {
+    for (let r = 0; r < _editorPlayTestTilesWithEntities.length; r++) {
+      for (let c = 0; c < _editorPlayTestTilesWithEntities[r].length; c++) {
+        TILES[r][c] = _editorPlayTestTilesWithEntities[r][c];
+      }
+    }
+  }
+
+  // Stop game loop
+  if (gameAnimId) {
+    cancelAnimationFrame(gameAnimId);
+    gameAnimId = null;
+  }
+  gameInitialized = false;
+  gameEditor = null;
+
+  // Re-start game with editor's tile state (skip resetTiles)
+  appState = 'game';
+  _editorPlayTest = true; // temporarily to skip resetTiles
+  startGame();
+  _editorPlayTest = false;
+
+  // Now open editor and restore entity list
+  _activateEditor();
+  if (gameEditor && _editorPlayTestEntities) {
+    gameEditor.entities = _editorPlayTestEntities;
+    // Restore terrain-only tiles for editor (entities tracked separately)
+    if (_editorPlayTestTiles) {
+      for (let r = 0; r < _editorPlayTestTiles.length; r++) {
+        for (let c = 0; c < _editorPlayTestTiles[r].length; c++) {
+          TILES[r][c] = _editorPlayTestTiles[r][c];
+        }
+      }
+    }
+    if (gameEditor.onEntityChange) gameEditor.onEntityChange(_editorPlayTestEntities);
+    gameEditor.onTerrainChange?.();
+  }
+}
+
+function _restartEditorPlayTest() {
+  // Restore tile state with entities for a fresh start
+  if (_editorPlayTestTilesWithEntities) {
+    for (let r = 0; r < _editorPlayTestTilesWithEntities.length; r++) {
+      for (let c = 0; c < _editorPlayTestTilesWithEntities[r].length; c++) {
+        TILES[r][c] = _editorPlayTestTilesWithEntities[r][c];
+      }
+    }
+  }
+
+  // Reset game initialization
+  gameInitialized = false;
+  gameEditor = null;
+  if (gameAnimId) {
+    cancelAnimationFrame(gameAnimId);
+    gameAnimId = null;
+  }
+
+  // Show editor test controls
+  editorTestControls.classList.add('visible');
+  pauseBtn.classList.remove('visible');
+
+  // Restart
+  startGame();
+}
+
+editorTestExit.addEventListener('click', () => _exitEditorPlayTest());
+editorTestRestart.addEventListener('click', () => _restartEditorPlayTest());
 
 // Start the menu scene immediately
 menuScene.start();
@@ -1018,7 +1170,8 @@ function startGame() {
   gameInitialized = true;
 
   // Reset tile data so entities are re-extracted cleanly on re-start
-  resetTiles();
+  // Skip if play-testing from editor — tiles are already in the desired state
+  if (!_editorPlayTest) resetTiles();
 
   camera = new THREE.PerspectiveCamera(
     CAM_FOV, window.innerWidth / window.innerHeight, 1, 3000
@@ -2497,7 +2650,7 @@ function restartGame() {
     // Transition from held black → open
     irisState = 'open_small';
     irisTimer = 0;
-    pauseBtn.classList.add('visible');
+    if (!_editorPlayTest) pauseBtn.classList.add('visible');
   } else {
     // Normal restart: close→open iris
     const { visW, visH } = getVisibleSize();
@@ -2512,9 +2665,9 @@ function restartGame() {
       const { visW: sw, visH: sh } = getVisibleSize();
       camX = Math.max(CAM_INSET, Math.min(entities.playerSpawn.x - sw / 2, WORLD_W - sw - CAM_INSET));
       camY = Math.max(CAM_TOP_INSET, Math.min(entities.playerSpawn.y - sh / 2 - 30, WORLD_H - sh - CAM_INSET));
-      irisOpenCx = (entities.playerSpawn.x - camX) / sw * hudCanvas.width;
+      irisOpenCx = (entities.playerSpawn.x - camX) / sw * hudCanvas.height;
       irisOpenCy = (entities.playerSpawn.y - camY) / sh * hudCanvas.height;
-      pauseBtn.classList.add('visible');
+      if (!_editorPlayTest) pauseBtn.classList.add('visible');
     });
   }
 }
@@ -2522,6 +2675,11 @@ function restartGame() {
 let _exitPending = false;
 
 function exitToMenu() {
+  // In editor play test mode, redirect to editor instead of menu
+  if (_editorPlayTest) {
+    _exitEditorPlayTest();
+    return;
+  }
   if (irisState !== 'none' && !_irisHoldBlack) return;
   const wasGameOver = gameOverActive;
   gamePaused = false;
