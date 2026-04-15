@@ -5,6 +5,7 @@
 // Works with both game level (level-data.js) and menu level (menu-level-data.js).
 
 import { TILE_SIZE } from './level-data.js';
+import { t } from './i18n.js';
 
 // ── Tile palette definition ──
 // Each entry: { id, char, label, color, category, previewKey? }
@@ -12,51 +13,51 @@ import { TILE_SIZE } from './level-data.js';
 const MOVE_TILE_ID = -1; // Special ID for move tool
 
 const PALETTE = [
-  { id: MOVE_TILE_ID, char: '.', label: 'Move',  color: '#00e5ff', category: 'tools',   previewKey: null },
-  { id: 0,  char: '.', label: 'Erase',      color: '#222',    category: 'tools',   previewKey: null },
-  { id: 1,  char: '#', label: 'Stone',       color: '#666',    category: 'terrain', previewKey: 'stone' },
-  { id: 2,  char: 's', label: 'Sand',        color: '#c8a86e', category: 'terrain', previewKey: 'sand' },
-  { id: 3,  char: 'c', label: 'Coral',       color: '#e06080', category: 'terrain', previewKey: 'coral' },
-  { id: 4,  char: 'x', label: 'Hazard',      color: '#40c040', category: 'terrain', previewKey: 'hazard' },
-  { id: 8,  char: 'd', label: 'Seagrass',    color: '#2d8040', category: 'terrain', previewKey: 'seagrass' },
-  { id: 5,  char: 'p', label: 'Pearl',       color: '#ffd93d', category: 'items',   previewKey: 'pearl' },
-  { id: 7,  char: '@', label: 'Spawn',       color: '#00e5ff', category: 'items',   previewKey: 'player' },
-  { id: 9,  char: 'B', label: 'Buoy',        color: '#ff4444', category: 'items',   previewKey: 'buoy' },
-  { id: 10, char: 'R', label: 'Boulder',     color: '#888',    category: 'items',   previewKey: 'boulder' },
-  { id: 11, char: 'T', label: 'Raft',        color: '#8b5a2b', category: 'items',   previewKey: 'raft' },
-  { id: 26, char: 'W', label: 'Crate',       color: '#8B6914', category: 'items',   previewKey: 'crate' },
-  { id: 27, char: 'K', label: 'Breakable Wall', color: '#7a7a8a', category: 'terrain', previewKey: 'breakableWall' },
-  { id: 6,  char: 'e', label: 'Piranha',     color: '#ff6060', category: 'enemies', previewKey: 'piranha' },
-  { id: 28, char: 'A', label: 'Armored Fish', color: '#6a7a8a', category: 'enemies', previewKey: 'armoredFish' },
-  { id: 12, char: 'S', label: 'Shark',       color: '#6080c0', category: 'enemies', previewKey: 'shark' },
-  { id: 13, char: 'U', label: 'Pufferfish',  color: '#c0a060', category: 'enemies', previewKey: 'pufferfish' },
-  { id: 14, char: 'C', label: 'Crab',        color: '#d04020', category: 'enemies', previewKey: 'crab' },
-  { id: 15, char: 'F', label: 'Toxic Fish',  color: '#50c050', category: 'enemies', previewKey: 'toxicFish' },
-  { id: 29, char: 'P', label: 'Spit Coral', color: '#cc6688', category: 'enemies', previewKey: 'spittingCoral' },
-  { id: 30, char: 'V', label: 'Sw Toggle',   color: '#22aa44', category: 'items',  previewKey: 'switchToggle' },
-  { id: 31, char: 'N', label: 'Sw Pressure', color: '#3366cc', category: 'items',  previewKey: 'switchPressure' },
-  { id: 32, char: 'O', label: 'Sw Timed',   color: '#cc8822', category: 'items',   previewKey: 'switchTimed' },
-  { id: 33, char: 'G', label: 'Gate',        color: '#888899', category: 'items',   previewKey: 'gate' },
-  { id: 16, char: '1', label: 'Key Red',     color: '#ff4444', category: 'keys',    previewKey: 'keyRed' },
-  { id: 17, char: '2', label: 'Key Blue',    color: '#4488ff', category: 'keys',    previewKey: 'keyBlue' },
-  { id: 18, char: '3', label: 'Key Green',   color: '#44cc44', category: 'keys',    previewKey: 'keyGreen' },
-  { id: 19, char: '4', label: 'Key Yellow',  color: '#ffcc00', category: 'keys',    previewKey: 'keyYellow' },
-  { id: 20, char: '5', label: 'Key Purple',  color: '#aa44ff', category: 'keys',    previewKey: 'keyPurple' },
-  { id: 21, char: 'a', label: 'Chest Red',   color: '#cc2222', category: 'chests',  previewKey: 'chestRed' },
-  { id: 22, char: 'b', label: 'Chest Blue',  color: '#2266cc', category: 'chests',  previewKey: 'chestBlue' },
-  { id: 23, char: 'g', label: 'Chest Green', color: '#22aa22', category: 'chests',  previewKey: 'chestGreen' },
-  { id: 24, char: 'y', label: 'Chest Yellow',color: '#ccaa00', category: 'chests',  previewKey: 'chestYellow' },
-  { id: 25, char: 'q', label: 'Chest Purple',color: '#8822cc', category: 'chests',  previewKey: 'chestPurple' },
+  { id: MOVE_TILE_ID, char: '.', labelKey: 'editor.pal.move',          color: '#00e5ff', category: 'tools',   previewKey: null },
+  { id: 0,  char: '.', labelKey: 'editor.pal.erase',                   color: '#222',    category: 'tools',   previewKey: null },
+  { id: 1,  char: '#', labelKey: 'editor.pal.stone',                   color: '#666',    category: 'terrain', previewKey: 'stone' },
+  { id: 2,  char: 's', labelKey: 'editor.pal.sand',                    color: '#c8a86e', category: 'terrain', previewKey: 'sand' },
+  { id: 3,  char: 'c', labelKey: 'editor.pal.coral',                   color: '#e06080', category: 'terrain', previewKey: 'coral' },
+  { id: 4,  char: 'x', labelKey: 'editor.pal.hazard',                  color: '#40c040', category: 'terrain', previewKey: 'hazard' },
+  { id: 8,  char: 'd', labelKey: 'editor.pal.seagrass',                color: '#2d8040', category: 'terrain', previewKey: 'seagrass' },
+  { id: 5,  char: 'p', labelKey: 'editor.pal.pearl',                   color: '#ffd93d', category: 'items',   previewKey: 'pearl' },
+  { id: 7,  char: '@', labelKey: 'editor.pal.spawn',                   color: '#00e5ff', category: 'items',   previewKey: 'player' },
+  { id: 9,  char: 'B', labelKey: 'editor.pal.buoy',                    color: '#ff4444', category: 'items',   previewKey: 'buoy' },
+  { id: 10, char: 'R', labelKey: 'editor.pal.boulder',                 color: '#888',    category: 'items',   previewKey: 'boulder' },
+  { id: 11, char: 'T', labelKey: 'editor.pal.raft',                    color: '#8b5a2b', category: 'items',   previewKey: 'raft' },
+  { id: 26, char: 'W', labelKey: 'editor.pal.crate',                   color: '#8B6914', category: 'items',   previewKey: 'crate' },
+  { id: 27, char: 'K', labelKey: 'editor.pal.breakableWall',           color: '#7a7a8a', category: 'terrain', previewKey: 'breakableWall' },
+  { id: 6,  char: 'e', labelKey: 'editor.pal.piranha',                 color: '#ff6060', category: 'enemies', previewKey: 'piranha' },
+  { id: 28, char: 'A', labelKey: 'editor.pal.armoredFish',             color: '#6a7a8a', category: 'enemies', previewKey: 'armoredFish' },
+  { id: 12, char: 'S', labelKey: 'editor.pal.shark',                   color: '#6080c0', category: 'enemies', previewKey: 'shark' },
+  { id: 13, char: 'U', labelKey: 'editor.pal.pufferfish',              color: '#c0a060', category: 'enemies', previewKey: 'pufferfish' },
+  { id: 14, char: 'C', labelKey: 'editor.pal.crab',                    color: '#d04020', category: 'enemies', previewKey: 'crab' },
+  { id: 15, char: 'F', labelKey: 'editor.pal.toxicFish',               color: '#50c050', category: 'enemies', previewKey: 'toxicFish' },
+  { id: 29, char: 'P', labelKey: 'editor.pal.spitCoral',               color: '#cc6688', category: 'enemies', previewKey: 'spittingCoral' },
+  { id: 30, char: 'V', labelKey: 'editor.pal.swToggle',                color: '#22aa44', category: 'items',   previewKey: 'switchToggle' },
+  { id: 31, char: 'N', labelKey: 'editor.pal.swPressure',              color: '#3366cc', category: 'items',   previewKey: 'switchPressure' },
+  { id: 32, char: 'O', labelKey: 'editor.pal.swTimed',                 color: '#cc8822', category: 'items',   previewKey: 'switchTimed' },
+  { id: 33, char: 'G', labelKey: 'editor.pal.gate',                    color: '#888899', category: 'items',   previewKey: 'gate' },
+  { id: 16, char: '1', labelKey: 'editor.pal.keyRed',                  color: '#ff4444', category: 'keys',    previewKey: 'keyRed' },
+  { id: 17, char: '2', labelKey: 'editor.pal.keyBlue',                 color: '#4488ff', category: 'keys',    previewKey: 'keyBlue' },
+  { id: 18, char: '3', labelKey: 'editor.pal.keyGreen',                color: '#44cc44', category: 'keys',    previewKey: 'keyGreen' },
+  { id: 19, char: '4', labelKey: 'editor.pal.keyYellow',               color: '#ffcc00', category: 'keys',    previewKey: 'keyYellow' },
+  { id: 20, char: '5', labelKey: 'editor.pal.keyPurple',               color: '#aa44ff', category: 'keys',    previewKey: 'keyPurple' },
+  { id: 21, char: 'a', labelKey: 'editor.pal.chestRed',                color: '#cc2222', category: 'chests',  previewKey: 'chestRed' },
+  { id: 22, char: 'b', labelKey: 'editor.pal.chestBlue',               color: '#2266cc', category: 'chests',  previewKey: 'chestBlue' },
+  { id: 23, char: 'g', labelKey: 'editor.pal.chestGreen',              color: '#22aa22', category: 'chests',  previewKey: 'chestGreen' },
+  { id: 24, char: 'y', labelKey: 'editor.pal.chestYellow',             color: '#ccaa00', category: 'chests',  previewKey: 'chestYellow' },
+  { id: 25, char: 'q', labelKey: 'editor.pal.chestPurple',             color: '#8822cc', category: 'chests',  previewKey: 'chestPurple' },
 ];
 
 // Category definitions in display order
 const CATEGORIES = [
-  { key: 'tools',   label: 'Tools' },
-  { key: 'terrain', label: 'Terrain' },
-  { key: 'items',   label: 'Items' },
-  { key: 'enemies', label: 'Enemies' },
-  { key: 'keys',    label: 'Keys' },
-  { key: 'chests',  label: 'Chests' },
+  { key: 'tools',   labelKey: 'editor.cat.tools' },
+  { key: 'terrain', labelKey: 'editor.cat.terrain' },
+  { key: 'items',   labelKey: 'editor.cat.items' },
+  { key: 'enemies', labelKey: 'editor.cat.enemies' },
+  { key: 'keys',    labelKey: 'editor.cat.keys' },
+  { key: 'chests',  labelKey: 'editor.cat.chests' },
 ];
 
 // Reverse lookup: tileId -> char
@@ -582,7 +583,7 @@ export class LevelEditor {
       ctx.fillStyle = '#fff';
       ctx.font = `${Math.max(5, 7 / sx)}px 'Silkscreen', monospace`;
       ctx.textAlign = 'center';
-      const label = pal ? pal.label : '?';
+      const label = pal ? t(pal.labelKey) : '?';
       ctx.fillText(label, ent.x, ent.y - TILE_SIZE / 2 - 3 / sx);
 
       // ── Patrol visualization ──
@@ -677,7 +678,7 @@ export class LevelEditor {
     ctx.fillStyle = '#ffd93d';
     ctx.font = "bold 11px 'Silkscreen', monospace";
     ctx.textAlign = 'left';
-    ctx.fillText('LEVEL EDITOR (F4)', SIDEBAR_W + 10, 21);
+    ctx.fillText(t('editor.title'), SIDEBAR_W + 10, 21);
 
     const mx = this.camX + ((this._mouseScreen.x - SIDEBAR_W) / viewW) * visW;
     const my = this.camY + (this._mouseScreen.y / H) * visH;
@@ -685,8 +686,8 @@ export class LevelEditor {
     const mRow = Math.floor(my / TILE_SIZE);
     ctx.fillStyle = 'rgba(200,230,255,0.7)';
     ctx.font = "10px 'Silkscreen', monospace";
-    const modeLabel = this.moveMode ? '  MOVE' : '';
-    ctx.fillText(`Col:${mCol} Row:${mRow}${modeLabel}  |  G=grid  Shift+click=link  M=move`, SIDEBAR_W + 170, 21);
+    const modeLabel = this.moveMode ? `  ${t('editor.moveMode')}` : '';
+    ctx.fillText(`${t('editor.coordinates', { col: mCol, row: mRow })}${modeLabel}  |  ${t('editor.controls')}`, SIDEBAR_W + 170, 21);
 
     // ── Top bar buttons (Save, Play) ──
     const btnW = 60;
@@ -705,7 +706,7 @@ export class LevelEditor {
     ctx.fillStyle = '#fff';
     ctx.font = "bold 9px 'Silkscreen', monospace";
     ctx.textAlign = 'center';
-    ctx.fillText('SAVE', saveBtnX + btnW / 2, btnY + 15);
+    ctx.fillText(t('editor.save'), saveBtnX + btnW / 2, btnY + 15);
 
     // Play button
     const playBtnX = W - btnW - 10;
@@ -718,7 +719,7 @@ export class LevelEditor {
     ctx.fillStyle = '#fff';
     ctx.font = "bold 9px 'Silkscreen', monospace";
     ctx.textAlign = 'center';
-    ctx.fillText('\u25B6 PLAY', playBtnX + btnW / 2, btnY + 15);
+    ctx.fillText(`\u25B6 ${t('editor.play')}`, playBtnX + btnW / 2, btnY + 15);
 
     ctx.restore();
   }
@@ -865,7 +866,7 @@ export class LevelEditor {
       ctx.font = "bold 9px 'Silkscreen', monospace";
       ctx.textAlign = 'left';
       const arrow = isCollapsed ? '\u25B6' : '\u25BC';
-      ctx.fillText(`${arrow} ${cat.label}`, SIDEBAR_PAD + 6, curY + 16);
+      ctx.fillText(`${arrow} ${t(cat.labelKey)}`, SIDEBAR_PAD + 6, curY + 16);
       curY += CATEGORY_HEADER_H + 4;
 
       if (!isCollapsed) {
@@ -907,7 +908,7 @@ export class LevelEditor {
           ctx.fillStyle = selected ? '#fff' : 'rgba(200,230,255,0.6)';
           ctx.font = "7px 'Silkscreen', monospace";
           ctx.textAlign = 'center';
-          ctx.fillText(p.label, cellX + GRID_CELL_SIZE / 2, cellY + GRID_CELL_SIZE - 3);
+          ctx.fillText(t(p.labelKey), cellX + GRID_CELL_SIZE / 2, cellY + GRID_CELL_SIZE - 3);
         }
         const rowCount = Math.ceil(items.length / cols);
         curY += rowCount * (GRID_CELL_SIZE + GRID_GAP);
@@ -965,7 +966,7 @@ export class LevelEditor {
     ctx.fillStyle = '#fff';
     ctx.font = "bold 9px 'Silkscreen', monospace";
     ctx.textAlign = 'center';
-    ctx.fillText(pal.label, x + w / 2, y + h - 8);
+    ctx.fillText(t(pal.labelKey), x + w / 2, y + h - 8);
   }
 
   // ── Get sidebar item hit at screen position (grid layout) ──
@@ -1271,7 +1272,7 @@ export class LevelEditor {
       output += '// Apply after entity creation:\n';
       for (const p of patrols) {
         const pal = PALETTE.find(pl => pl.id === p.tileId);
-        const name = pal ? pal.label : 'unknown';
+        const name = pal ? t(pal.labelKey) : 'unknown';
         if (p.patrol.x1 !== undefined) {
           output += `// ${name} at (${Math.round(p.x)}, ${Math.round(p.y)}): patrol (${Math.round(p.patrol.x1)},${Math.round(p.patrol.y1)}) → (${Math.round(p.patrol.x2)},${Math.round(p.patrol.y2)})\n`;
         } else if (p.patrol.axis === 'x') {
@@ -1298,9 +1299,9 @@ export class LevelEditor {
     }
 
     navigator.clipboard.writeText(output).then(() => {
-      this._showToast('Level data copied to clipboard!');
+      this._showToast(t('editor.copiedToast'));
     }).catch(() => {
-      this._showToast('Copy failed — check clipboard permissions');
+      this._showToast(t('editor.copyFailed'));
     });
   }
 
@@ -1683,7 +1684,7 @@ export class LevelEditor {
       const idx = this._findEntityAt(wx, wy);
       if (idx >= 0 && this._isSwitchOrGate(this.entities[idx].tileId)) {
         this._cycleSwitchGateGroup(idx);
-        this._showToast(`Group → ${this.entities[idx].group}`);
+        this._showToast(t('editor.groupToast', { group: this.entities[idx].group }));
       }
       this._pendingGroupCycle = null;
     }

@@ -87,6 +87,7 @@ const KEY = {
 const LEVELS = [
   // ── Level 1: Coral Reef ──
   {
+    id: "coralReef",
     name: "Coral Reef",
     description: "Warm shallow waters with colorful corals",
     cols: 125,
@@ -134,6 +135,7 @@ const LEVELS = [
 
   // ── Level 2: Deep Caves ──
   {
+    id: "deepCaves",
     name: "Deep Caves",
     description: "Dark caverns with narrow tunnels",
     cols: 125,
@@ -170,6 +172,7 @@ const LEVELS = [
 
   // ── Level 3: Sunken Ruins ──
   {
+    id: "sunkenRuins",
     name: "Sunken Ruins",
     description: "Ancient structures beneath the waves",
     cols: 125,
@@ -240,6 +243,7 @@ _parseTiles();
 export function getLevels() {
   return LEVELS.map((l, i) => ({
     index: i,
+    id: l.id,
     name: l.name,
     description: l.description,
   }));

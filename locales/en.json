@@ -1,0 +1,289 @@
+{
+  "menu": {
+    "title": "Life of a Fish",
+    "btn": {
+      "startGame": "Start Game",
+      "aquarium": "Aquarium",
+      "codex": "Codex",
+      "settings": "Settings",
+      "about": "About",
+      "back": "Back"
+    }
+  },
+  "levelSelect": {
+    "title": "Select Level",
+    "levelNumber": "Level {n}"
+  },
+  "level": {
+    "coralReef": {
+      "name": "Coral Reef",
+      "desc": "Warm shallow waters with colorful corals"
+    },
+    "deepCaves": {
+      "name": "Deep Caves",
+      "desc": "Dark caverns with narrow tunnels"
+    },
+    "sunkenRuins": {
+      "name": "Sunken Ruins",
+      "desc": "Ancient structures beneath the waves"
+    }
+  },
+  "settings": {
+    "title": "Settings",
+    "music": "Music",
+    "sfx": "SFX",
+    "language": "Language"
+  },
+  "pause": {
+    "title": "Paused",
+    "resume": "Resume",
+    "restart": "Restart",
+    "exit": "Exit to Menu"
+  },
+  "gameOver": {
+    "title": "Game Over",
+    "subtitle": "Better luck next time!",
+    "pearls": "Pearls",
+    "restart": "Restart",
+    "exit": "Exit to Menu"
+  },
+  "victory": {
+    "title": "Victory!",
+    "subtitle": "All pearls collected!",
+    "lives": "Lives",
+    "timeLeft": "Time Left",
+    "score": "Score",
+    "newHighScore": "New High Score!",
+    "highScore": "High Score: {score}"
+  },
+  "about": {
+    "title": "About",
+    "text": "Life of a Fish<br/>An underwater platformer<br/><br/>Built with Three.js &amp; Nape-JS<br/>100% Claude Code project<br/><br/>Created for the<br/>THREE.JS Water Pro giveaway<br/><br/>by Krisztian Somoracz<br/><br/><a href=\"https://github.com/NewKrok/life-of-a-fish\" target=\"_blank\" style=\"color:#64b4ff;text-decoration:none\">GitHub</a> &nbsp;&middot;&nbsp; <a href=\"https://x.com/KSomoracz\" target=\"_blank\" style=\"color:#64b4ff;text-decoration:none\">X / Twitter</a>"
+  },
+  "hud": {
+    "pearlCount": "{current} / {total}",
+    "physicsDebug": "PHYSICS DEBUG (F3)"
+  },
+  "touch": {
+    "dash": "DASH",
+    "grab": "GRAB"
+  },
+  "codex": {
+    "title": "Codex",
+    "tab": {
+      "all": "All",
+      "enemies": "Enemies",
+      "items": "Items",
+      "terrain": "Terrain",
+      "player": "Player"
+    },
+    "player": {
+      "name": "You (Clownfish)",
+      "tagLabel": "Player",
+      "desc": "A brave little clownfish on a quest for pearls. Small but surprisingly agile — can swim, dash, and even jump out of the water!",
+      "tip": "Tip: Master the dash to dodge enemies and break through obstacles."
+    },
+    "piranha": {
+      "name": "Piranha",
+      "tagLabel": "Enemy",
+      "desc": "A vicious red predator that patrols its territory relentlessly. One bite is enough to ruin your day.",
+      "tip": "Tip: Dash into it or throw a boulder to defeat it. Timing is everything."
+    },
+    "shark": {
+      "name": "Shark",
+      "tagLabel": "Predator",
+      "desc": "Silent shadow of the deep. It glides through the water with an eerie calm — until it catches your scent. Then there is no calm, only teeth and speed. Nothing can stop it. Nothing... except disappearing.",
+      "tip": "Tip: Hide in seagrass to break the chase. The shark loses sight of you among the swaying blades."
+    },
+    "pufferfish": {
+      "name": "Pufferfish",
+      "tagLabel": "Enemy",
+      "desc": "A spiky ball of pain that bobs up and down. Touching it from any direction hurts — but a well-aimed boulder can pop it.",
+      "tip": "Tip: Watch its rhythm and swim past, or throw a boulder to get rid of it for good."
+    },
+    "crab": {
+      "name": "Crab",
+      "tagLabel": "Enemy",
+      "desc": "A stubborn bottom-dweller guarding narrow passages. Won't hurt you directly, but its powerful claws shove you into danger.",
+      "tip": "Tip: It pushes you on contact. Use the momentum or avoid tight spaces near it."
+    },
+    "toxicFish": {
+      "name": "Toxic Fish",
+      "tagLabel": "Ranged",
+      "desc": "A venomous lurker that spits poison projectiles when you get close. Keeps its distance and attacks from afar.",
+      "tip": "Tip: Dash through the projectiles or time your approach between shots."
+    },
+    "armoredFish": {
+      "name": "Armored Fish",
+      "tagLabel": "Armored",
+      "desc": "Its scales are harder than stone. Your dash just makes it angry. Hit it with something heavier — or learn to sneak past.",
+      "tip": "Tip: Throw a boulder or key at it. Dashing only bounces you back!"
+    },
+    "spittingCoral": {
+      "name": "Spitting Coral",
+      "tagLabel": "Ranged",
+      "desc": "A crusty polyp that spits venom in a triple fan. Every. Few. Seconds. Stand to the side and wait — or shut it up with a boulder.",
+      "tip": "Tip: The projectiles always go up in a fan pattern. Stay below and to the side, or throw a boulder to destroy it."
+    },
+    "pearl": {
+      "name": "Pearl",
+      "tagLabel": "Collectible",
+      "desc": "Shimmering golden pearls scattered across the ocean floor. Collect them all to complete each level.",
+      "tip": "Tip: Some are hidden behind obstacles or locked inside chests."
+    },
+    "key": {
+      "name": "Key",
+      "tagLabel": "Key Item",
+      "desc": "Colorful keys in five variants — Red, Blue, Green, Yellow, and Purple. Carry one to its matching chest to unlock a hidden pearl.",
+      "tip": "Tip: Grab a key and throw it at the chest with the same color. Keys float, so plan your route!"
+    },
+    "chest": {
+      "name": "Chest",
+      "tagLabel": "Locked",
+      "desc": "Mysterious treasure chests sealed with a colorful lock. Each one holds a precious pearl — if you bring the right key.",
+      "tip": "Tip: Match the key color to the chest. You'll hear a satisfying click when it opens."
+    },
+    "boulder": {
+      "name": "Boulder",
+      "tagLabel": "Throwable",
+      "desc": "Heavy underwater rocks that can be picked up and thrown. They sink fast and hit hard.",
+      "tip": "Tip: Throw boulders at piranhas to defeat them from a safe distance."
+    },
+    "crate": {
+      "name": "Underwater Crate",
+      "tagLabel": "Breakable",
+      "desc": "Old wooden crates from who knows where. Smash them for fun — sometimes there's a pearl inside. Mostly just splinters.",
+      "tip": "Tip: Dash into crates to break them. About 1 in 3 contains a pearl!"
+    },
+    "breakableWall": {
+      "name": "Breakable Wall",
+      "tagLabel": "Destructible",
+      "desc": "Cracked stone that can't take a hit. One good dash and it crumbles — revealing whatever's behind.",
+      "tip": "Tip: Look for cracks in walls. Dash through to find hidden rooms, shortcuts, and bonus pearls."
+    },
+    "switchToggle": {
+      "name": "Toggle Switch",
+      "tagLabel": "Mechanism",
+      "desc": "A green pressure pad with a spring-loaded button. One touch and the linked gate opens permanently — no going back.",
+      "tip": "Tip: These are the easiest switches. Just swim over it and the gate stays open forever."
+    },
+    "switchPressure": {
+      "name": "Pressure Switch",
+      "tagLabel": "Mechanism",
+      "desc": "A blue pressure pad that needs constant weight. The gate stays open only while something rests on it — step off and it closes.",
+      "tip": "Tip: Push a boulder or crate onto it to keep the gate open while you swim through!"
+    },
+    "switchTimed": {
+      "name": "Timed Switch",
+      "tagLabel": "Mechanism",
+      "desc": "An orange lever on a pedestal. Hit it and the linked gate opens for 5 seconds — watch the lever drift back as time runs out.",
+      "tip": "Tip: Plan your route before activating it. 5 seconds goes fast!"
+    },
+    "gate": {
+      "name": "Gate",
+      "tagLabel": "Barrier",
+      "desc": "Metal grates that block your path. They only open when their linked switch is activated.",
+      "tip": "Tip: Find the matching switch to open the gate. Some gates need a boulder placed on a pressure switch to stay open."
+    },
+    "coral": {
+      "name": "Coral",
+      "tagLabel": "Block",
+      "desc": "Vibrant coral formations that build the reef landscape. Solid and impassable — the backbone of every level.",
+      "tip": ""
+    },
+    "sand": {
+      "name": "Sand",
+      "tagLabel": "Block",
+      "desc": "Soft sandy blocks found on the ocean floor. Just as solid as stone, but with a warmer look.",
+      "tip": ""
+    },
+    "seagrass": {
+      "name": "Seagrass",
+      "tagLabel": "Cover",
+      "desc": "Tall swaying seagrass that grows in shallow waters. Its dense blades offer the perfect hiding spot — even the mighty shark loses your trail among the green.",
+      "tip": "Tip: Dive into seagrass when a shark is on your tail. It will give up the chase instantly."
+    },
+    "hazard": {
+      "name": "Hazard (Spikes)",
+      "tagLabel": "Trap",
+      "desc": "Sharp spikes hidden along walls and floors. Instant damage on contact — and dashing won't save you. These bite through everything.",
+      "tip": "Tip: There's no shortcut past spikes. Find another way around."
+    },
+    "buoy": {
+      "name": "Buoy",
+      "tagLabel": "Marker",
+      "desc": "Floating buoys bobbing at the surface. They mark boundaries and give you something to rest on above water.",
+      "tip": ""
+    },
+    "raft": {
+      "name": "Raft",
+      "tagLabel": "Platform",
+      "desc": "Wooden rafts drifting lazily on the surface. No real use for a fish — but it's fun to flop around on them for a moment.",
+      "tip": ""
+    },
+    "water": {
+      "name": "Water Surface",
+      "tagLabel": "Zone",
+      "desc": "Where the ocean meets the sky. Cross it to jump into the air — your fish flops around up there, so don't stay long!",
+      "tip": "Tip: Jump out for hard-to-reach pearls, but gravity pulls you back fast."
+    }
+  },
+  "editor": {
+    "title": "LEVEL EDITOR (F4)",
+    "save": "SAVE",
+    "play": "PLAY",
+    "coordinates": "Col:{col} Row:{row}",
+    "moveMode": "MOVE",
+    "controls": "G=grid  Shift+click=link  M=move",
+    "copiedToast": "Level data copied to clipboard!",
+    "copyFailed": "Copy failed — check clipboard permissions",
+    "groupToast": "Group → {group}",
+    "restartTitle": "Restart",
+    "exitTitle": "Back to Editor",
+    "cat": {
+      "tools": "Tools",
+      "terrain": "Terrain",
+      "items": "Items",
+      "enemies": "Enemies",
+      "keys": "Keys",
+      "chests": "Chests"
+    },
+    "pal": {
+      "move": "Move",
+      "erase": "Erase",
+      "stone": "Stone",
+      "sand": "Sand",
+      "coral": "Coral",
+      "hazard": "Hazard",
+      "seagrass": "Seagrass",
+      "pearl": "Pearl",
+      "spawn": "Spawn",
+      "buoy": "Buoy",
+      "boulder": "Boulder",
+      "raft": "Raft",
+      "crate": "Crate",
+      "breakableWall": "Breakable Wall",
+      "piranha": "Piranha",
+      "armoredFish": "Armored Fish",
+      "shark": "Shark",
+      "pufferfish": "Pufferfish",
+      "crab": "Crab",
+      "toxicFish": "Toxic Fish",
+      "spitCoral": "Spit Coral",
+      "swToggle": "Sw Toggle",
+      "swPressure": "Sw Pressure",
+      "swTimed": "Sw Timed",
+      "gate": "Gate",
+      "keyRed": "Key Red",
+      "keyBlue": "Key Blue",
+      "keyGreen": "Key Green",
+      "keyYellow": "Key Yellow",
+      "keyPurple": "Key Purple",
+      "chestRed": "Chest Red",
+      "chestBlue": "Chest Blue",
+      "chestGreen": "Chest Green",
+      "chestYellow": "Chest Yellow",
+      "chestPurple": "Chest Purple"
+    }
+  }
+}

@@ -1,0 +1,289 @@
+{
+  "menu": {
+    "title": "Egy Hal Élete",
+    "btn": {
+      "startGame": "Játék indítása",
+      "aquarium": "Akvárium",
+      "codex": "Kódex",
+      "settings": "Beállítások",
+      "about": "Névjegy",
+      "back": "Vissza"
+    }
+  },
+  "levelSelect": {
+    "title": "Pálya kiválasztása",
+    "levelNumber": "{n}. pálya"
+  },
+  "level": {
+    "coralReef": {
+      "name": "Korallzátony",
+      "desc": "Meleg sekély vizek színes korallokkal"
+    },
+    "deepCaves": {
+      "name": "Mély barlangok",
+      "desc": "Sötét üregek szűk alagutakkal"
+    },
+    "sunkenRuins": {
+      "name": "Elsüllyedt romok",
+      "desc": "Ősi építmények a hullámok alatt"
+    }
+  },
+  "settings": {
+    "title": "Beállítások",
+    "music": "Zene",
+    "sfx": "Hangeffektek",
+    "language": "Nyelv"
+  },
+  "pause": {
+    "title": "Szünet",
+    "resume": "Folytatás",
+    "restart": "Újraindítás",
+    "exit": "Kilépés a menübe"
+  },
+  "gameOver": {
+    "title": "Vége a játéknak",
+    "subtitle": "Legközelebb majd sikerül!",
+    "pearls": "Gyöngyök",
+    "restart": "Újraindítás",
+    "exit": "Kilépés a menübe"
+  },
+  "victory": {
+    "title": "Győzelem!",
+    "subtitle": "Minden gyöngy összegyűjtve!",
+    "lives": "Életek",
+    "timeLeft": "Hátralévő idő",
+    "score": "Pontszám",
+    "newHighScore": "Új csúcspontszám!",
+    "highScore": "Csúcspontszám: {score}"
+  },
+  "about": {
+    "title": "Névjegy",
+    "text": "Egy Hal Élete<br/>Víz alatti platformjáték<br/><br/>Three.js és Nape-JS alapokon<br/>100% Claude Code projekt<br/><br/>Készült a<br/>THREE.JS Water Pro nyereményjátékra<br/><br/>Készítette: Somorácz Krisztián<br/><br/><a href=\"https://github.com/NewKrok/life-of-a-fish\" target=\"_blank\" style=\"color:#64b4ff;text-decoration:none\">GitHub</a> &nbsp;&middot;&nbsp; <a href=\"https://x.com/KSomoracz\" target=\"_blank\" style=\"color:#64b4ff;text-decoration:none\">X / Twitter</a>"
+  },
+  "hud": {
+    "pearlCount": "{current} / {total}",
+    "physicsDebug": "FIZIKA DEBUG (F3)"
+  },
+  "touch": {
+    "dash": "ROHAM",
+    "grab": "FOGÁS"
+  },
+  "codex": {
+    "title": "Kódex",
+    "tab": {
+      "all": "Mind",
+      "enemies": "Ellenségek",
+      "items": "Tárgyak",
+      "terrain": "Terep",
+      "player": "Játékos"
+    },
+    "player": {
+      "name": "Te (Bohóchal)",
+      "tagLabel": "Játékos",
+      "desc": "Egy bátor kis bohóchal, aki gyöngyöket keres. Kicsi, de meglepően fürge — tud úszni, rohanni, sőt még ki is ugrik a vízből!",
+      "tip": "Tipp: Sajátítsd el a rohamot, hogy kitérj az ellenségek elől és áttörj az akadályokon."
+    },
+    "piranha": {
+      "name": "Pirája",
+      "tagLabel": "Ellenség",
+      "desc": "Egy kegyetlen vörös ragadozó, aki fáradhatatlanul járőrözik a területén. Egyetlen harapás elég, hogy tönkretegye a napodat.",
+      "tip": "Tipp: Rohanj bele vagy dobj rá egy sziklát. Az időzítés a kulcs."
+    },
+    "shark": {
+      "name": "Cápa",
+      "tagLabel": "Ragadozó",
+      "desc": "A mélység néma árnyéka. Baljós nyugalommal siklik a vízben — amíg meg nem érzi a szagodat. Aztán nincs nyugalom, csak fogak és sebesség. Semmi sem állíthatja meg. Semmi... kivéve ha eltűnsz.",
+      "tip": "Tipp: Bújj el a tengeri fűben, hogy lerázd. A cápa elveszít a szemed a ringó levelek között."
+    },
+    "pufferfish": {
+      "name": "Gömbhal",
+      "tagLabel": "Ellenség",
+      "desc": "Egy tüskés fájdalomgomóc, ami fel-le lebeg. Bármely irányból érintve fáj — de egy jól célzott szikla kipukkanthatja.",
+      "tip": "Tipp: Figyeld a ritmusát és ússz el mellette, vagy dobj rá egy sziklát."
+    },
+    "crab": {
+      "name": "Rák",
+      "tagLabel": "Ellenség",
+      "desc": "Egy makacs fenéklakó, aki szűk átjárókat őriz. Közvetlenül nem bánt, de erős ollói veszélybe löknek.",
+      "tip": "Tipp: Érintésre ellök. Használd ki a lendületet vagy kerüld a szűk helyeket a közelében."
+    },
+    "toxicFish": {
+      "name": "Mérgező hal",
+      "tagLabel": "Távolsági",
+      "desc": "Egy mérges leselkedő, aki méreg lövedékeket köp, ha közel kerülsz. Távolságot tart és messziről támad.",
+      "tip": "Tipp: Rohanj át a lövedékeken vagy időzítsd a megközelítést a lövések között."
+    },
+    "armoredFish": {
+      "name": "Páncélos hal",
+      "tagLabel": "Páncélozott",
+      "desc": "A pikkelyei keményebbek a kőnél. A rohamod csak feldühíti. Dobj rá valami nehezebbet — vagy tanulj meg mellette elosonni.",
+      "tip": "Tipp: Dobj rá sziklát vagy kulcsot. A roham csak visszapattint!"
+    },
+    "spittingCoral": {
+      "name": "Köpködő korall",
+      "tagLabel": "Távolsági",
+      "desc": "Egy kérges polip, ami mérget köp hármas legyezőben. Minden. Pár. Másodpercben. Állj oldalra és várj — vagy hallgattasd el egy sziklával.",
+      "tip": "Tipp: A lövedékek mindig felfelé mennek legyező mintában. Maradj alul és oldalt, vagy dobj rá sziklát."
+    },
+    "pearl": {
+      "name": "Gyöngy",
+      "tagLabel": "Gyűjthető",
+      "desc": "Csillogó arany gyöngyök szétszórva az óceán fenekén. Gyűjtsd össze mindet a pálya teljesítéséhez.",
+      "tip": "Tipp: Néhány akadályok mögé vagy ládákba van rejtve."
+    },
+    "key": {
+      "name": "Kulcs",
+      "tagLabel": "Kulcstárgy",
+      "desc": "Színes kulcsok öt változatban — Piros, Kék, Zöld, Sárga és Lila. Vidd el a megfelelő ládához, hogy felold egy rejtett gyöngyöt.",
+      "tip": "Tipp: Fogj meg egy kulcsot és dobd a megegyező színű ládához. A kulcsok lebegnek, tervezd meg az útvonalat!"
+    },
+    "chest": {
+      "name": "Láda",
+      "tagLabel": "Zárt",
+      "desc": "Titokzatos kincsesládák színes zárral. Mindegyik egy értékes gyöngyöt rejt — ha a megfelelő kulcsot hozod.",
+      "tip": "Tipp: Párosítsd a kulcs színét a ládáéval. Kattanást fogsz hallani, amikor kinyílik."
+    },
+    "boulder": {
+      "name": "Szikla",
+      "tagLabel": "Dobható",
+      "desc": "Nehéz víz alatti sziklák, amiket fel lehet venni és dobni. Gyorsan süllyednek és keményen csapódnak.",
+      "tip": "Tipp: Dobj sziklát a pirájákra, hogy biztonságos távolságból végezz velük."
+    },
+    "crate": {
+      "name": "Víz alatti láda",
+      "tagLabel": "Törékeny",
+      "desc": "Régi faládák ki tudja honnan. Törd össze őket szórakozásból — néha gyöngy van bennük. Leginkább csak szálkák.",
+      "tip": "Tipp: Rohanj a ládákba, hogy összetörd őket. Kb. minden harmadikban van gyöngy!"
+    },
+    "breakableWall": {
+      "name": "Törékeny fal",
+      "tagLabel": "Rombolható",
+      "desc": "Repedezett kő, ami nem bírja az ütést. Egy jó roham és összeomlik — felfedve, ami mögötte van.",
+      "tip": "Tipp: Keresd a repedéseket a falakban. Rohanj át, hogy rejtett szobákat, rövidítéseket és bónusz gyöngyöket találj."
+    },
+    "switchToggle": {
+      "name": "Váltókapcsoló",
+      "tagLabel": "Mechanizmus",
+      "desc": "Egy zöld nyomólap rugós gombbal. Egyetlen érintés és a kapcsolt kapu véglegesen kinyílik — nincs visszaút.",
+      "tip": "Tipp: Ezek a legegyszerűbb kapcsolók. Csak ússz rá és a kapu örökre nyitva marad."
+    },
+    "switchPressure": {
+      "name": "Nyomókapcsoló",
+      "tagLabel": "Mechanizmus",
+      "desc": "Egy kék nyomólap, aminek állandó súly kell. A kapu csak addig marad nyitva, amíg valami rajta pihen — lépj le és bezárul.",
+      "tip": "Tipp: Told rá a sziklát vagy ládát, hogy a kapu nyitva maradjon, amíg átúszol!"
+    },
+    "switchTimed": {
+      "name": "Időzített kapcsoló",
+      "tagLabel": "Mechanizmus",
+      "desc": "Egy narancssárga kar egy talapzaton. Nyomd meg és a kapcsolt kapu 5 másodpercig nyitva marad — figyeld, ahogy a kar visszacsúszik.",
+      "tip": "Tipp: Tervezd meg az útvonalat az aktiválás előtt. 5 másodperc gyorsan eltelik!"
+    },
+    "gate": {
+      "name": "Kapu",
+      "tagLabel": "Akadály",
+      "desc": "Fémrácsok, amik elzárják az utadat. Csak akkor nyílnak, ha a hozzájuk kapcsolt kapcsoló aktiválva van.",
+      "tip": "Tipp: Keresd meg a megfelelő kapcsolót a kapu kinyitásához. Néhány kapuhoz sziklát kell a nyomókapcsolóra helyezni."
+    },
+    "coral": {
+      "name": "Korall",
+      "tagLabel": "Blokk",
+      "desc": "Élénk korallképződmények, amik a zátony tájat alkotják. Szilárdak és áthatolhatatlanok — minden pálya gerince.",
+      "tip": ""
+    },
+    "sand": {
+      "name": "Homok",
+      "tagLabel": "Blokk",
+      "desc": "Puha homokblokkok az óceán fenekén. Ugyanolyan szilárdak, mint a kő, de melegebb megjelenéssel.",
+      "tip": ""
+    },
+    "seagrass": {
+      "name": "Tengeri fű",
+      "tagLabel": "Fedezék",
+      "desc": "Magas ringó tengeri fű, ami sekély vizekben nő. Sűrű levelei tökéletes búvóhelyet kínálnak — még a hatalmas cápa is elveszíti a nyomodat a zöldben.",
+      "tip": "Tipp: Merülj a tengeri fűbe, ha cápa van a nyomodban. Azonnal feladja az üldözést."
+    },
+    "hazard": {
+      "name": "Veszély (Tüskék)",
+      "tagLabel": "Csapda",
+      "desc": "Éles tüskék falak és padlók mentén rejtve. Azonnali sérülés érintéskor — és a roham sem ment meg. Ezek mindenen átrágnak.",
+      "tip": "Tipp: Nincs rövidítés a tüskék mellett. Keress másik utat."
+    },
+    "buoy": {
+      "name": "Bója",
+      "tagLabel": "Jelölő",
+      "desc": "Lebegő bóják a felszínen. Határokat jelölnek és pihenőhelyet adnak a víz felett.",
+      "tip": ""
+    },
+    "raft": {
+      "name": "Tutaj",
+      "tagLabel": "Platform",
+      "desc": "Fatutajok lustán sodródnak a felszínen. Egy halnak nincs sok haszna — de szórakoztató egy pillanatra fickándozni rajtuk.",
+      "tip": ""
+    },
+    "water": {
+      "name": "Vízfelszín",
+      "tagLabel": "Zóna",
+      "desc": "Ahol az óceán találkozik az éggel. Lépd át, hogy a levegőbe ugorj — a halad fickándozik odafent, úgyhogy ne maradj sokáig!",
+      "tip": "Tipp: Ugorj ki a nehezen elérhető gyöngyökért, de a gravitáció gyorsan visszahúz."
+    }
+  },
+  "editor": {
+    "title": "PÁLYASZERKESZTŐ (F4)",
+    "save": "MENTÉS",
+    "play": "JÁTÉK",
+    "coordinates": "Oszl:{col} Sor:{row}",
+    "moveMode": "MOZGATÁS",
+    "controls": "G=rács  Shift+klikk=összeköt  M=mozgat",
+    "copiedToast": "Pályaadatok másolva a vágólapra!",
+    "copyFailed": "Másolás sikertelen — ellenőrizd a vágólap engedélyeket",
+    "groupToast": "Csoport → {group}",
+    "restartTitle": "Újraindítás",
+    "exitTitle": "Vissza a szerkesztőbe",
+    "cat": {
+      "tools": "Eszközök",
+      "terrain": "Terep",
+      "items": "Tárgyak",
+      "enemies": "Ellenségek",
+      "keys": "Kulcsok",
+      "chests": "Ládák"
+    },
+    "pal": {
+      "move": "Mozgatás",
+      "erase": "Törlés",
+      "stone": "Kő",
+      "sand": "Homok",
+      "coral": "Korall",
+      "hazard": "Veszély",
+      "seagrass": "Tengeri fű",
+      "pearl": "Gyöngy",
+      "spawn": "Kezdőpont",
+      "buoy": "Bója",
+      "boulder": "Szikla",
+      "raft": "Tutaj",
+      "crate": "Láda",
+      "breakableWall": "Törékeny fal",
+      "piranha": "Pirája",
+      "armoredFish": "Páncélos hal",
+      "shark": "Cápa",
+      "pufferfish": "Gömbhal",
+      "crab": "Rák",
+      "toxicFish": "Mérgező hal",
+      "spitCoral": "Köpködő korall",
+      "swToggle": "Váltókapcs.",
+      "swPressure": "Nyomókapcs.",
+      "swTimed": "Időzített k.",
+      "gate": "Kapu",
+      "keyRed": "Piros kulcs",
+      "keyBlue": "Kék kulcs",
+      "keyGreen": "Zöld kulcs",
+      "keyYellow": "Sárga kulcs",
+      "keyPurple": "Lila kulcs",
+      "chestRed": "Piros láda",
+      "chestBlue": "Kék láda",
+      "chestGreen": "Zöld láda",
+      "chestYellow": "Sárga láda",
+      "chestPurple": "Lila láda"
+    }
+  }
+}
