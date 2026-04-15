@@ -138,6 +138,8 @@ export function generateCodexPreviews(THREE) {
   previews.pufferfish = capture(() => vr.buildPufferfish());
   previews.crab = capture(() => vr.buildCrab());
   previews.toxicFish = capture(() => vr.buildToxicFish());
+  previews.armoredFish = capture(() => vr.buildArmoredFish());
+  previews.spittingCoral = capture(() => vr.buildSpittingCoral(), { camAngle: 0.5 });
 
   // Items — fake body for build methods that expect physics bodies
   const fakeBody = { position: { x: 0, y: 0 } };
@@ -206,6 +208,54 @@ export function generateCodexPreviews(THREE) {
       previews.raft = _renderPreview(THREE, offRenderer, g, { camDist: 120 });
     }
     vr.raftMeshes.length = 0;
+  }
+
+  // Crate
+  {
+    vr.buildCrates([fakeBody]);
+    const g = vr.crateMeshes[0]?.mesh;
+    if (g) {
+      tempScene.remove(g);
+      g.position.set(0, 0, 0);
+      previews.crate = _renderPreview(THREE, offRenderer, g);
+    }
+    vr.crateMeshes.length = 0;
+  }
+
+  // Breakable wall
+  {
+    vr.buildBreakableWalls([fakeBody]);
+    const g = vr.breakableWallMeshes[0]?.mesh;
+    if (g) {
+      tempScene.remove(g);
+      g.position.set(0, 0, 0);
+      previews.breakableWall = _renderPreview(THREE, offRenderer, g, { camDist: 50 });
+    }
+    vr.breakableWallMeshes.length = 0;
+  }
+
+  // Switch (toggle type)
+  {
+    vr.buildSwitches([{ body: fakeBody, type: 'toggle' }]);
+    const g = vr.switchMeshes[0]?.mesh;
+    if (g) {
+      tempScene.remove(g);
+      g.position.set(0, 0, 0);
+      previews.switchToggle = _renderPreview(THREE, offRenderer, g, { camAngle: 0.6 });
+    }
+    vr.switchMeshes.length = 0;
+  }
+
+  // Gate
+  {
+    vr.buildGates([{ body: fakeBody, open: false }]);
+    const g = vr.gateMeshes[0]?.mesh;
+    if (g) {
+      tempScene.remove(g);
+      g.position.set(0, 0, 0);
+      previews.gate = _renderPreview(THREE, offRenderer, g, { camDist: 90 });
+    }
+    vr.gateMeshes.length = 0;
   }
 
   // Terrain blocks

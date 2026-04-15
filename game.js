@@ -527,6 +527,18 @@ const CODEX_DATA = [
     desc: 'A venomous lurker that spits poison projectiles when you get close. Keeps its distance and attacks from afar.',
     tip: 'Tip: Dash through the projectiles or time your approach between shots.',
   },
+  {
+    category: 'enemies', preview: 'armoredFish', name: 'Armored Fish',
+    tag: 'danger', tagLabel: 'Armored',
+    desc: 'Its scales are harder than stone. Your dash just makes it angry. Hit it with something heavier — or learn to sneak past.',
+    tip: 'Tip: Throw a boulder or key at it. Dashing only bounces you back!',
+  },
+  {
+    category: 'enemies', preview: 'spittingCoral', name: 'Spitting Coral',
+    tag: 'danger', tagLabel: 'Ranged',
+    desc: 'A crusty polyp that spits venom in a triple fan. Every. Few. Seconds. Stand to the side and wait — or shut it up with a boulder.',
+    tip: 'Tip: The projectiles always go up in a fan pattern. Stay below and to the side, or throw a boulder to destroy it.',
+  },
   // ── Items ──
   {
     category: 'items', preview: 'pearl', name: 'Pearl',
@@ -552,7 +564,31 @@ const CODEX_DATA = [
     desc: 'Heavy underwater rocks that can be picked up and thrown. They sink fast and hit hard.',
     tip: 'Tip: Throw boulders at piranhas to defeat them from a safe distance.',
   },
+  {
+    category: 'items', preview: 'crate', name: 'Underwater Crate',
+    tag: 'item', tagLabel: 'Breakable',
+    desc: 'Old wooden crates from who knows where. Smash them for fun — sometimes there\'s a pearl inside. Mostly just splinters.',
+    tip: 'Tip: Dash into crates to break them. About 1 in 3 contains a pearl!',
+  },
   // ── Terrain ──
+  {
+    category: 'terrain', preview: 'breakableWall', name: 'Breakable Wall',
+    tag: 'terrain', tagLabel: 'Destructible',
+    desc: 'Cracked stone that can\'t take a hit. One good dash and it crumbles — revealing whatever\'s behind.',
+    tip: 'Tip: Look for cracks in walls. Dash through to find hidden rooms, shortcuts, and bonus pearls.',
+  },
+  {
+    category: 'terrain', preview: 'switchToggle', name: 'Switch',
+    tag: 'terrain', tagLabel: 'Mechanism',
+    desc: 'Ancient mechanisms still working after centuries. Press the switch and the gate obeys — for a while.',
+    tip: 'Tip: Toggle switches flip on contact. Pressure switches need a boulder or key resting on them. Timed switches only stay open for 5 seconds!',
+  },
+  {
+    category: 'terrain', preview: 'gate', name: 'Gate',
+    tag: 'terrain', tagLabel: 'Barrier',
+    desc: 'Metal grates that block your path. They only open when their linked switch is activated.',
+    tip: 'Tip: Find the matching switch to open the gate. Some gates need a boulder placed on a pressure switch to stay open.',
+  },
   {
     category: 'terrain', preview: 'coral', name: 'Coral',
     tag: 'terrain', tagLabel: 'Block',
