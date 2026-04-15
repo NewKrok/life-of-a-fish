@@ -234,14 +234,14 @@ export function generateCodexPreviews(THREE) {
     vr.breakableWallMeshes.length = 0;
   }
 
-  // Switch (toggle type)
-  {
-    vr.buildSwitches([{ body: fakeBody, type: 'toggle' }]);
+  // Switches (one preview per type)
+  for (const [type, key] of [['toggle', 'switchToggle'], ['pressure', 'switchPressure'], ['timed', 'switchTimed']]) {
+    vr.buildSwitches([{ body: fakeBody, type }]);
     const g = vr.switchMeshes[0]?.mesh;
     if (g) {
       tempScene.remove(g);
       g.position.set(0, 0, 0);
-      previews.switchToggle = _renderPreview(THREE, offRenderer, g, { camAngle: 0.6 });
+      previews[key] = _renderPreview(THREE, offRenderer, g, { camAngle: 0.6 });
     }
     vr.switchMeshes.length = 0;
   }

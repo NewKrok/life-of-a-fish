@@ -578,10 +578,22 @@ const CODEX_DATA = [
     tip: 'Tip: Look for cracks in walls. Dash through to find hidden rooms, shortcuts, and bonus pearls.',
   },
   {
-    category: 'terrain', preview: 'switchToggle', name: 'Switch',
+    category: 'terrain', preview: 'switchToggle', name: 'Toggle Switch',
     tag: 'terrain', tagLabel: 'Mechanism',
-    desc: 'Ancient mechanisms still working after centuries. Press the switch and the gate obeys.',
-    tip: 'Tip: Green switches stay open permanently. Blue switches need weight on them. Orange levers close after 5 seconds!',
+    desc: 'A green pressure pad with a spring-loaded button. One touch and the linked gate opens permanently — no going back.',
+    tip: 'Tip: These are the easiest switches. Just swim over it and the gate stays open forever.',
+  },
+  {
+    category: 'terrain', preview: 'switchPressure', name: 'Pressure Switch',
+    tag: 'terrain', tagLabel: 'Mechanism',
+    desc: 'A blue pressure pad that needs constant weight. The gate stays open only while something rests on it — step off and it closes.',
+    tip: 'Tip: Push a boulder or crate onto it to keep the gate open while you swim through!',
+  },
+  {
+    category: 'terrain', preview: 'switchTimed', name: 'Timed Switch',
+    tag: 'terrain', tagLabel: 'Mechanism',
+    desc: 'An orange lever on a pedestal. Hit it and the linked gate opens for 5 seconds — watch the lever drift back as time runs out.',
+    tip: 'Tip: Plan your route before activating it. 5 seconds goes fast!',
   },
   {
     category: 'terrain', preview: 'gate', name: 'Gate',

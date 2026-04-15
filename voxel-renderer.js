@@ -2066,29 +2066,29 @@ export class VoxelRenderer {
         });
       } else {
         // ── Toggle / Pressure: flat pad with center button ──
-        // Base platform
+        // Base platform (taller for visible press effect)
         for (let x = -4; x <= 3; x++) {
           for (let z = -3; z <= 2; z++) {
             const isEdge = x === -4 || x === 3 || z === -3 || z === 2;
-            const geo = new THREE.BoxGeometry(V, V * 0.5, V);
+            const geo = new THREE.BoxGeometry(V, V * 1.5, V);
             const mat = new THREE.MeshStandardMaterial({
               color: isEdge ? c.dark : c.base,
               roughness: 0.5, metalness: 0.3,
             });
             const m = new THREE.Mesh(geo, mat);
-            m.position.set(x * V, -V * 0.25, z * V);
+            m.position.set(x * V, 0, z * V);
             group.add(m);
           }
         }
 
-        // Center button (animates up when inactive, down when active)
-        const padGeo = new THREE.BoxGeometry(V * 4, V * 0.8, V * 3);
+        // Center button (raised when inactive, sinks into base when active)
+        const padGeo = new THREE.BoxGeometry(V * 4, V * 2, V * 3);
         const padMat = new THREE.MeshStandardMaterial({
           color: c.glow, roughness: 0.2, metalness: 0.5,
           emissive: c.glow, emissiveIntensity: 0.3,
         });
         const padMesh = new THREE.Mesh(padGeo, padMat);
-        padMesh.position.set(-V * 0.5, V * 0.8, -V * 0.5); // raised by default
+        padMesh.position.set(-V * 0.5, V * 2, -V * 0.5); // raised by default
         group.add(padMesh);
 
         group.position.set(sw.body.position.x, -sw.body.position.y, 0);
@@ -3606,9 +3606,9 @@ export class VoxelRenderer {
           }
           sm.leverPivot.rotation.z += ((targetZ + LEVER_OFFSET) - sm.leverPivot.rotation.z) * 0.1;
         } else if (sm.padMesh) {
-          // Toggle / Pressure: button rises up when inactive, presses down when active
+          // Toggle / Pressure: button sticks up when inactive, sinks into base when active
           const V = 3;
-          const targetY = sw.active ? -V * 0.25 : V * 0.8;
+          const targetY = sw.active ? V * 0.2 : V * 2;
           sm.padMesh.position.y += (targetY - sm.padMesh.position.y) * 0.15;
           sm.padMesh.material.emissiveIntensity = sw.active ? 0.8 + Math.sin(this._time * 6) * 0.2 : 0.3;
         }
