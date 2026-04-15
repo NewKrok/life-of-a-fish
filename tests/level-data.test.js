@@ -99,12 +99,12 @@ describe('tile parsing', () => {
     }
   });
 
-  it('all tile values are valid (0-28)', () => {
+  it('all tile values are valid (0-29)', () => {
     for (let r = 0; r < LEVEL_ROWS; r++) {
       for (let c = 0; c < LEVEL_COLS; c++) {
         const t = TILES[r][c];
         expect(t).toBeGreaterThanOrEqual(0);
-        expect(t).toBeLessThanOrEqual(28);
+        expect(t).toBeLessThanOrEqual(29);
       }
     }
   });
@@ -173,6 +173,7 @@ describe('getLevelEntities', () => {
       ...ent.crates,
       ...ent.breakableWalls,
       ...ent.armoredFish,
+      ...ent.spittingCoral,
     ];
     for (const pos of allPositions) {
       expect(pos.x).toBeGreaterThanOrEqual(0);
@@ -213,6 +214,15 @@ describe('getLevelEntities', () => {
     for (const af of ent.armoredFish) {
       expect(af.x).toBeGreaterThan(0);
       expect(af.y).toBeGreaterThan(0);
+    }
+  });
+
+  it('extracts spitting coral from level 1', () => {
+    const ent = getLevelEntities();
+    expect(ent.spittingCoral.length).toBeGreaterThan(0);
+    for (const sc of ent.spittingCoral) {
+      expect(sc.x).toBeGreaterThan(0);
+      expect(sc.y).toBeGreaterThan(0);
     }
   });
 

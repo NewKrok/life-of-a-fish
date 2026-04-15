@@ -86,6 +86,7 @@ export class VoxelRenderer {
     this.armoredFishGroups = [];
     this.armoredFishTailPivots = [];
     this._armoredFlipAngles = [];
+    this.spittingCoralGroups = [];
     this.projectileMeshes = [];    // { mesh, body } pairs for poison projectiles
 
     // New visual elements
@@ -124,6 +125,7 @@ export class VoxelRenderer {
     remove(this.armoredFishGroups);
     this.armoredFishTailPivots.length = 0;
     this._armoredFlipAngles.length = 0;
+    remove(this.spittingCoralGroups);
     // Pearls
     for (const p of this.pearlMeshes) {
       this.scene.remove(p.mesh);
@@ -1572,13 +1574,102 @@ export class VoxelRenderer {
     return wrapper;
   }
 
+  // ── Build spitting coral (ground-fixed polyp enemy) ──
+  buildSpittingCoral() {
+    const THREE = this.THREE;
+    const group = new THREE.Group();
+    const V = 2;
+
+    const addVoxel = (x, y, z, color) => {
+      const geo = new THREE.BoxGeometry(V, V, V);
+      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.7, metalness: 0.1 });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(x * V, y * V, z * V);
+      return mesh;
+    };
+
+    const BASE = 0x554433;
+    const BASE_DARK = 0x443322;
+    const TUBE = 0x884466;
+    const TUBE_DARK = 0x663355;
+    const TUBE_LIGHT = 0xaa5577;
+    const TIP = 0xdd77aa;
+    const TIP_GLOW = 0xff99cc;
+    const SPOT = 0x55aa66;
+
+    const row = (xs, y, z, color) => {
+      for (const x of xs) group.add(addVoxel(x, y, z, color));
+    };
+
+    // Rocky base (wide, flat)
+    for (const z of [0, 1, 2, 3, 4]) {
+      row([1, 2, 3, 4, 5, 6, 7, 8], 0, z, BASE);
+      row([2, 3, 4, 5, 6, 7], -1, z, BASE_DARK);
+    }
+
+    // Left tube (x=2-3, z=1-3)
+    for (const z of [1, 2, 3]) {
+      row([2, 3], 1, z, TUBE);
+      row([2, 3], 2, z, TUBE);
+      row([2, 3], 3, z, TUBE_LIGHT);
+      row([2, 3], 4, z, TIP);
+    }
+    // Left tube tip
+    for (const z of [1, 2, 3]) {
+      row([2, 3], 5, z, TIP_GLOW);
+    }
+
+    // Center tube (x=4-5, z=1-3) — tallest
+    for (const z of [1, 2, 3]) {
+      row([4, 5], 1, z, TUBE);
+      row([4, 5], 2, z, TUBE);
+      row([4, 5], 3, z, TUBE_DARK);
+      row([4, 5], 4, z, TUBE);
+      row([4, 5], 5, z, TUBE_LIGHT);
+      row([4, 5], 6, z, TIP);
+    }
+    // Center tube tip (the "mouth")
+    for (const z of [1, 2, 3]) {
+      row([4, 5], 7, z, TIP_GLOW);
+    }
+
+    // Right tube (x=6-7, z=1-3)
+    for (const z of [1, 2, 3]) {
+      row([6, 7], 1, z, TUBE);
+      row([6, 7], 2, z, TUBE);
+      row([6, 7], 3, z, TUBE_LIGHT);
+      row([6, 7], 4, z, TIP);
+    }
+    // Right tube tip
+    for (const z of [1, 2, 3]) {
+      row([6, 7], 5, z, TIP_GLOW);
+    }
+
+    // Green toxic spots on tubes
+    for (const z of [2]) {
+      group.add(addVoxel(3, 2, z, SPOT));
+      group.add(addVoxel(5, 3, z, SPOT));
+      group.add(addVoxel(7, 2, z, SPOT));
+    }
+
+    group.position.set(-4.5 * V, -1 * V, -2 * V);
+
+    const wrapper = new this.THREE.Group();
+    wrapper.add(group);
+    this.scene.add(wrapper);
+    this.spittingCoralGroups.push(wrapper);
+    return wrapper;
+  }
+
   // ── Build poison projectile mesh ──
-  buildProjectile(body) {
+  buildProjectile(body, isCoral = false) {
     const THREE = this.THREE;
     const geo = new THREE.BoxGeometry(6, 6, 6);
+    const color = isCoral ? 0xcc44ff : 0x88ff00;
+    const emissive = isCoral ? 0x8822cc : 0x44cc00;
     const mat = new THREE.MeshStandardMaterial({
-      color: 0x88ff00,
-      emissive: 0x44cc00,
+      color,
+      emissive,
       emissiveIntensity: 0.6,
       roughness: 0.4,
       metalness: 0.0,
@@ -1707,6 +1798,7 @@ export class VoxelRenderer {
     for (const g of this.crabGroups) g.visible = true;
     for (const g of this.toxicFishGroups) g.visible = true;
     for (const g of this.armoredFishGroups) g.visible = true;
+    for (const g of this.spittingCoralGroups) g.visible = true;
   }
 
   // ── Build boulder meshes ──
@@ -3185,7 +3277,7 @@ export class VoxelRenderer {
     }
 
     // ── Sync sharks ──
-    const { sharkBodies, pufferfishBodies, crabBodies, toxicFishBodies, projectileBodies, armoredFishBodies } = extras;
+    const { sharkBodies, pufferfishBodies, crabBodies, toxicFishBodies, projectileBodies, armoredFishBodies, spittingCoralBodies } = extras;
     if (sharkBodies) {
       for (let i = 0; i < sharkBodies.length && i < this.sharkGroups.length; i++) {
         const sb = sharkBodies[i];
@@ -3298,6 +3390,16 @@ export class VoxelRenderer {
           const amp = 0.2 + Math.min(speed / 300, 0.25);
           this.armoredFishTailPivots[i].rotation.y = Math.sin(this._time * freq + i * 2) * amp;
         }
+      }
+    }
+
+    // ── Sync spitting coral (static, hide dead) ──
+    if (spittingCoralBodies) {
+      for (let i = 0; i < spittingCoralBodies.length && i < this.spittingCoralGroups.length; i++) {
+        const sc = spittingCoralBodies[i];
+        const sg = this.spittingCoralGroups[i];
+        if (!sc.space) { sg.visible = false; continue; }
+        sg.position.set(sc.position.x, -sc.position.y, 0);
       }
     }
 

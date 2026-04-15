@@ -51,6 +51,10 @@ const TOXIC_SHOOT_RANGE = 180;        // px — range to detect and shoot
 const TOXIC_SHOOT_INTERVAL = 2000;    // ms — cooldown between shots
 const TOXIC_PROJECTILE_SPEED = 150;   // px/s — projectile velocity
 const TOXIC_PROJECTILE_LIFE = 2500;   // ms — projectile lifespan
+const CORAL_SHOOT_INTERVAL = 3000;    // ms — volley every 3s
+const CORAL_PROJECTILE_SPEED = 100;   // px/s — slower than toxic fish
+const CORAL_PROJECTILE_LIFE = 2000;   // ms — shorter range
+const CORAL_FAN_ANGLE = Math.PI / 6;  // 30° spread on each side
 const PLAYER_CAPSULE_W = 24;
 const PLAYER_CAPSULE_H = 12;
 
@@ -1003,6 +1007,7 @@ const chestTag = new CbType();
 const crateTag = new CbType();
 const breakableWallTag = new CbType();
 const armoredFishTag = new CbType();
+const spittingCoralTag = new CbType();
 
 // ── Build terrain bodies from merged tiles ──
 const mergedBodies = getMergedSolidBodies();
@@ -1042,6 +1047,7 @@ _capturedEntities = {
   crates: entities.crates.map(e => ({ ...e })),
   breakableWalls: entities.breakableWalls.map(e => ({ ...e })),
   armoredFish: entities.armoredFish.map(e => ({ ...e })),
+  spittingCoral: entities.spittingCoral.map(e => ({ ...e })),
 };
 
 // ── Hazard bodies (seaweed/spiky plants) ──
@@ -1185,6 +1191,20 @@ for (const af of entities.armoredFish) {
   };
   armoredFishBodies.push(b);
   voxelRenderer.buildArmoredFish();
+}
+
+// ── Spitting coral (fixed on ground, fan projectiles) ──
+const spittingCoralBodies = [];
+for (const sc of entities.spittingCoral) {
+  const b = new Body(BodyType.STATIC, new Vec2(sc.x, sc.y));
+  const shape = new Polygon(Polygon.box(20, 24));
+  shape.sensorEnabled = true;
+  shape.cbTypes.add(spittingCoralTag);
+  b.shapes.add(shape);
+  b.space = space;
+  b._shoot = { cooldown: Math.random() * CORAL_SHOOT_INTERVAL }; // stagger initial shots
+  spittingCoralBodies.push(b);
+  voxelRenderer.buildSpittingCoral();
 }
 
 // ── Buoys (floating on water surface) ──
@@ -1571,6 +1591,37 @@ const boulderArmoredListener = new InteractionListener(
   },
 );
 boulderArmoredListener.space = space;
+
+// Spitting coral collision -> death
+const spittingCoralListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, playerTag, spittingCoralTag,
+  () => { triggerDeath(); },
+);
+spittingCoralListener.space = space;
+
+// Boulder hits spitting coral -> both die
+const boulderCoralListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, boulderTag, spittingCoralTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const boulderBody = boulderBodies.find(br => br === b1 || br === b2);
+    if (boulderBody === grabbedBoulder) return;
+    const coralBody = spittingCoralBodies.find(c => c === b1 || c === b2);
+    if (coralBody && coralBody.space) {
+      const cx = coralBody.position.x;
+      const cy = coralBody.position.y;
+      coralBody.space = null;
+      sfx.enemyDeath();
+      if (boulderBody && boulderBody.space) {
+        if (grabbedBoulder === boulderBody) grabbedBoulder = null;
+        boulderBody.space = null;
+        voxelRenderer.spawnBoulderBreak(cx, cy);
+      }
+    }
+  },
+);
+boulderCoralListener.space = space;
 
 // ── Key-Chest collision: matching color opens chest, spawns pearl ──
 const keyChestListener = new InteractionListener(
@@ -2698,6 +2749,33 @@ function gameLoop() {
     }
   }
 
+  // ── Update spitting coral AI (stationary, fan projectiles) ──
+  for (const sc of spittingCoralBodies) {
+    if (!sc.space) continue;
+    sc._shoot.cooldown = Math.max(0, sc._shoot.cooldown - DT * 1000);
+    if (sc._shoot.cooldown <= 0) {
+      sc._shoot.cooldown = CORAL_SHOOT_INTERVAL;
+      // Fire 3 projectiles in fan pattern: left-up, straight up, right-up
+      const angles = [-CORAL_FAN_ANGLE, 0, CORAL_FAN_ANGLE];
+      for (const angle of angles) {
+        const vx = Math.sin(angle) * CORAL_PROJECTILE_SPEED;
+        const vy = -Math.cos(angle) * CORAL_PROJECTILE_SPEED; // negative = upward
+        const pb = new Body(BodyType.KINEMATIC, new Vec2(sc.position.x, sc.position.y - 12));
+        const ps = new Circle(4);
+        ps.sensorEnabled = true;
+        ps.cbTypes.add(projectileTag);
+        pb.shapes.add(ps);
+        pb.space = space;
+        pb.velocity = new Vec2(vx, vy);
+        pb._life = CORAL_PROJECTILE_LIFE;
+        pb._coralProjectile = true;
+        projectileBodies.push(pb);
+        voxelRenderer.buildProjectile(pb, true);
+      }
+      sfx.toxicSpit();
+    }
+  }
+
   // ── Update projectiles (lifetime) ──
   for (let i = projectileBodies.length - 1; i >= 0; i--) {
     const pb = projectileBodies[i];
@@ -2855,7 +2933,7 @@ function gameLoop() {
   const fishState = fishCtrl.getState();
   voxelRenderer.syncFrame(player, fishState, enemyBodies, DT, {
     sharkBodies, pufferfishBodies, crabBodies, toxicFishBodies, projectileBodies,
-    armoredFishBodies,
+    armoredFishBodies, spittingCoralBodies,
   });
 
   renderer.render(scene, camera);

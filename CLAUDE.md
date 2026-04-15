@@ -78,7 +78,7 @@ In-game editor activated with **F4**. Works in both menu and game states. Pauses
 - Terrain: solid bodies built via greedy rectangle merging from tile map
 - Water: `FluidProperties` zone with density & viscosity for buoyancy
 - Player: dynamic body with `CharacterController` for ground detection
-- Enemies: kinematic bodies — piranha (patrol, killable by dash), shark (patrol+chase), pufferfish (vertical), crab (ground push), toxic fish (ranged)
+- Enemies: kinematic bodies — piranha (patrol, killable by dash), shark (patrol+chase), pufferfish (vertical), crab (ground push), toxic fish (ranged), spitting coral (fixed, fan projectiles)
 - Pearls / hazards: sensor shapes with `InteractionListener` callbacks
 - Keys: dynamic bodies like boulders, carriable/throwable, no enemy damage
 - Chests: static sensor bodies, opened by matching-color key collision
@@ -132,6 +132,7 @@ Tile map is a string grid (125 cols × 25 rows, 32px tiles):
 | `W`  | Crate       | 26      |
 | `K`  | Breakable Wall | 27   |
 | `A`  | Armored Fish | 28     |
+| `P`  | Spitting Coral | 29   |
 
 Keys are carriable/throwable like boulders but deal no damage. Throwing a key at its matching-color chest opens the chest with a particle effect and spawns a pearl. Chest pearls are included in `TOTAL_PEARLS` from level start.
 

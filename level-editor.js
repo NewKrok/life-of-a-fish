@@ -32,6 +32,7 @@ const PALETTE = [
   { id: 13, char: 'U', label: 'Pufferfish',  color: '#c0a060', category: 'enemies', previewKey: 'pufferfish' },
   { id: 14, char: 'C', label: 'Crab',        color: '#d04020', category: 'enemies', previewKey: 'crab' },
   { id: 15, char: 'F', label: 'Toxic Fish',  color: '#50c050', category: 'enemies', previewKey: 'toxicFish' },
+  { id: 29, char: 'P', label: 'Spit Coral', color: '#cc6688', category: 'enemies', previewKey: 'spittingCoral' },
   { id: 16, char: '1', label: 'Key Red',     color: '#ff4444', category: 'keys',    previewKey: 'keyRed' },
   { id: 17, char: '2', label: 'Key Blue',    color: '#4488ff', category: 'keys',    previewKey: 'keyBlue' },
   { id: 18, char: '3', label: 'Key Green',   color: '#44cc44', category: 'keys',    previewKey: 'keyGreen' },
@@ -59,7 +60,7 @@ const ID_TO_CHAR = {};
 for (const p of PALETTE) ID_TO_CHAR[p.id] = p.char;
 
 // Entity tile IDs (non-terrain — stored as entity positions)
-const ENTITY_IDS = new Set([5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]);
+const ENTITY_IDS = new Set([5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29]);
 
 // Enemies with patrol ranges
 const PATROL_DEFAULTS = {
@@ -294,6 +295,7 @@ export class LevelEditor {
       if (knownEntities.crabs) addGroup(knownEntities.crabs, 14);
       if (knownEntities.toxicFish) addGroup(knownEntities.toxicFish, 15);
       if (knownEntities.armoredFish) addGroup(knownEntities.armoredFish, 28);
+      if (knownEntities.spittingCoral) addGroup(knownEntities.spittingCoral, 29);
       if (knownEntities.crates) addGroup(knownEntities.crates, 26);
       if (knownEntities.keys) {
         for (const k of knownEntities.keys) list.push({ x: k.x, y: k.y, tileId: 16 + k.colorIndex });
@@ -1649,6 +1651,17 @@ export class LevelEditor {
           if (entry) { tempScene.remove(entry.mesh); result = entry.mesh; }
           break;
         }
+        case 28: // Armored Fish
+          result = vr.buildArmoredFish();
+          tempScene.remove(result);
+          if (vr.armoredFishGroups) vr.armoredFishGroups.pop();
+          if (vr.armoredFishTailPivots) vr.armoredFishTailPivots.pop();
+          break;
+        case 29: // Spitting Coral
+          result = vr.buildSpittingCoral();
+          tempScene.remove(result);
+          if (vr.spittingCoralGroups) vr.spittingCoralGroups.pop();
+          break;
       }
     } finally {
       vr.scene = origScene;
@@ -1723,6 +1736,17 @@ export function generateEditorPreviews(THREE, VoxelRendererClass, existingCodexP
       tempScene.remove(entry);
       entry.position.set(0, 0, 0);
       previews.armoredFish = _renderGroupPreview(THREE, offRenderer, entry, 40);
+    }
+  }
+
+  // Spitting coral preview
+  if (!previews.spittingCoral) {
+    vr.buildSpittingCoral();
+    const entry = vr.spittingCoralGroups.pop();
+    if (entry) {
+      tempScene.remove(entry);
+      entry.position.set(0, 0, 0);
+      previews.spittingCoral = _renderGroupPreview(THREE, offRenderer, entry, 40);
     }
   }
 

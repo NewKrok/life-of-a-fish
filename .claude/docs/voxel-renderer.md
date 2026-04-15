@@ -76,6 +76,13 @@ Voxel groups built from hardcoded coordinate arrays:
 - Tail pivot for wag animation
 - Visual shield flash effect when dash bounces off
 
+**Spitting coral** (purple-pink `0x884466`):
+- Ground-fixed polyp with rocky brown base and 3 vertical tubes
+- Center tube tallest, side tubes shorter — open "mouth" tips glow pink (`0xff99cc`)
+- Green toxic spots on tubes
+- No movement animation (static enemy)
+- Fires purple projectiles (`BoxGeometry 6×6×6`, emissive `0x8822cc`) in upward fan pattern
+
 ## Background & Atmosphere
 
 ### Depth Gradient Background
@@ -235,7 +242,8 @@ Called every frame after physics step. Updates:
 6. Crab positions, 3D flip, scuttle bob animation
 7. Toxic fish positions, 3D flip, tail wag
 8. Armored fish positions, 3D flip, tail wag
-9. Projectile positions, spin rotation, emissive pulse, remove expired
+9. Spitting coral positions, hide dead
+10. Projectile positions, spin rotation, emissive pulse, remove expired
 9. Pearl bob + spin animation; remove collected pearls (body.space === null)
 10. Buoy, boulder, raft positions + rotations from physics bodies
 11. Bubble positions, opacity, and lifetime (including horizontal `vx` drag for splash particles)
