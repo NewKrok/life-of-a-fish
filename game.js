@@ -1460,9 +1460,11 @@ const swingingAnchorBodies = [];  // { body, pivotX, pivotY, chainLength, angle,
 for (const sa of entities.swingingAnchors) {
   const chainLen = sa.chainLength || ANCHOR_DEFAULT_CHAIN;
   // Pivot is where the tile is placed; anchor body hangs below
+  const ANCHOR_BODY_OFFSET = 12; // px — offset from chain end to anchor body center
   const startAngle = 0.4; // start slightly tilted so it swings immediately
-  const anchorX = sa.x + chainLen * Math.sin(startAngle);
-  const anchorY = sa.y + chainLen * Math.cos(startAngle);
+  const totalLen = chainLen + ANCHOR_BODY_OFFSET;
+  const anchorX = sa.x + totalLen * Math.sin(startAngle);
+  const anchorY = sa.y + totalLen * Math.cos(startAngle);
   const b = new Body(BodyType.KINEMATIC, new Vec2(anchorX, anchorY));
   const shape = new Polygon(Polygon.box(24, 20), undefined, new Material(0.8, 0.1, 0.1, 3.0));
   shape.cbTypes.add(swingingAnchorTag);
@@ -3617,9 +3619,11 @@ function gameLoop() {
     sa.angularVel += angAccel * DT;
     sa.angularVel *= 0.9995; // very slight damping — nearly perpetual
     sa.angle += sa.angularVel * DT;
-    // Position anchor body at end of pendulum chain
-    const ax = sa.pivotX + sa.chainLength * Math.sin(sa.angle);
-    const ay = sa.pivotY + sa.chainLength * Math.cos(sa.angle);
+    // Position anchor body at center of anchor model (below chain end)
+    const ANCHOR_BODY_OFFSET = 12; // px — offset from chain end to anchor body center
+    const totalLen = sa.chainLength + ANCHOR_BODY_OFFSET;
+    const ax = sa.pivotX + totalLen * Math.sin(sa.angle);
+    const ay = sa.pivotY + totalLen * Math.cos(sa.angle);
     sa.body.position = new Vec2(ax, ay);
   }
 

@@ -2458,57 +2458,64 @@ export class VoxelRenderer {
         return x - Math.floor(x);
       };
 
-      // Anchor shape — classic nautical anchor
-      let idx = 0;
-      // Vertical shank (center post)
-      for (let y = -4; y <= 3; y++) {
-        for (let z = -1; z <= 1; z++) {
-          const rv = rng(idx++);
-          addVoxel(0, y, z, rv < 0.2 ? RUST : rv < 0.5 ? METAL_DARK : METAL);
-        }
-      }
-      // Cross arm (fluke bar) at bottom
-      for (let x = -4; x <= 4; x++) {
-        for (let z = -1; z <= 1; z++) {
-          const rv = rng(idx++);
-          addVoxel(x, -4, z, rv < 0.3 ? RUST : rv < 0.6 ? METAL_DARK : METAL);
-        }
-      }
-      // Fluke tips (curved down at ends of cross arm)
-      for (let z = -1; z <= 1; z++) {
-        addVoxel(-4, -5, z, METAL_DARK);
-        addVoxel(-3, -5, z, METAL_DARK);
-        addVoxel(4, -5, z, METAL_DARK);
-        addVoxel(3, -5, z, METAL_DARK);
-      }
-      // Ring at top
-      for (let x = -1; x <= 1; x++) {
-        for (let z = -1; z <= 1; z++) {
-          if (x === 0 && z === 0) continue;
-          addVoxel(x, 4, z, METAL);
-        }
-      }
-      addVoxel(0, 5, 0, METAL);
-
-      // Chain links (drawn from anchor ring upward toward pivot)
+      // Build with pivot at origin (y=0), chain+anchor hanging downward (negative y)
       const chainVoxelLen = Math.floor(chainLength / V);
+      // Total height in voxel units: pivot bracket(1) + chain(chainVoxelLen) + anchor ring(2) + shank(8) + flukes(1) = offset base
+      // Pivot marker at y=0, chain goes down, anchor at bottom
+
+      // Pivot marker (bracket at top, at origin)
+      addVoxel(-1, 0, 0, METAL_DARK);
+      addVoxel(0, 0, 0, METAL_DARK);
+      addVoxel(1, 0, 0, METAL_DARK);
+
+      // Chain links (hanging down from pivot)
+      let idx = 0;
       for (let i = 0; i < chainVoxelLen; i += 2) {
-        const cy = 6 + i;
+        const cy = -(1 + i);
         const rv = rng(idx + i);
         const cc = rv < 0.3 ? METAL_DARK : CHAIN;
         addVoxel(0, cy, 0, cc);
         if (i + 1 < chainVoxelLen) {
-          addVoxel(0, cy + 1, 0, CHAIN);
+          addVoxel(0, cy - 1, 0, CHAIN);
         }
       }
+      idx += chainVoxelLen;
 
-      // Pivot marker (small bracket at top of chain)
-      const topY = 6 + chainVoxelLen;
-      addVoxel(-1, topY, 0, METAL_DARK);
-      addVoxel(0, topY, 0, METAL_DARK);
-      addVoxel(1, topY, 0, METAL_DARK);
+      // Anchor shape — classic nautical anchor (hanging below chain)
+      const anchorBaseY = -(1 + chainVoxelLen);
+      // Ring at top of anchor
+      addVoxel(0, anchorBaseY, 0, METAL);
+      for (let x = -1; x <= 1; x++) {
+        for (let z = -1; z <= 1; z++) {
+          if (x === 0 && z === 0) continue;
+          addVoxel(x, anchorBaseY - 1, z, METAL);
+        }
+      }
+      // Vertical shank (center post)
+      for (let y = 0; y < 8; y++) {
+        for (let z = -1; z <= 1; z++) {
+          const rv = rng(idx++);
+          addVoxel(0, anchorBaseY - 2 - y, z, rv < 0.2 ? RUST : rv < 0.5 ? METAL_DARK : METAL);
+        }
+      }
+      // Cross arm (fluke bar) at bottom of shank
+      const flukeY = anchorBaseY - 2 - 7;
+      for (let x = -4; x <= 4; x++) {
+        for (let z = -1; z <= 1; z++) {
+          const rv = rng(idx++);
+          addVoxel(x, flukeY, z, rv < 0.3 ? RUST : rv < 0.6 ? METAL_DARK : METAL);
+        }
+      }
+      // Fluke tips (curved down at ends of cross arm)
+      for (let z = -1; z <= 1; z++) {
+        addVoxel(-4, flukeY - 1, z, METAL_DARK);
+        addVoxel(-3, flukeY - 1, z, METAL_DARK);
+        addVoxel(4, flukeY - 1, z, METAL_DARK);
+        addVoxel(3, flukeY - 1, z, METAL_DARK);
+      }
 
-      group.position.set(body.position.x, -body.position.y, 0);
+      // Position group at pivot point
+      group.position.set(pivotX, -pivotY, 0);
       this.scene.add(group);
       this.swingingAnchorMeshes.push({
         mesh: group,
@@ -4013,9 +4020,10 @@ export class VoxelRenderer {
       for (let i = 0; i < _saB.length && i < this.swingingAnchorMeshes.length; i++) {
         const sa = _saB[i];
         const mesh = this.swingingAnchorMeshes[i];
-        // The entire group (anchor + chain) rotates around the pivot
-        // Position at pivot, rotate by pendulum angle
-        mesh.mesh.position.set(sa.body.position.x, -sa.body.position.y, 0);
+        // Group is built with pivot at origin, chain+anchor hanging down (negative y)
+        // Position at pivot, rotate around z-axis by pendulum angle
+        mesh.mesh.position.set(sa.pivotX, -sa.pivotY, 0);
+        mesh.mesh.rotation.z = sa.angle;
       }
     }
 
