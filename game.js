@@ -1445,8 +1445,8 @@ for (const cr of entities.crates) {
 const floatingLogBodies = [];
 for (const fl of entities.floatingLogs) {
   const b = new Body(BodyType.DYNAMIC, new Vec2(fl.x, fl.y));
-  // Wide, thin shape — 2 tiles wide, half tile tall
-  const shape = new Polygon(Polygon.box(56, 14), undefined, new Material(0.4, 0.3, 0.3, 0.6));
+  // Log shape — matches visual (~11 voxels wide, ~5 tall at V=2.5)
+  const shape = new Polygon(Polygon.box(28, 12), undefined, new Material(0.4, 0.3, 0.3, 0.6));
   shape.cbTypes.add(floatingLogTag);
   b.shapes.add(shape);
   b.allowRotation = true;
@@ -1498,10 +1498,16 @@ const HINT_PROXIMITY = 48;         // px — detection radius (~1.5 tiles)
 const hintStoneBodies = [];        // { body, text }
 for (const hs of entities.hintStones) {
   const b = new Body(BodyType.STATIC, new Vec2(hs.x, hs.y));
-  const shape = new Circle(HINT_PROXIMITY);
-  shape.sensorEnabled = true;
-  shape.cbTypes.add(hintStoneTag);
-  b.shapes.add(shape);
+  // Proximity sensor for hint text trigger
+  const sensorShape = new Circle(HINT_PROXIMITY);
+  sensorShape.sensorEnabled = true;
+  sensorShape.cbTypes.add(hintStoneTag);
+  b.shapes.add(sensorShape);
+  // Solid collider matching visual stone tablet (~22x29 px from 7x9 voxels at V=3.2)
+  const solidShape = new Polygon(Polygon.box(22, 29));
+  b.shapes.add(solidShape);
+  b.rotation = 0;
+  b.allowRotation = false;
   b.space = space;
   hintStoneBodies.push({ body: b, text: hs.text });
 }
@@ -2972,22 +2978,84 @@ function renderHUD() {
     hudCtx.save();
     hudCtx.globalAlpha = alpha;
 
-    // Measure text
-    hudCtx.font = "13px 'Silkscreen', monospace";
-    const lines = msgText.length > 40
-      ? [msgText.substring(0, Math.ceil(msgText.length / 2)), msgText.substring(Math.ceil(msgText.length / 2))]
-      : [msgText];
-    const lineH = 18;
-    let maxW = 0;
-    for (const line of lines) {
-      const m = hudCtx.measureText(line);
-      if (m.width > maxW) maxW = m.width;
+    // ── Parse rich text markup ──
+    // Supported: {key:DESKTOP|MOBILE} → key badge, <color='#hex'>text</color> → colored text
+    const _isTouch = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+    const segments = []; // { text, type: 'plain' | 'badge' | 'color', color? }
+    const markupRe = /\{key:([^}|]+)\|([^}]+)\}|<color='([^']+)'>([^<]+)<\/color>/g;
+    let lastIdx = 0;
+    let match;
+    while ((match = markupRe.exec(msgText)) !== null) {
+      if (match.index > lastIdx) segments.push({ text: msgText.slice(lastIdx, match.index), type: 'plain' });
+      if (match[1] !== undefined) {
+        segments.push({ text: _isTouch ? match[2] : match[1], type: 'badge' });
+      } else {
+        segments.push({ text: match[4], type: 'color', color: match[3] });
+      }
+      lastIdx = markupRe.lastIndex;
     }
+    if (lastIdx < msgText.length) segments.push({ text: msgText.slice(lastIdx), type: 'plain' });
 
+    // ── Measure & word-wrap with inline badges / colored spans ──
+    const textFont = "13px 'Silkscreen', monospace";
+    const badgeFont = "bold 11px 'Silkscreen', monospace";
+    const iconSize = 20;
+    const iconGap = 10;
+    const maxBubW = 320;
     const padX = 14;
     const padY = 10;
-    const bubW = maxW + padX * 2;
-    const bubH = lines.length * lineH + padY * 2;
+    const textOffsetX = iconSize + iconGap;
+    const maxTextW = maxBubW - padX * 2 - textOffsetX;
+    const badgePadX = 6;
+    const lineH = 20;
+
+    // Build flat token list: each word or badge is one token
+    const tokens = [];
+    for (const seg of segments) {
+      if (seg.type === 'badge') {
+        hudCtx.font = badgeFont;
+        const w = hudCtx.measureText(seg.text).width + badgePadX * 2;
+        tokens.push({ text: seg.text, type: 'badge', width: w });
+      } else {
+        // Plain or colored text — split into words, preserve type/color
+        const words = seg.text.split(' ');
+        for (const word of words) {
+          if (word === '') continue;
+          hudCtx.font = textFont;
+          const w = hudCtx.measureText(word).width;
+          tokens.push({ text: word, type: seg.type, color: seg.color, width: w });
+        }
+      }
+    }
+
+    // Wrap tokens into lines
+    hudCtx.font = textFont;
+    const spaceW = hudCtx.measureText(' ').width;
+    const wrappedLines = [[]];
+    let lineW = 0;
+    for (const tok of tokens) {
+      const gap = wrappedLines[wrappedLines.length - 1].length > 0 ? spaceW : 0;
+      if (lineW + gap + tok.width > maxTextW && wrappedLines[wrappedLines.length - 1].length > 0) {
+        wrappedLines.push([]);
+        lineW = 0;
+      }
+      wrappedLines[wrappedLines.length - 1].push(tok);
+      lineW += (wrappedLines[wrappedLines.length - 1].length > 1 ? spaceW : 0) + tok.width;
+    }
+
+    // Compute max line width
+    let maxW = 0;
+    for (const line of wrappedLines) {
+      let w = 0;
+      for (let i = 0; i < line.length; i++) {
+        if (i > 0) w += spaceW;
+        w += line[i].width;
+      }
+      if (w > maxW) maxW = w;
+    }
+
+    const bubW = maxW + padX * 2 + textOffsetX;
+    const bubH = Math.max(wrappedLines.length * lineH + padY * 2, iconSize + padY * 2);
     const bubX = Math.max(10, Math.min(W - bubW - 10, fishSx - bubW / 2));
     const bubY = Math.max(10, fishSy - 65 - bubH);
 
@@ -3014,17 +3082,43 @@ function renderHUD() {
     hudCtx.closePath();
     hudCtx.fill();
 
-    // Icon
+    // Icon — left side, vertically centered
     const icon = _activeHint !== null ? '🪨' : '🍾';
-    hudCtx.font = "12px sans-serif";
-    hudCtx.fillText(icon, bubX + 4, bubY + padY + lineH - 4);
+    const iconY = bubY + (bubH - iconSize) / 2;
+    hudCtx.font = `${iconSize}px sans-serif`;
+    hudCtx.fillText(icon, bubX + padX, iconY + iconSize - 2);
 
-    // Text
-    hudCtx.fillStyle = '#ddeeff';
-    hudCtx.font = "13px 'Silkscreen', monospace";
+    // ── Render rich text lines ──
     hudCtx.textAlign = 'left';
-    for (let i = 0; i < lines.length; i++) {
-      hudCtx.fillText(lines[i], bubX + padX, bubY + padY + lineH * (i + 1) - 3);
+    for (let i = 0; i < wrappedLines.length; i++) {
+      let cx = bubX + padX + textOffsetX;
+      const cy = bubY + padY + lineH * (i + 1) - 3;
+      for (let j = 0; j < wrappedLines[i].length; j++) {
+        if (j > 0) cx += spaceW;
+        const tok = wrappedLines[i][j];
+        if (tok.type === 'badge') {
+          const bh = 16;
+          const by = cy - bh + 3;
+          hudCtx.fillStyle = 'rgba(60, 140, 220, 0.35)';
+          hudCtx.beginPath();
+          hudCtx.roundRect(cx - 2, by, tok.width + 4, bh + 2, 4);
+          hudCtx.fill();
+          hudCtx.strokeStyle = 'rgba(100, 180, 255, 0.6)';
+          hudCtx.lineWidth = 1;
+          hudCtx.beginPath();
+          hudCtx.roundRect(cx - 2, by, tok.width + 4, bh + 2, 4);
+          hudCtx.stroke();
+          hudCtx.fillStyle = '#80d0ff';
+          hudCtx.font = badgeFont;
+          hudCtx.fillText(tok.text, cx + badgePadX, cy);
+          cx += tok.width;
+        } else {
+          hudCtx.fillStyle = tok.type === 'color' ? tok.color : '#ddeeff';
+          hudCtx.font = textFont;
+          hudCtx.fillText(tok.text, cx, cy);
+          cx += tok.width;
+        }
+      }
     }
 
     hudCtx.restore();

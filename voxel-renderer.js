@@ -2582,7 +2582,7 @@ export class VoxelRenderer {
     this.hintStoneMeshes.length = 0;
 
     const THREE = this.THREE;
-    const V = 2.5;
+    const V = 3.2;
 
     for (const data of hintData) {
       const body = data.body || data;
@@ -2600,7 +2600,8 @@ export class VoxelRenderer {
       const STONE_DARK = 0x5a6a5a;
       const STONE_LIGHT = 0x8a9a8a;
       const MOSS = 0x4a7a3a;
-      const SYMBOL = 0xaaccbb;
+      const SYMBOL = 0xddeedd;
+      const SYMBOL_GLOW = 0xeeffee;
 
       const seed = body.position.x * 7 + body.position.y * 13;
       const rng = (i) => {
@@ -2608,30 +2609,44 @@ export class VoxelRenderer {
         return x - Math.floor(x);
       };
 
-      // Stone tablet: 5 wide x 5 tall x 2 deep
+      // "i" symbol pattern on front face (within 7x9 grid, coords relative to center)
+      const symbolPixels = new Set([
+        '0,2',                                  // dot
+        '0,0', '0,-1', '0,-2',                  // vertical bar
+      ]);
+
+      // Stone tablet: 7 wide x 9 tall x 2 deep
       let idx = 0;
-      for (let y = -2; y <= 2; y++) {
-        for (let x = -2; x <= 2; x++) {
-          for (let z = -1; z <= 1; z++) {
-            // Rounded top
-            if (y === 2 && (Math.abs(x) === 2)) continue;
+      for (let y = -4; y <= 4; y++) {
+        for (let x = -3; x <= 3; x++) {
+          for (let z = 0; z <= 1; z++) {
+            // Rounded top corners
+            if (y === 4 && Math.abs(x) >= 3) continue;
+            // Tapered base
+            if (y === -4 && Math.abs(x) >= 3) continue;
             const rv = rng(idx++);
             let color;
-            // Carved symbol on front face
-            if (z === 1 && Math.abs(x) <= 1 && Math.abs(y) <= 1) {
-              color = rv < 0.3 ? SYMBOL : (rv < 0.6 ? STONE_LIGHT : STONE);
+            const isSymbol = z === 1 && symbolPixels.has(`${x},${y}`);
+            if (isSymbol) {
+              color = rv < 0.4 ? SYMBOL_GLOW : SYMBOL;
+            } else if (z === 1 && Math.abs(x) <= 2 && y >= -3 && y <= 3) {
+              // Flat front face — slightly lighter
+              color = rv < 0.3 ? STONE_LIGHT : (rv < 0.6 ? STONE : STONE_DARK);
             } else {
-              color = rv < 0.15 ? MOSS : (rv < 0.4 ? STONE_DARK : (rv < 0.7 ? STONE : STONE_LIGHT));
+              color = rv < 0.12 ? MOSS : (rv < 0.35 ? STONE_DARK : (rv < 0.65 ? STONE : STONE_LIGHT));
             }
             addVoxel(x, y, z, color);
           }
         }
       }
 
-      // Small seaweed tufts on top
-      addVoxel(-1, 3, 0, MOSS);
-      addVoxel(1, 3, 0, 0x3a6a2a);
-      addVoxel(0, 3, 1, MOSS);
+      // Moss / seaweed on top
+      addVoxel(-2, 5, 0, MOSS);
+      addVoxel(-1, 5, 1, 0x3a6a2a);
+      addVoxel(0, 5, 0, MOSS);
+      addVoxel(1, 5, 0, 0x3a6a2a);
+      addVoxel(2, 5, 1, MOSS);
+      addVoxel(-1, 6, 0, 0x3a6a2a);
 
       group.position.set(body.position.x, -body.position.y, 0);
       this.scene.add(group);

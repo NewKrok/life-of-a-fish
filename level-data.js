@@ -143,11 +143,11 @@ const LEVELS = [
       { row: 7, col: 32, chainLength: 128 }, // 4 tiles of chain
     ],
     bottleMessages: [
-      { row: 9, col: 8, text: "Note to self: do NOT dash into a pufferfish. Ow." },
-      { row: 11, col: 24, text: "Broke a crate. Nothing inside. Broke another. Nothing. Broke a third — pearl! Broke 50 more. Nothing." },
+      { row: 9, col: 8, text: "Note to self: do NOT dash into a <color='#ff6666'>pufferfish</color>. Ow." },
+      { row: 11, col: 24, text: "Broke a <color='#c8a050'>crate</color>. Nothing inside. Broke another. Nothing. Broke a third — <color='#ffdd44'>pearl</color>! Broke 50 more. Nothing." },
     ],
     hintStones: [
-      { row: 8, col: 19, text: "Dash into enemies to defeat them. Hold E to grab boulders!" },
+      { row: 8, col: 19, text: "<color='#80d0ff'>Dash</color> into enemies to defeat them. Hold {key:E|GRAB} to grab <color='#c8a050'>boulders</color>!" },
     ],
   },
 
