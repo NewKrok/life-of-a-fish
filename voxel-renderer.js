@@ -3654,6 +3654,71 @@ export class VoxelRenderer {
     }
   }
 
+  // ── Spawn enemy death burst (voxel chunks + bubbles) ──
+  spawnEnemyDeath(x, y, colors) {
+    const THREE = this.THREE;
+    if (!colors) colors = [0x662244, 0x551133, 0x773355, 0x993366, 0x998888];
+    const count = 14;
+
+    for (let i = 0; i < count; i++) {
+      const size = 2 + Math.random() * 4;
+      const geo = new THREE.BoxGeometry(size, size, size);
+      const mat = new THREE.MeshStandardMaterial({
+        color: colors[Math.floor(Math.random() * colors.length)],
+        roughness: 0.7,
+        metalness: 0.1,
+        transparent: true,
+        opacity: 0.95,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      const angle = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.6;
+      const dist = 4 + Math.random() * 8;
+      mesh.position.set(
+        x + Math.cos(angle) * dist,
+        -y + Math.sin(angle) * dist,
+        (Math.random() - 0.5) * 16
+      );
+      mesh.rotation.set(
+        Math.random() * Math.PI,
+        Math.random() * Math.PI,
+        Math.random() * Math.PI
+      );
+      this.scene.add(mesh);
+      const speed = 60 + Math.random() * 80;
+      this.bubbles.push({
+        mesh,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 0.6 + Math.random() * 0.5,
+        _isRock: true,
+      });
+    }
+
+    // A few bubbles rising from the death spot
+    for (let i = 0; i < 6; i++) {
+      const size = 2 + Math.random() * 3;
+      const geo = new THREE.SphereGeometry(size, 6, 6);
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.5,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(
+        x + (Math.random() - 0.5) * 16,
+        -y + (Math.random() - 0.5) * 8,
+        (Math.random() - 0.5) * 10
+      );
+      this.scene.add(mesh);
+      this.bubbles.push({
+        mesh,
+        vx: (Math.random() - 0.5) * 20,
+        vy: 40 + Math.random() * 40,
+        life: 0.8 + Math.random() * 0.6,
+      });
+    }
+  }
+
   // ── Spawn breakable wall debris (rock fragments) ──
   spawnBreakableWallDebris(x, y) {
     const THREE = this.THREE;

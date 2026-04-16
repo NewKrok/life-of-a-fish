@@ -1652,8 +1652,11 @@ const piranhaListener = new InteractionListener(
       const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
       const enemyBody = enemyBodies.find(e => e === b1 || e === b2);
       if (enemyBody && enemyBody.space) {
+        const cx = enemyBody.position.x;
+        const cy = enemyBody.position.y;
         enemyBody.space = null;
         sfx.enemyDeath();
+        voxelRenderer.spawnEnemyDeath(cx, cy);
       }
     } else {
       triggerDeath();
@@ -1710,6 +1713,7 @@ const boulderPiranhaListener = new InteractionListener(
       const cy = enemyBody.position.y;
       enemyBody.space = null;
       sfx.enemyDeath();
+      voxelRenderer.spawnEnemyDeath(cx, cy);
       if (boulderBody && boulderBody.space) {
         if (grabbedBoulder === boulderBody) grabbedBoulder = null;
         boulderBody.space = null;
@@ -1794,6 +1798,7 @@ const boulderPufferfishListener = new InteractionListener(
       const cy = pfBody.position.y;
       pfBody.space = null;
       sfx.enemyDeath();
+      voxelRenderer.spawnEnemyDeath(cx, cy, [0xccaa44, 0xbb9933, 0xddbb55, 0xaa8822, 0xeedd88]);
       if (boulderBody && boulderBody.space) {
         if (grabbedBoulder === boulderBody) grabbedBoulder = null;
         boulderBody.space = null;
@@ -1818,6 +1823,7 @@ const boulderCrabListener = new InteractionListener(
       const cy = crabBody.position.y;
       crabBody.space = null;
       sfx.enemyDeath();
+      voxelRenderer.spawnEnemyDeath(cx, cy, [0xcc3322, 0xdd4433, 0xbb2211, 0xee5544, 0xff8866]);
       if (boulderBody && boulderBody.space) {
         if (grabbedBoulder === boulderBody) grabbedBoulder = null;
         boulderBody.space = null;
@@ -1842,6 +1848,7 @@ const boulderToxicListener = new InteractionListener(
       const cy = tfBody.position.y;
       tfBody.space = null;
       sfx.enemyDeath();
+      voxelRenderer.spawnEnemyDeath(cx, cy, [0x336644, 0x225533, 0x447755, 0x558866, 0x66aa77]);
       if (boulderBody && boulderBody.space) {
         if (grabbedBoulder === boulderBody) grabbedBoulder = null;
         boulderBody.space = null;
@@ -1866,6 +1873,7 @@ const boulderArmoredListener = new InteractionListener(
       const cy = afBody.position.y;
       afBody.space = null;
       sfx.enemyDeath();
+      voxelRenderer.spawnEnemyDeath(cx, cy, [0x556677, 0x445566, 0x667788, 0x334455, 0x778899]);
       if (boulderBody && boulderBody.space) {
         if (grabbedBoulder === boulderBody) grabbedBoulder = null;
         boulderBody.space = null;
@@ -1897,6 +1905,7 @@ const boulderCoralListener = new InteractionListener(
       const cy = coralBody.position.y;
       coralBody.space = null;
       sfx.enemyDeath();
+      voxelRenderer.spawnEnemyDeath(cx, cy, [0x554433, 0x664422, 0x775533, 0x886644, 0xcc6699]);
       if (boulderBody && boulderBody.space) {
         if (grabbedBoulder === boulderBody) grabbedBoulder = null;
         boulderBody.space = null;
