@@ -2,6 +2,10 @@
 
 Underwater fish platformer — 2D side-scrolling game running in the browser.
 
+## Core Design Principle — Underwater Movement
+
+The game is almost entirely underwater. The fish swims freely in all directions — no ground-walking, no jumping onto platforms. "Standing on" things is meaningless underwater. Entities are obstacles/tools to interact with while swimming (push, dodge, block), not platforms to ride. The only exception is the brief dolphin-leap arc when the fish jumps out of the water, but even that doesn't turn the game into a classic platformer.
+
 ## Tech Stack
 
 - **Physics**: nape-js v3.26.0 (CDN) — rigid body, fluid simulation, collision
@@ -85,6 +89,8 @@ In-game editor activated with **F4**. Works in both menu and game states. Pauses
 - Crates: dynamic bodies (float/roll in water), destroyed by dashing, wood plank particles, ~30% pearl drop
 - Switches: static sensor bodies, 3 types: toggle (one-shot, stays open), pressure (open while weight on it), timed (5s then closes). Activated by player/boulder/key/crate contact
 - Gates: kinematic bodies (2 tiles tall, 1 tile wide), linked to switches by group ID, swing open sideways around left-edge hinge
+- Floating logs: dynamic bodies, float in water, pushable by player/objects, can activate pressure switches
+- Swinging anchors: kinematic bodies, pendulum physics from ceiling pivot point, configurable chain length via `anchorChainLengths` metadata
 - Each entity class has its own `CbType` for collision filtering
 
 ### Rendering (Three.js)
@@ -139,10 +145,14 @@ Tile map is a string grid (125 cols × 25 rows, 32px tiles):
 | `N`  | Pressure Switch | 31  |
 | `O`  | Timed Switch | 32     |
 | `G`  | Gate         | 33     |
+| `L`  | Floating Log | 34     |
+| `H`  | Swinging Anchor | 35  |
 
 Keys are carriable/throwable like boulders but deal no damage. Throwing a key at its matching-color chest opens the chest with a particle effect and spawns a pearl. Chest pearls are included in `TOTAL_PEARLS` from level start.
 
 Switches and gates are linked by group IDs stored in `switchGateGroups` metadata per level. Toggle switches flip on player contact. Pressure switches stay active while a boulder/key rests on them. Timed switches activate for 5s then auto-close. Gates are 2-tile-tall metal grates that swing open around a top hinge.
+
+Floating logs are dynamic bodies that float in water and can be pushed. Swinging anchors hang from ceiling pivot points on chains and swing as pendulums. Chain length is configurable via `anchorChainLengths` metadata per level (default: 96px = 3 tiles). The anchor tile position represents the pivot point; the anchor body swings below.
 
 Water surface is at row 4 (128px).
 

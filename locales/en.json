@@ -226,6 +226,18 @@
       "tagLabel": "Zone",
       "desc": "Where the ocean meets the sky. Cross it to jump into the air — your fish flops around up there, so don't stay long!",
       "tip": "Tip: Jump out for hard-to-reach pearls, but gravity pulls you back fast."
+    },
+    "floatingLog": {
+      "name": "Floating Log",
+      "tagLabel": "Pushable",
+      "desc": "A waterlogged piece of driftwood drifting in the ocean. Heavy enough to hold down a pressure switch, light enough to push around. A handy underwater tool.",
+      "tip": "Tip: Push logs onto pressure switches to keep gates open, or use them to block enemy patrol paths."
+    },
+    "swingingAnchor": {
+      "name": "Swinging Anchor",
+      "tagLabel": "Obstacle",
+      "desc": "A heavy iron anchor hanging from a chain, swinging back and forth like a pendulum. The rust hasn't slowed it down one bit.",
+      "tip": "Tip: Time your swim to pass when the anchor swings away. Don't get caught in its path!"
     }
   },
   "editor": {
@@ -283,7 +295,9 @@
       "chestBlue": "Chest Blue",
       "chestGreen": "Chest Green",
       "chestYellow": "Chest Yellow",
-      "chestPurple": "Chest Purple"
+      "chestPurple": "Chest Purple",
+      "floatingLog": "Floating Log",
+      "swAnchor": "Sw. Anchor"
     }
   }
 }

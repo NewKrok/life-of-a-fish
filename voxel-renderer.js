@@ -64,6 +64,8 @@ export class VoxelRenderer {
     this.chestMeshes = [];   // { mesh, body, colorIndex, opened } pairs
     this.raftMeshes = [];   // { mesh, body } pairs
     this.crateMeshes = [];  // { mesh, body } pairs
+    this.floatingLogMeshes = [];  // { mesh, body } pairs
+    this.swingingAnchorMeshes = [];  // { mesh, body, pivotX, pivotY, chainLength } pairs
     this.breakableWallMeshes = [];  // { mesh, body } pairs
     this.waterMesh = null;
     this.bubbles = [];
@@ -153,6 +155,12 @@ export class VoxelRenderer {
     // Crates
     for (const c of this.crateMeshes) this.scene.remove(c.mesh);
     this.crateMeshes.length = 0;
+    // Floating Logs
+    for (const f of this.floatingLogMeshes) this.scene.remove(f.mesh);
+    this.floatingLogMeshes.length = 0;
+    // Swinging Anchors
+    for (const s of this.swingingAnchorMeshes) this.scene.remove(s.mesh);
+    this.swingingAnchorMeshes.length = 0;
     // Breakable walls
     for (const w of this.breakableWallMeshes) this.scene.remove(w.mesh);
     this.breakableWallMeshes.length = 0;
@@ -2337,6 +2345,173 @@ export class VoxelRenderer {
     }
   }
 
+  // ── Build floating log meshes (natural driftwood) ──
+  buildFloatingLogs(floatingLogBodies) {
+    for (const f of this.floatingLogMeshes) this.scene.remove(f.mesh);
+    this.floatingLogMeshes.length = 0;
+
+    const THREE = this.THREE;
+    const V = 2.5; // voxel size
+
+    for (const body of floatingLogBodies) {
+      const group = new THREE.Group();
+
+      const addVoxel = (x, y, z, color) => {
+        const geo = new THREE.BoxGeometry(V, V, V);
+        const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.9, metalness: 0.05 });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(x * V, y * V, z * V);
+        group.add(mesh);
+      };
+
+      // Natural log colors
+      const BARK = 0x6B4A2A;
+      const BARK_DARK = 0x4A3218;
+      const BARK_LIGHT = 0x8B6B3A;
+      const MOSS = 0x4A6B3A;
+      const INNER = 0xA08050;
+
+      // Seed for variation
+      const seed = body.position.x * 7 + body.position.y * 13;
+      const rng = (i) => {
+        const x = Math.sin(seed + i * 9871) * 43758.5453;
+        return x - Math.floor(x);
+      };
+
+      // Cylindrical log: ~11 voxels long (horizontal), ~3 voxels radius
+      let idx = 0;
+      for (let x = -5; x <= 5; x++) {
+        for (let y = -2; y <= 2; y++) {
+          for (let z = -2; z <= 2; z++) {
+            // Roughly circular cross-section
+            const dist = Math.sqrt(y * y + z * z);
+            if (dist > 2.5) continue;
+            // Taper at ends
+            const endTaper = Math.abs(x) >= 5 ? 1.8 : Math.abs(x) >= 4 ? 2.2 : 2.5;
+            if (dist > endTaper) continue;
+
+            const rv = rng(idx++);
+            let color;
+            if (dist <= 1) {
+              // Inner wood (visible at ends)
+              color = (Math.abs(x) >= 4) ? INNER : (rv < 0.3 ? BARK_DARK : rv < 0.7 ? BARK : BARK_LIGHT);
+            } else {
+              // Bark surface, occasional moss
+              color = rv < 0.1 ? MOSS : rv < 0.35 ? BARK_DARK : rv < 0.7 ? BARK : BARK_LIGHT;
+            }
+            addVoxel(x, y, z, color);
+          }
+        }
+      }
+
+      // Stub branches (small bumps)
+      addVoxel(-3, 2, 0, BARK_DARK);
+      addVoxel(2, -2, 1, BARK_DARK);
+
+      group.position.set(body.position.x, -body.position.y, 0);
+      this.scene.add(group);
+      this.floatingLogMeshes.push({ mesh: group, body });
+    }
+  }
+
+  // ── Build swinging anchor meshes (metal anchor + chain) ──
+  buildSwingingAnchors(anchorData) {
+    for (const s of this.swingingAnchorMeshes) this.scene.remove(s.mesh);
+    this.swingingAnchorMeshes.length = 0;
+
+    const THREE = this.THREE;
+    const V = 2; // voxel size
+
+    for (const data of anchorData) {
+      const body = data.body || data;
+      const pivotX = data.pivotX ?? body.position.x;
+      const pivotY = data.pivotY ?? body.position.y;
+      const chainLength = data.chainLength ?? 96;
+
+      const group = new THREE.Group();
+
+      const addVoxel = (x, y, z, color) => {
+        const geo = new THREE.BoxGeometry(V, V, V);
+        const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.7, metalness: 0.5 });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(x * V, y * V, z * V);
+        group.add(mesh);
+      };
+
+      // Anchor colors
+      const METAL = 0x5A5A6A;
+      const METAL_DARK = 0x3A3A4A;
+      const RUST = 0x7A4A2A;
+      const CHAIN = 0x6A6A7A;
+
+      const seed = pivotX * 7 + pivotY * 13;
+      const rng = (i) => {
+        const x = Math.sin(seed + i * 9871) * 43758.5453;
+        return x - Math.floor(x);
+      };
+
+      // Anchor shape — classic nautical anchor
+      let idx = 0;
+      // Vertical shank (center post)
+      for (let y = -4; y <= 3; y++) {
+        for (let z = -1; z <= 1; z++) {
+          const rv = rng(idx++);
+          addVoxel(0, y, z, rv < 0.2 ? RUST : rv < 0.5 ? METAL_DARK : METAL);
+        }
+      }
+      // Cross arm (fluke bar) at bottom
+      for (let x = -4; x <= 4; x++) {
+        for (let z = -1; z <= 1; z++) {
+          const rv = rng(idx++);
+          addVoxel(x, -4, z, rv < 0.3 ? RUST : rv < 0.6 ? METAL_DARK : METAL);
+        }
+      }
+      // Fluke tips (curved down at ends of cross arm)
+      for (let z = -1; z <= 1; z++) {
+        addVoxel(-4, -5, z, METAL_DARK);
+        addVoxel(-3, -5, z, METAL_DARK);
+        addVoxel(4, -5, z, METAL_DARK);
+        addVoxel(3, -5, z, METAL_DARK);
+      }
+      // Ring at top
+      for (let x = -1; x <= 1; x++) {
+        for (let z = -1; z <= 1; z++) {
+          if (x === 0 && z === 0) continue;
+          addVoxel(x, 4, z, METAL);
+        }
+      }
+      addVoxel(0, 5, 0, METAL);
+
+      // Chain links (drawn from anchor ring upward toward pivot)
+      const chainVoxelLen = Math.floor(chainLength / V);
+      for (let i = 0; i < chainVoxelLen; i += 2) {
+        const cy = 6 + i;
+        const rv = rng(idx + i);
+        const cc = rv < 0.3 ? METAL_DARK : CHAIN;
+        addVoxel(0, cy, 0, cc);
+        if (i + 1 < chainVoxelLen) {
+          addVoxel(0, cy + 1, 0, CHAIN);
+        }
+      }
+
+      // Pivot marker (small bracket at top of chain)
+      const topY = 6 + chainVoxelLen;
+      addVoxel(-1, topY, 0, METAL_DARK);
+      addVoxel(0, topY, 0, METAL_DARK);
+      addVoxel(1, topY, 0, METAL_DARK);
+
+      group.position.set(body.position.x, -body.position.y, 0);
+      this.scene.add(group);
+      this.swingingAnchorMeshes.push({
+        mesh: group,
+        body,
+        pivotX,
+        pivotY,
+        chainLength,
+      });
+    }
+  }
+
   // ── Generate a Minecraft-style ground texture for the back plane ──
   _generateGroundTexture() {
     const THREE = this.THREE;
@@ -3458,6 +3633,24 @@ export class VoxelRenderer {
     for (const r of this.raftMeshes) {
       r.mesh.position.set(r.body.position.x, -r.body.position.y, 0);
       r.mesh.rotation.z = -r.body.rotation;
+    }
+
+    // ── Sync floating logs (position + rotation from physics) ──
+    for (const f of this.floatingLogMeshes) {
+      f.mesh.position.set(f.body.position.x, -f.body.position.y, 0);
+      f.mesh.rotation.z = -f.body.rotation;
+    }
+
+    // ── Sync swinging anchors (pendulum position from game loop) ──
+    const { swingingAnchorBodies: _saB } = extras;
+    if (_saB) {
+      for (let i = 0; i < _saB.length && i < this.swingingAnchorMeshes.length; i++) {
+        const sa = _saB[i];
+        const mesh = this.swingingAnchorMeshes[i];
+        // The entire group (anchor + chain) rotates around the pivot
+        // Position at pivot, rotate by pendulum angle
+        mesh.mesh.position.set(sa.body.position.x, -sa.body.position.y, 0);
+      }
     }
 
     // ── Sync sharks ──

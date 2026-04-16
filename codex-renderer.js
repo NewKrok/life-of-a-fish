@@ -258,6 +258,31 @@ export function generateCodexPreviews(THREE) {
     vr.gateMeshes.length = 0;
   }
 
+  // Floating Log
+  {
+    vr.buildFloatingLogs([fakeBody]);
+    const g = vr.floatingLogMeshes[0]?.mesh;
+    if (g) {
+      tempScene.remove(g);
+      g.position.set(0, 0, 0);
+      previews.floatingLog = _renderPreview(THREE, offRenderer, g, { camDist: 40 });
+    }
+    vr.floatingLogMeshes.length = 0;
+  }
+
+  // Swinging Anchor
+  {
+    const fakeData = { body: fakeBody, pivotX: 0, pivotY: 0, chainLength: 96 };
+    vr.buildSwingingAnchors([fakeData]);
+    const g = vr.swingingAnchorMeshes[0]?.mesh;
+    if (g) {
+      tempScene.remove(g);
+      g.position.set(0, 0, 0);
+      previews.swingingAnchor = _renderPreview(THREE, offRenderer, g, { camDist: 80 });
+    }
+    vr.swingingAnchorMeshes.length = 0;
+  }
+
   // Terrain blocks
   {
     const stoneGroup = _buildTerrainBlock(THREE, vr, 1);

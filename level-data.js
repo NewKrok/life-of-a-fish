@@ -30,6 +30,8 @@
 //  31 = pressure switch (stays open while player/boulder/key/crate rests on it)
 //  32 = timed switch (opens linked gate for ~5s then auto-closes)
 //  33 = gate (2-tile-tall metal grate, linked to a switch by group ID)
+//  34 = floating log (dynamic, floats in water, pushable by player/objects)
+//  35 = swinging anchor (kinematic pendulum, hangs from ceiling on chain)
 
 export const TILE_SIZE = 32;
 
@@ -78,6 +80,8 @@ const KEY = {
   N: 31, // pressure switch
   O: 32, // timed switch
   G: 33, // gate (2-tile-tall barrier)
+  L: 34, // floating log (pushable)
+  H: 35, // swinging anchor (horgony)
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -101,12 +105,12 @@ const LEVELS = [
       "#...........B.......................p....................B....O............R..................R.R.........p.................#", // 4
       "####....................##......##......e...##......####......###....T.....###..........###...###....####...........pd....###", // 5
       "####..........p.........##......##..........##......####......###..........###..........###...###.......U...........##...####", // 6
-      "####..@..........W......##..................##d.....####d.....G##d.........###..........###....................##....x##.x###", // 7
+      "####..@..........W......##......H...........##d.....####d.....G##d.........###..........###....................##....x##.x###", // 7
       "####.............d............p.............V##......####d.....ddd....x...d###.......................S........W..........x###", // 8
       "####........pd.###.............R............##...F..p...x..W.d###.........###.p.dx..........B..............P.............####", // 9
-      "####........######.................e.........##.......d......##..x..F..p........##....e.R.......................p........x###", // 10
+      "####........######.L...............e.........##.......d......##..x..F..p........##....e.R.......................p........x###", // 10
       "####............................R............###......##..e..##p........W.......##......##..........R...............dpd..d###", // 11
-      "####....................p.....................G.......##.....##.....##..........##......##..p..........S...........d####.####", // 12
+      "####....................p.....................G.......##.....##L....##..........##......##..p..........S...........d####.####", // 12
       "####.................U................................##.....x......##.........d##......##.............U..........d####..####", // 13
       "####........e....................c..R...pU...##....x....d..d.......##..........##......##..e....................d#####..U####", // 14
       "####..............p..............dcNc.......d##..x......####.....x........F....##d....x....................d.Cd.######...####", // 15
@@ -130,6 +134,9 @@ const LEVELS = [
         switches: [{ row: 15, col: 35 }],
         gates: [{ row: 20, col: 40 }],
       },
+    ],
+    anchorChainLengths: [
+      { row: 7, col: 32, chainLength: 128 }, // 4 tiles of chain
     ],
   },
 
@@ -302,6 +309,8 @@ export function getLevelEntities() {
     pressureSwitches: [], // { x, y, group }
     timedSwitches: [], // { x, y, group }
     gates: [], // { x, y, group }
+    floatingLogs: [], // { x, y }
+    swingingAnchors: [], // { x, y, chainLength }
   };
   for (let row = 0; row < LEVEL_ROWS; row++) {
     for (let col = 0; col < LEVEL_COLS; col++) {
@@ -371,6 +380,12 @@ export function getLevelEntities() {
       } else if (t === 33) {
         entities.gates.push({ x: cx, y: cy, group: -1 });
         TILES[row][col] = 0;
+      } else if (t === 34) {
+        entities.floatingLogs.push({ x: cx, y: cy });
+        TILES[row][col] = 0;
+      } else if (t === 35) {
+        entities.swingingAnchors.push({ x: cx, y: cy, chainLength: 96 });
+        TILES[row][col] = 0;
       }
     }
   }
@@ -400,6 +415,18 @@ export function getLevelEntities() {
         );
         if (match) match.group = grp.id;
       }
+    }
+  }
+
+  // ── Assign anchor chain lengths from level metadata ──
+  if (level.anchorChainLengths) {
+    for (const ac of level.anchorChainLengths) {
+      const ax = ac.col * TILE_SIZE + TILE_SIZE / 2;
+      const ay = ac.row * TILE_SIZE + TILE_SIZE / 2;
+      const match = entities.swingingAnchors.find(
+        (a) => Math.abs(a.x - ax) < 2 && Math.abs(a.y - ay) < 2,
+      );
+      if (match) match.chainLength = ac.chainLength;
     }
   }
 

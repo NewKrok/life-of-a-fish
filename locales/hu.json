@@ -226,6 +226,18 @@
       "tagLabel": "Zóna",
       "desc": "Ahol az óceán találkozik az éggel. Lépd át, hogy a levegőbe ugorj — a halad fickándozik odafent, úgyhogy ne maradj sokáig!",
       "tip": "Tipp: Ugorj ki a nehezen elérhető gyöngyökért, de a gravitáció gyorsan visszahúz."
+    },
+    "floatingLog": {
+      "name": "Úszó farönk",
+      "tagLabel": "Tolható",
+      "desc": "Egy vízzel átitatott fadarab, ami az óceánban sodródik. Elég nehéz, hogy lenyomjon egy nyomókapcsolót, de elég könnyű, hogy eltold. Hasznos víz alatti eszköz.",
+      "tip": "Tipp: Told a rönköt a nyomókapcsolóra, hogy a kapu nyitva maradjon, vagy használd az ellenségek útjának elzárására."
+    },
+    "swingingAnchor": {
+      "name": "Lengő horgony",
+      "tagLabel": "Akadály",
+      "desc": "Egy nehéz vashorgony láncon lóg, és ingaként leng előre-hátra. A rozsda egy cseppet sem lassította le.",
+      "tip": "Tipp: Időzítsd az úszásodat, hogy akkor haladj el, amikor a horgony elleng. Ne akadj az útjába!"
     }
   },
   "editor": {
@@ -283,7 +295,9 @@
       "chestBlue": "Kék láda",
       "chestGreen": "Zöld láda",
       "chestYellow": "Sárga láda",
-      "chestPurple": "Lila láda"
+      "chestPurple": "Lila láda",
+      "floatingLog": "Úszó farönk",
+      "swAnchor": "L. horgony"
     }
   }
 }

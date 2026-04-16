@@ -551,6 +551,8 @@ const CODEX_DATA = [
   { category: 'terrain', preview: 'hazard', i18nKey: 'hazard', tag: 'danger' },
   { category: 'terrain', preview: 'buoy', i18nKey: 'buoy', tag: 'terrain' },
   { category: 'terrain', preview: 'raft', i18nKey: 'raft', tag: 'terrain' },
+  { category: 'items', preview: 'floatingLog', i18nKey: 'floatingLog', tag: 'item' },
+  { category: 'items', preview: 'swingingAnchor', i18nKey: 'swingingAnchor', tag: 'terrain' },
   { category: 'terrain', preview: 'water', i18nKey: 'water', tag: 'terrain' },
 ];
 
@@ -1121,6 +1123,8 @@ const armoredFishTag = new CbType();
 const spittingCoralTag = new CbType();
 const switchTag = new CbType();
 const gateTag = new CbType();
+const floatingLogTag = new CbType();
+const swingingAnchorTag = new CbType();
 
 // ── Build terrain bodies from merged tiles ──
 const mergedBodies = getMergedSolidBodies();
@@ -1165,6 +1169,8 @@ _capturedEntities = {
   pressureSwitches: entities.pressureSwitches.map(e => ({ ...e })),
   timedSwitches: entities.timedSwitches.map(e => ({ ...e })),
   gates: entities.gates.map(e => ({ ...e })),
+  floatingLogs: entities.floatingLogs.map(e => ({ ...e })),
+  swingingAnchors: entities.swingingAnchors.map(e => ({ ...e })),
 };
 
 // ── Hazard bodies (seaweed/spiky plants) ──
@@ -1417,6 +1423,44 @@ for (const cr of entities.crates) {
   crateBodies.push(b);
 }
 
+// ── Floating Logs (dynamic, float in water, pushable) ──
+const floatingLogBodies = [];
+for (const fl of entities.floatingLogs) {
+  const b = new Body(BodyType.DYNAMIC, new Vec2(fl.x, fl.y));
+  // Wide, thin shape — 2 tiles wide, half tile tall
+  const shape = new Polygon(Polygon.box(56, 14), undefined, new Material(0.4, 0.3, 0.3, 0.6));
+  shape.cbTypes.add(floatingLogTag);
+  b.shapes.add(shape);
+  b.allowRotation = true;
+  b.space = space;
+  floatingLogBodies.push(b);
+}
+
+// ── Swinging Anchors (kinematic pendulum bodies) ──
+const ANCHOR_DEFAULT_CHAIN = 96;  // px — default chain length (3 tiles)
+const swingingAnchorBodies = [];  // { body, pivotX, pivotY, chainLength, angle, angularVel }
+for (const sa of entities.swingingAnchors) {
+  const chainLen = sa.chainLength || ANCHOR_DEFAULT_CHAIN;
+  // Pivot is where the tile is placed; anchor body hangs below
+  const startAngle = 0.4; // start slightly tilted so it swings immediately
+  const anchorX = sa.x + chainLen * Math.sin(startAngle);
+  const anchorY = sa.y + chainLen * Math.cos(startAngle);
+  const b = new Body(BodyType.KINEMATIC, new Vec2(anchorX, anchorY));
+  const shape = new Polygon(Polygon.box(24, 20), undefined, new Material(0.8, 0.1, 0.1, 3.0));
+  shape.cbTypes.add(swingingAnchorTag);
+  b.shapes.add(shape);
+  b.allowRotation = false;
+  b.space = space;
+  swingingAnchorBodies.push({
+    body: b,
+    pivotX: sa.x,
+    pivotY: sa.y,
+    chainLength: chainLen,
+    angle: startAngle,
+    angularVel: 0,
+  });
+}
+
 // ── Breakable walls (cracked stone, destroyed by dashing) ──
 const breakableWallBodies = [];
 for (const bw of entities.breakableWalls) {
@@ -1478,6 +1522,8 @@ voxelRenderer.buildCrates(crateBodies);
 voxelRenderer.buildBreakableWalls(breakableWallBodies);
 voxelRenderer.buildSwitches(switchBodies);
 voxelRenderer.buildGates(gateBodies);
+voxelRenderer.buildFloatingLogs(floatingLogBodies);
+voxelRenderer.buildSwingingAnchors(swingingAnchorBodies);
 
 // ── Player fish ──
 const player = new Body(BodyType.DYNAMIC, new Vec2(entities.playerSpawn.x, entities.playerSpawn.y));
@@ -2517,6 +2563,29 @@ function _resetEntities() {
     b.angularVel = 0;
   }
 
+  // ── Floating Logs ──
+  for (let i = 0; i < floatingLogBodies.length; i++) {
+    const b = floatingLogBodies[i];
+    const fl = entities.floatingLogs[i];
+    b.position = new Vec2(fl.x, fl.y);
+    b.velocity = new Vec2(0, 0);
+    b.rotation = 0;
+    b.angularVel = 0;
+    if (!b.space) b.space = space;
+  }
+  voxelRenderer.buildFloatingLogs(floatingLogBodies);
+
+  // ── Swinging Anchors ──
+  for (const sa of swingingAnchorBodies) {
+    sa.angle = 0.4;
+    sa.angularVel = 0;
+    const anchorX = sa.pivotX + sa.chainLength * Math.sin(sa.angle);
+    const anchorY = sa.pivotY + sa.chainLength * Math.cos(sa.angle);
+    sa.body.position = new Vec2(anchorX, anchorY);
+    sa.body.velocity = new Vec2(0, 0);
+  }
+  voxelRenderer.buildSwingingAnchors(swingingAnchorBodies);
+
   // ── Switches — reset to inactive ──
   for (const sw of switchBodies) {
     sw.active = false;
@@ -3161,6 +3230,26 @@ function gameLoop() {
     rb.angularVel *= 0.95;
   }
 
+  // ── Update floating logs (damping, keep stable) ──
+  for (const fb of floatingLogBodies) {
+    fb.velocity = new Vec2(fb.velocity.x * 0.97, fb.velocity.y * 0.97);
+    fb.angularVel *= 0.96;
+  }
+
+  // ── Update swinging anchors (pendulum physics) ──
+  const PENDULUM_GRAVITY = 300; // px/s² — effective gravity for pendulum swing
+  for (const sa of swingingAnchorBodies) {
+    // Pendulum: angular_accel = -g/L * sin(angle)
+    const angAccel = -(PENDULUM_GRAVITY / sa.chainLength) * Math.sin(sa.angle);
+    sa.angularVel += angAccel * DT;
+    sa.angularVel *= 0.9995; // very slight damping — nearly perpetual
+    sa.angle += sa.angularVel * DT;
+    // Position anchor body at end of pendulum chain
+    const ax = sa.pivotX + sa.chainLength * Math.sin(sa.angle);
+    const ay = sa.pivotY + sa.chainLength * Math.cos(sa.angle);
+    sa.body.position = new Vec2(ax, ay);
+  }
+
   // ── Boulder / Key grab / carry / throw mechanic (E key) ──
   if (grabbedBoulder && !grabbedBoulder.space) {
     grabbedBoulder = null;
@@ -3294,6 +3383,7 @@ function gameLoop() {
   voxelRenderer.syncFrame(player, fishState, enemyBodies, DT, {
     sharkBodies, pufferfishBodies, crabBodies, toxicFishBodies, projectileBodies,
     armoredFishBodies, spittingCoralBodies, switchBodies, gateBodies,
+    swingingAnchorBodies,
   });
 
   renderer.render(scene, camera);

@@ -183,6 +183,21 @@ Built via `buildRafts(raftBodies)`:
 - Colors: `PLANK` browns (0x6B4914–0xA07828), `ROPE` (0x99884C)
 - Synced from physics body position + rotation each frame
 
+### Floating Logs
+Built via `buildFloatingLogs(floatingLogBodies)`:
+- Natural driftwood appearance — cylindrical log shape (~11 voxels long, ~3 radius)
+- Colors: `BARK` browns (0x4A3218–0x8B6B3A), occasional `MOSS` patches (0x4A6B3A), `INNER` wood visible at ends (0xA08050)
+- Tapered ends, stub branches for detail
+- Synced from physics body position + rotation each frame
+
+### Swinging Anchors
+Built via `buildSwingingAnchors(anchorData)`:
+- Classic nautical anchor shape — vertical shank, cross arm (fluke bar), curved fluke tips, ring at top
+- Chain links rendered as voxels from anchor ring upward to pivot point
+- Colors: `METAL` grays (0x3A3A4A–0x6A6A7A), `RUST` (0x7A4A2A), `CHAIN` (0x6A6A7A)
+- Pivot marker (bracket) at top of chain
+- Position synced from pendulum physics each frame (kinematic body)
+
 ## Bubbles
 
 ### Player/Piranha Bubbles
@@ -259,7 +274,8 @@ Called every frame after physics step. Updates:
 11. Gate pivot rotation animation (swing open/close)
 12. Projectile positions, spin rotation, emissive pulse, remove expired
 9. Pearl bob + spin animation; remove collected pearls (body.space === null)
-10. Buoy, boulder, raft positions + rotations from physics bodies
+10. Buoy, boulder, raft, floating log positions + rotations from physics bodies
+10b. Swinging anchor positions from pendulum physics
 11. Bubble positions, opacity, and lifetime (including horizontal `vx` drag for splash particles)
 7. Surface disturbance aging, spread growth, and cleanup
 8. God ray sway and opacity pulsing

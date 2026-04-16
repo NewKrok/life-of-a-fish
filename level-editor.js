@@ -26,6 +26,8 @@ const PALETTE = [
   { id: 10, char: 'R', labelKey: 'editor.pal.boulder',                 color: '#888',    category: 'items',   previewKey: 'boulder' },
   { id: 11, char: 'T', labelKey: 'editor.pal.raft',                    color: '#8b5a2b', category: 'items',   previewKey: 'raft' },
   { id: 26, char: 'W', labelKey: 'editor.pal.crate',                   color: '#8B6914', category: 'items',   previewKey: 'crate' },
+  { id: 34, char: 'L', labelKey: 'editor.pal.floatingLog',             color: '#6B4A2A', category: 'items',   previewKey: 'floatingLog' },
+  { id: 35, char: 'H', labelKey: 'editor.pal.swAnchor',                color: '#5A5A6A', category: 'items',   previewKey: 'swingingAnchor' },
   { id: 27, char: 'K', labelKey: 'editor.pal.breakableWall',           color: '#7a7a8a', category: 'terrain', previewKey: 'breakableWall' },
   { id: 6,  char: 'e', labelKey: 'editor.pal.piranha',                 color: '#ff6060', category: 'enemies', previewKey: 'piranha' },
   { id: 28, char: 'A', labelKey: 'editor.pal.armoredFish',             color: '#6a7a8a', category: 'enemies', previewKey: 'armoredFish' },
@@ -65,7 +67,7 @@ const ID_TO_CHAR = {};
 for (const p of PALETTE) ID_TO_CHAR[p.id] = p.char;
 
 // Entity tile IDs (non-terrain — stored as entity positions)
-const ENTITY_IDS = new Set([5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33]);
+const ENTITY_IDS = new Set([5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35]);
 
 // Enemies with patrol ranges
 const PATROL_DEFAULTS = {
@@ -426,16 +428,22 @@ export class LevelEditor {
       }
     }
 
-    // Drag patrol handle (snapped to tile centers)
+    // Drag patrol handle or chain handle (snapped to tile centers)
     if (this._draggingPatrol && this._mouseDown) {
       const ent = this.entities[this._draggingPatrol.entityIdx];
-      if (ent && ent.patrol) {
-        const { visW: vw, visH: vh } = getVisibleSize();
-        const rawX = this.camX + ((this._mouseScreen.x - SIDEBAR_W) / (this.hudCanvas.width - SIDEBAR_W)) * vw;
-        const rawY = this.camY + (this._mouseScreen.y / this.hudCanvas.height) * vh;
-        // Snap to nearest tile center
-        const snapX = Math.floor(rawX / TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
-        const snapY = Math.floor(rawY / TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
+      const { visW: vw, visH: vh } = getVisibleSize();
+      const rawX = this.camX + ((this._mouseScreen.x - SIDEBAR_W) / (this.hudCanvas.width - SIDEBAR_W)) * vw;
+      const rawY = this.camY + (this._mouseScreen.y / this.hudCanvas.height) * vh;
+      // Snap to nearest tile center
+      const snapX = Math.floor(rawX / TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
+      const snapY = Math.floor(rawY / TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
+
+      if (this._draggingPatrol.handle === 'chain' && ent && ent.tileId === 35) {
+        // Anchor chain length — drag vertically, minimum 1 tile
+        const newLen = Math.max(TILE_SIZE, snapY - ent.y);
+        ent.chainLength = newLen;
+        this.dirty = true;
+      } else if (ent && ent.patrol) {
         if (ent.patrol.x1 !== undefined) {
           // Point-to-point patrol — free drag both axes
           if (this._draggingPatrol.handle === 'min') {
@@ -618,6 +626,23 @@ export class LevelEditor {
         }
 
         ctx.setLineDash([]);
+      }
+
+      // ── Anchor chain length visualization ──
+      if (ent.tileId === 35 && ent.chainLength) {
+        const aColor = fullColor;
+        ctx.strokeStyle = aColor + 'cc';
+        ctx.lineWidth = 2 / sx;
+        ctx.setLineDash([3 / sx, 3 / sx]);
+        // Draw chain line from entity position downward
+        const chainEndY = ent.y + ent.chainLength;
+        ctx.beginPath();
+        ctx.moveTo(ent.x, ent.y);
+        ctx.lineTo(ent.x, chainEndY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // Draw handle at chain end
+        this._drawPatrolHandle(ctx, ent.x, chainEndY, aColor, sx);
       }
     }
 
@@ -1081,6 +1106,10 @@ export class LevelEditor {
       if (tileId >= 30 && tileId <= 33) {
         entry.group = this._nextSwitchGateGroup();
       }
+      // Assign default chain length for swinging anchors
+      if (tileId === 35) {
+        entry.chainLength = 96; // default 3 tiles
+      }
       if (tileId === 7) {
         this.entities = this.entities.filter(e => e.tileId !== 7);
       }
@@ -1158,11 +1187,18 @@ export class LevelEditor {
     return closestIdx;
   }
 
-  // ── Check if mouse is near a patrol handle ──
+  // ── Check if mouse is near a patrol handle or anchor chain handle ──
   _findPatrolHandle(wx, wy, sx) {
     const threshold = Math.max(12, 18 / sx);
     for (let i = 0; i < this.entities.length; i++) {
       const ent = this.entities[i];
+      // Anchor chain length handle
+      if (ent.tileId === 35 && ent.chainLength) {
+        const chainEndY = ent.y + ent.chainLength;
+        if (Math.abs(wx - ent.x) < threshold && Math.abs(wy - chainEndY) < threshold) {
+          return { entityIdx: i, handle: 'chain' };
+        }
+      }
       if (!ent.patrol) continue;
       if (ent.patrol.x1 !== undefined) {
         // Point-to-point patrol
@@ -1283,6 +1319,19 @@ export class LevelEditor {
           output += `// ${name} at (${Math.round(p.x)}, ${Math.round(p.y)}): patrol range ±${range}px (vertical)\n`;
         }
       }
+    }
+
+    // Anchor chain length data
+    const anchors = this.entities.filter(e => e.tileId === 35 && e.chainLength);
+    if (anchors.length > 0) {
+      output += '\n// ── Anchor Chain Lengths ──\n';
+      output += 'anchorChainLengths: [\n';
+      for (const a of anchors) {
+        const col = Math.round((a.x - TILE_SIZE / 2) / TILE_SIZE);
+        const row = Math.round((a.y - TILE_SIZE / 2) / TILE_SIZE);
+        output += `  { row: ${row}, col: ${col}, chainLength: ${a.chainLength} },\n`;
+      }
+      output += ']\n';
     }
 
     // Switch-gate group data
@@ -1942,6 +1991,21 @@ export class LevelEditor {
           if (entry) { tempScene.remove(entry.mesh); result = entry.mesh; }
           break;
         }
+        case 34: { // Floating Log
+          const fakeBody = { position: { x: 0, y: 0 } };
+          vr.buildFloatingLogs([fakeBody]);
+          const entry = vr.floatingLogMeshes.pop();
+          if (entry) { tempScene.remove(entry.mesh); result = entry.mesh; }
+          break;
+        }
+        case 35: { // Swinging Anchor
+          const fakeBody = { position: { x: 0, y: 0 } };
+          const fakeData = { body: fakeBody, pivotX: 0, pivotY: 0, chainLength: 96 };
+          vr.buildSwingingAnchors([fakeData]);
+          const entry = vr.swingingAnchorMeshes.pop();
+          if (entry) { tempScene.remove(entry.mesh); result = entry.mesh; }
+          break;
+        }
       }
     } finally {
       vr.scene = origScene;
@@ -2066,6 +2130,31 @@ export function generateEditorPreviews(THREE, VoxelRendererClass, existingCodexP
       tempScene.remove(entry.mesh);
       entry.mesh.position.set(0, 0, 0);
       previews.gate = _renderGroupPreview(THREE, offRenderer, entry.mesh, 50);
+    }
+  }
+
+  // Floating Log preview
+  if (!previews.floatingLog) {
+    const fakeBody = { position: { x: 0, y: 0 } };
+    vr.buildFloatingLogs([fakeBody]);
+    const entry = vr.floatingLogMeshes.pop();
+    if (entry) {
+      tempScene.remove(entry.mesh);
+      entry.mesh.position.set(0, 0, 0);
+      previews.floatingLog = _renderGroupPreview(THREE, offRenderer, entry.mesh, 40);
+    }
+  }
+
+  // Swinging Anchor preview
+  if (!previews.swingingAnchor) {
+    const fakeBody = { position: { x: 0, y: 0 } };
+    const fakeData = { body: fakeBody, pivotX: 0, pivotY: 0, chainLength: 96 };
+    vr.buildSwingingAnchors([fakeData]);
+    const entry = vr.swingingAnchorMeshes.pop();
+    if (entry) {
+      tempScene.remove(entry.mesh);
+      entry.mesh.position.set(0, 0, 0);
+      previews.swingingAnchor = _renderGroupPreview(THREE, offRenderer, entry.mesh, 80);
     }
   }
 

@@ -66,6 +66,23 @@ The game uses nape-js for all collision detection, rigid body dynamics, and flui
 - Rotation enabled with extra angular damping (0.95/frame) so raft rocks gently
 - Extra velocity damping to feel heavy and stable
 
+### Floating Logs (dynamic)
+- Dynamic bodies that float in water via fluid physics (density 0.6)
+- Pushable by player and other objects (boulders, keys, crates)
+- Can activate pressure switches when pushed onto them
+- Wide, thin collision shape (56×14 px) — horizontal orientation
+- Extra velocity/angular damping each frame (0.97) for stability
+- Rotation enabled — tilts when pushed
+
+### Swinging Anchors (kinematic, pendulum)
+- Kinematic bodies — position calculated each frame via pendulum physics
+- Tile position represents the **pivot point** (ceiling attachment); anchor hangs below
+- Chain length configurable via `anchorChainLengths` level metadata (default: 96px = 3 tiles)
+- Pendulum physics: `angAccel = -gravity/chainLength * sin(angle)`, nearly no damping (0.9995)
+- Starts at 0.4 radian offset for immediate swing
+- Collision shape (24×20 px) pushes player and objects in its path
+- Visual model includes chain links from anchor up to pivot point
+
 ## CbType System
 
 Each entity class has a named `CbType` for collision filtering:
@@ -75,6 +92,7 @@ Each entity class has a named `CbType` for collision filtering:
 - `sharkTag`, `pufferfishTag`, `crabTag`, `toxicFishTag`, `projectileTag`
 - `keyTag`, `chestTag`, `crateTag`, `breakableWallTag`, `armoredFishTag`, `spittingCoralTag`
 - `switchTag`, `gateTag`
+- `floatingLogTag`, `swingingAnchorTag`
 
 `InteractionListener` callbacks handle:
 - Player ↔ Pearl → collect pearl, destroy body
