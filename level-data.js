@@ -30,6 +30,10 @@
 //  31 = pressure switch (stays open while player/boulder/key/crate rests on it)
 //  32 = timed switch (opens linked gate for ~5s then auto-closes)
 //  33 = gate (2-tile-tall metal grate, linked to a switch by group ID)
+//  34 = floating log (dynamic, floats in water, pushable by player/objects)
+//  35 = swinging anchor (kinematic pendulum, hangs from ceiling on chain)
+//  36 = bottle message (collectible, shows text once, then disappears)
+//  37 = hint stone (permanent, shows text when player is nearby)
 
 export const TILE_SIZE = 32;
 
@@ -78,6 +82,10 @@ const KEY = {
   N: 31, // pressure switch
   O: 32, // timed switch
   G: 33, // gate (2-tile-tall barrier)
+  L: 34, // floating log (pushable)
+  H: 35, // swinging anchor (horgony)
+  I: 36, // bottle message (collectible)
+  J: 37, // hint stone (permanent hint)
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -101,12 +109,12 @@ const LEVELS = [
       "#...........B.......................p....................B....O............R..................R.R.........p.................#", // 4
       "####....................##......##......e...##......####......###....T.....###..........###...###....####...........pd....###", // 5
       "####..........p.........##......##..........##......####......###..........###..........###...###.......U...........##...####", // 6
-      "####..@..........W......##..................##d.....####d.....G##d.........###..........###....................##....x##.x###", // 7
-      "####.............d............p.............V##......####d.....ddd....x...d###.......................S........W..........x###", // 8
-      "####........pd.###.............R............##...F..p...x..W.d###.........###.p.dx..........B..............P.............####", // 9
-      "####........######.................e.........##.......d......##..x..F..p........##....e.R.......................p........x###", // 10
-      "####............................R............###......##..e..##p........W.......##......##..........R...............dpd..d###", // 11
-      "####....................p.....................G.......##.....##.....##..........##......##..p..........S...........d####.####", // 12
+      "####..@..........W......##......H...........##d.....####d.....G##d.........###..........###....................##....x##.x###", // 7
+      "####.............d.J..........p.............V##......####d.....ddd....x...d###.......................S........W..........x###", // 8
+      "####....I...pd.###.............R............##...F..p...x..W.d###.........###.p.dx..........B..............P.............####", // 9
+      "####........######.L...............e.........##.......d......##..x..F..p........##....e.R.......................p........x###", // 10
+      "####....................I.......R............###......##..e..##p........W.......##......##..........R...............dpd..d###", // 11
+      "####....................p.....................G.......##.....##L....##..........##......##..p..........S...........d####.####", // 12
       "####.................U................................##.....x......##.........d##......##.............U..........d####..####", // 13
       "####........e....................c..R...pU...##....x....d..d.......##..........##......##..e....................d#####..U####", // 14
       "####..............p..............dcNc.......d##..x......####.....x........F....##d....x....................d.Cd.######...####", // 15
@@ -130,6 +138,16 @@ const LEVELS = [
         switches: [{ row: 15, col: 35 }],
         gates: [{ row: 20, col: 40 }],
       },
+    ],
+    anchorChainLengths: [
+      { row: 7, col: 32, chainLength: 128 }, // 4 tiles of chain
+    ],
+    bottleMessages: [
+      { row: 9, col: 8, text: "Note to self: do NOT dash into a <color='#ff6666'>pufferfish</color>. Ow." },
+      { row: 11, col: 24, text: "Broke a <color='#c8a050'>crate</color>. Nothing inside. Broke another. Nothing. Broke a third — <color='#ffdd44'>pearl</color>! Broke 50 more. Nothing." },
+    ],
+    hintStones: [
+      { row: 8, col: 19, text: "<color='#80d0ff'>Dash</color> into enemies to defeat them. Hold {key:E|GRAB} to grab <color='#c8a050'>boulders</color>!" },
     ],
   },
 
@@ -302,6 +320,10 @@ export function getLevelEntities() {
     pressureSwitches: [], // { x, y, group }
     timedSwitches: [], // { x, y, group }
     gates: [], // { x, y, group }
+    floatingLogs: [], // { x, y }
+    swingingAnchors: [], // { x, y, chainLength }
+    bottleMessages: [], // { x, y, text }
+    hintStones: [], // { x, y, text }
   };
   for (let row = 0; row < LEVEL_ROWS; row++) {
     for (let col = 0; col < LEVEL_COLS; col++) {
@@ -371,6 +393,18 @@ export function getLevelEntities() {
       } else if (t === 33) {
         entities.gates.push({ x: cx, y: cy, group: -1 });
         TILES[row][col] = 0;
+      } else if (t === 34) {
+        entities.floatingLogs.push({ x: cx, y: cy });
+        TILES[row][col] = 0;
+      } else if (t === 35) {
+        entities.swingingAnchors.push({ x: cx, y: cy, chainLength: 96 });
+        TILES[row][col] = 0;
+      } else if (t === 36) {
+        entities.bottleMessages.push({ x: cx, y: cy, text: '...' });
+        TILES[row][col] = 0;
+      } else if (t === 37) {
+        entities.hintStones.push({ x: cx, y: cy, text: '...' });
+        TILES[row][col] = 0;
       }
     }
   }
@@ -400,6 +434,42 @@ export function getLevelEntities() {
         );
         if (match) match.group = grp.id;
       }
+    }
+  }
+
+  // ── Assign bottle message texts from level metadata ──
+  if (level.bottleMessages) {
+    for (const bm of level.bottleMessages) {
+      const bx = bm.col * TILE_SIZE + TILE_SIZE / 2;
+      const by = bm.row * TILE_SIZE + TILE_SIZE / 2;
+      const match = entities.bottleMessages.find(
+        (b) => Math.abs(b.x - bx) < 2 && Math.abs(b.y - by) < 2,
+      );
+      if (match) match.text = bm.text;
+    }
+  }
+
+  // ── Assign hint stone texts from level metadata ──
+  if (level.hintStones) {
+    for (const hs of level.hintStones) {
+      const hx = hs.col * TILE_SIZE + TILE_SIZE / 2;
+      const hy = hs.row * TILE_SIZE + TILE_SIZE / 2;
+      const match = entities.hintStones.find(
+        (h) => Math.abs(h.x - hx) < 2 && Math.abs(h.y - hy) < 2,
+      );
+      if (match) match.text = hs.text;
+    }
+  }
+
+  // ── Assign anchor chain lengths from level metadata ──
+  if (level.anchorChainLengths) {
+    for (const ac of level.anchorChainLengths) {
+      const ax = ac.col * TILE_SIZE + TILE_SIZE / 2;
+      const ay = ac.row * TILE_SIZE + TILE_SIZE / 2;
+      const match = entities.swingingAnchors.find(
+        (a) => Math.abs(a.x - ax) < 2 && Math.abs(a.y - ay) < 2,
+      );
+      if (match) match.chainLength = ac.chainLength;
     }
   }
 

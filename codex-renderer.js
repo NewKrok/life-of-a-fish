@@ -258,6 +258,100 @@ export function generateCodexPreviews(THREE) {
     vr.gateMeshes.length = 0;
   }
 
+  // Floating Log
+  {
+    vr.buildFloatingLogs([fakeBody]);
+    const g = vr.floatingLogMeshes[0]?.mesh;
+    if (g) {
+      tempScene.remove(g);
+      g.position.set(0, 0, 0);
+      previews.floatingLog = _renderPreview(THREE, offRenderer, g, { camDist: 40 });
+    }
+    vr.floatingLogMeshes.length = 0;
+  }
+
+  // Swinging Anchor
+  {
+    const fakeData = { body: fakeBody, pivotX: 0, pivotY: 0, chainLength: 96 };
+    vr.buildSwingingAnchors([fakeData]);
+    const g = vr.swingingAnchorMeshes[0]?.mesh;
+    if (g) {
+      tempScene.remove(g);
+      g.position.set(0, 0, 0);
+      previews.swingingAnchor = _renderPreview(THREE, offRenderer, g, { camDist: 80 });
+    }
+    vr.swingingAnchorMeshes.length = 0;
+  }
+
+  // Bottle
+  {
+    vr.buildBottles([{ body: fakeBody, text: '...', collected: false }]);
+    const g = vr.bottleMeshes[0]?.mesh;
+    if (g) {
+      tempScene.remove(g);
+      g.position.set(0, 0, 0);
+      previews.bottle = _renderPreview(THREE, offRenderer, g, { camDist: 30 });
+    }
+    vr.bottleMeshes.length = 0;
+  }
+
+  // Hint Stone
+  {
+    vr.buildHintStones([{ body: fakeBody, text: '...' }]);
+    const g = vr.hintStoneMeshes[0]?.mesh;
+    if (g) {
+      tempScene.remove(g);
+      g.position.set(0, 0, 0);
+      previews.hintStone = _renderPreview(THREE, offRenderer, g, { camDist: 35 });
+    }
+    vr.hintStoneMeshes.length = 0;
+  }
+
+  // Stun Pulse skill preview — purple ring
+  {
+    const g = new THREE.Group();
+    const ringGeo = new THREE.TorusGeometry(10, 1.5, 8, 24);
+    const ringMat = new THREE.MeshStandardMaterial({
+      color: 0xcc88ff, emissive: 0xaa66ee, emissiveIntensity: 0.8,
+      transparent: true, opacity: 0.85,
+    });
+    g.add(new THREE.Mesh(ringGeo, ringMat));
+    // Inner glow sphere
+    const coreGeo = new THREE.SphereGeometry(4, 8, 8);
+    const coreMat = new THREE.MeshStandardMaterial({
+      color: 0xddaaff, emissive: 0xcc88ff, emissiveIntensity: 1.0,
+      transparent: true, opacity: 0.7,
+    });
+    g.add(new THREE.Mesh(coreGeo, coreMat));
+    previews.stunPulse = _renderPreview(THREE, offRenderer, g, { camDist: 40 });
+  }
+
+  // Speed Surge skill preview — green streak
+  {
+    const g = new THREE.Group();
+    // Arrow-like streak shape
+    const streakGeo = new THREE.BoxGeometry(18, 4, 3);
+    const streakMat = new THREE.MeshStandardMaterial({
+      color: 0x66ffaa, emissive: 0x44cc88, emissiveIntensity: 0.7,
+      transparent: true, opacity: 0.85,
+    });
+    const streak = new THREE.Mesh(streakGeo, streakMat);
+    g.add(streak);
+    // Trail particles
+    for (let i = 0; i < 5; i++) {
+      const pSize = 2 + Math.random() * 2;
+      const pGeo = new THREE.BoxGeometry(pSize, pSize, pSize);
+      const pMat = new THREE.MeshStandardMaterial({
+        color: 0x88ffdd, emissive: 0x44ddcc, emissiveIntensity: 0.5,
+        transparent: true, opacity: 0.6 - i * 0.08,
+      });
+      const p = new THREE.Mesh(pGeo, pMat);
+      p.position.set(-8 - i * 3, (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 4);
+      g.add(p);
+    }
+    previews.speedSurge = _renderPreview(THREE, offRenderer, g, { camDist: 45 });
+  }
+
   // Terrain blocks
   {
     const stoneGroup = _buildTerrainBlock(THREE, vr, 1);

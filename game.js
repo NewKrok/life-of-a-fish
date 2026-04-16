@@ -551,7 +551,14 @@ const CODEX_DATA = [
   { category: 'terrain', preview: 'hazard', i18nKey: 'hazard', tag: 'danger' },
   { category: 'terrain', preview: 'buoy', i18nKey: 'buoy', tag: 'terrain' },
   { category: 'terrain', preview: 'raft', i18nKey: 'raft', tag: 'terrain' },
+  { category: 'items', preview: 'floatingLog', i18nKey: 'floatingLog', tag: 'item' },
+  { category: 'items', preview: 'swingingAnchor', i18nKey: 'swingingAnchor', tag: 'terrain' },
+  { category: 'items', preview: 'bottle', i18nKey: 'bottle', tag: 'item' },
+  { category: 'terrain', preview: 'hintStone', i18nKey: 'hintStone', tag: 'terrain' },
   { category: 'terrain', preview: 'water', i18nKey: 'water', tag: 'terrain' },
+  // ── Skills ──
+  { category: 'player', preview: 'stunPulse', i18nKey: 'stunPulse', tag: 'friendly' },
+  { category: 'player', preview: 'speedSurge', i18nKey: 'speedSurge', tag: 'friendly' },
 ];
 
 // Lazy-generated preview images (rendered on first Codex open)
@@ -827,6 +834,7 @@ function _buildEditorEntities(vr, entities) {
   // Collect entities by type for batch building
   const pearls = [], buoys = [], boulders = [], rafts = [], keys = [], chests = [];
   const crates = [], switches = [], gates = [];
+  const bottles = [], hints = [], logs = [], anchors = [];
 
   // Ground-based entities — visual position shifted to tile bottom
   const GROUND_IDS = new Set([14, 29, 30, 31, 32, 33]);
@@ -852,6 +860,10 @@ function _buildEditorEntities(vr, entities) {
       case 31: switches.push({ body: fakeBody, type: 'pressure', group: ent.group || 0, active: false, timer: 0 }); break;
       case 32: switches.push({ body: fakeBody, type: 'timed', group: ent.group || 0, active: false, timer: 0 }); break;
       case 33: gates.push({ body: fakeBody, group: ent.group || 0, open: false, angle: 0 }); break;
+      case 34: logs.push(fakeBody); break;
+      case 35: anchors.push({ body: fakeBody, pivotX: ent.x, pivotY: ent.y, chainLength: ent.chainLength || 96 }); break;
+      case 36: bottles.push({ body: fakeBody, text: ent.text || '...', collected: false }); break;
+      case 37: hints.push({ body: fakeBody, text: ent.text || '...' }); break;
       default:
         if (ent.tileId >= 16 && ent.tileId <= 20) {
           keys.push({ body: fakeBody, colorIndex: ent.tileId - 16 });
@@ -870,6 +882,10 @@ function _buildEditorEntities(vr, entities) {
   if (crates.length) vr.buildCrates(crates);
   if (switches.length) vr.buildSwitches(switches);
   if (gates.length) vr.buildGates(gates);
+  if (logs.length) vr.buildFloatingLogs(logs);
+  if (anchors.length) vr.buildSwingingAnchors(anchors);
+  if (bottles.length) vr.buildBottles(bottles);
+  if (hints.length) vr.buildHintStones(hints);
 }
 
 // Position editor entity visuals at their world positions
@@ -1121,6 +1137,10 @@ const armoredFishTag = new CbType();
 const spittingCoralTag = new CbType();
 const switchTag = new CbType();
 const gateTag = new CbType();
+const floatingLogTag = new CbType();
+const swingingAnchorTag = new CbType();
+const bottleTag = new CbType();
+const hintStoneTag = new CbType();
 
 // ── Build terrain bodies from merged tiles ──
 const mergedBodies = getMergedSolidBodies();
@@ -1165,6 +1185,10 @@ _capturedEntities = {
   pressureSwitches: entities.pressureSwitches.map(e => ({ ...e })),
   timedSwitches: entities.timedSwitches.map(e => ({ ...e })),
   gates: entities.gates.map(e => ({ ...e })),
+  floatingLogs: entities.floatingLogs.map(e => ({ ...e })),
+  swingingAnchors: entities.swingingAnchors.map(e => ({ ...e })),
+  bottleMessages: entities.bottleMessages.map(e => ({ ...e })),
+  hintStones: entities.hintStones.map(e => ({ ...e })),
 };
 
 // ── Hazard bodies (seaweed/spiky plants) ──
@@ -1417,6 +1441,83 @@ for (const cr of entities.crates) {
   crateBodies.push(b);
 }
 
+// ── Floating Logs (dynamic, float in water, pushable) ──
+const floatingLogBodies = [];
+for (const fl of entities.floatingLogs) {
+  const b = new Body(BodyType.DYNAMIC, new Vec2(fl.x, fl.y));
+  // Log shape — matches visual (~11 voxels wide, ~5 tall at V=2.5)
+  const shape = new Polygon(Polygon.box(28, 12), undefined, new Material(0.4, 0.3, 0.3, 0.6));
+  shape.cbTypes.add(floatingLogTag);
+  b.shapes.add(shape);
+  b.allowRotation = true;
+  b.space = space;
+  floatingLogBodies.push(b);
+}
+
+// ── Swinging Anchors (kinematic pendulum bodies) ──
+const ANCHOR_DEFAULT_CHAIN = 96;  // px — default chain length (3 tiles)
+const swingingAnchorBodies = [];  // { body, pivotX, pivotY, chainLength, angle, angularVel }
+for (const sa of entities.swingingAnchors) {
+  const chainLen = sa.chainLength || ANCHOR_DEFAULT_CHAIN;
+  // Pivot is where the tile is placed; anchor body hangs below
+  const ANCHOR_BODY_OFFSET = 12; // px — offset from chain end to anchor body center
+  const startAngle = 0.4; // start slightly tilted so it swings immediately
+  const totalLen = chainLen + ANCHOR_BODY_OFFSET;
+  const anchorX = sa.x + totalLen * Math.sin(startAngle);
+  const anchorY = sa.y + totalLen * Math.cos(startAngle);
+  const b = new Body(BodyType.KINEMATIC, new Vec2(anchorX, anchorY));
+  const shape = new Polygon(Polygon.box(24, 20), undefined, new Material(0.8, 0.1, 0.1, 3.0));
+  shape.cbTypes.add(swingingAnchorTag);
+  b.shapes.add(shape);
+  b.allowRotation = false;
+  b.space = space;
+  swingingAnchorBodies.push({
+    body: b,
+    pivotX: sa.x,
+    pivotY: sa.y,
+    chainLength: chainLen,
+    angle: startAngle,
+    angularVel: 0,
+  });
+}
+
+// ── Bottle Messages (collectible, sensor) ──
+const BOTTLE_COLLECT_RANGE = 20;    // px — sensor radius
+const BOTTLE_DISPLAY_TIME = 4000;   // ms — how long text stays visible
+const bottleBodies = [];            // { body, text, collected }
+for (const bm of entities.bottleMessages) {
+  const b = new Body(BodyType.STATIC, new Vec2(bm.x, bm.y));
+  const shape = new Circle(BOTTLE_COLLECT_RANGE);
+  shape.sensorEnabled = true;
+  shape.cbTypes.add(bottleTag);
+  b.shapes.add(shape);
+  b.space = space;
+  bottleBodies.push({ body: b, text: bm.text, collected: false });
+}
+
+// ── Hint Stones (permanent, proximity-based) ──
+const HINT_PROXIMITY = 48;         // px — detection radius (~1.5 tiles)
+const hintStoneBodies = [];        // { body, text }
+for (const hs of entities.hintStones) {
+  const b = new Body(BodyType.STATIC, new Vec2(hs.x, hs.y));
+  // Proximity sensor for hint text trigger
+  const sensorShape = new Circle(HINT_PROXIMITY);
+  sensorShape.sensorEnabled = true;
+  sensorShape.cbTypes.add(hintStoneTag);
+  b.shapes.add(sensorShape);
+  // Solid collider matching visual stone tablet (~22x29 px from 7x9 voxels at V=3.2)
+  const solidShape = new Polygon(Polygon.box(22, 29));
+  b.shapes.add(solidShape);
+  b.rotation = 0;
+  b.allowRotation = false;
+  b.space = space;
+  hintStoneBodies.push({ body: b, text: hs.text });
+}
+
+// ── Message overlay state (shared by bottles and hints) ──
+let _messageOverlay = null;  // { text, timer, fadeOut, x, y } or null
+let _activeHint = null;      // index into hintStoneBodies or null
+
 // ── Breakable walls (cracked stone, destroyed by dashing) ──
 const breakableWallBodies = [];
 for (const bw of entities.breakableWalls) {
@@ -1478,6 +1579,10 @@ voxelRenderer.buildCrates(crateBodies);
 voxelRenderer.buildBreakableWalls(breakableWallBodies);
 voxelRenderer.buildSwitches(switchBodies);
 voxelRenderer.buildGates(gateBodies);
+voxelRenderer.buildFloatingLogs(floatingLogBodies);
+voxelRenderer.buildSwingingAnchors(swingingAnchorBodies);
+voxelRenderer.buildBottles(bottleBodies);
+voxelRenderer.buildHintStones(hintStoneBodies);
 
 // ── Player fish ──
 const player = new Body(BodyType.DYNAMIC, new Vec2(entities.playerSpawn.x, entities.playerSpawn.y));
@@ -1514,6 +1619,32 @@ const pearlListener = new InteractionListener(
 );
 pearlListener.space = space;
 
+// Bottle message collection -> show text, remove bottle
+const bottleListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, playerTag, bottleTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const bottleEntry = bottleBodies.find(bb => bb.body === b1 || bb.body === b2);
+    if (bottleEntry && !bottleEntry.collected && bottleEntry.body.space) {
+      bottleEntry.collected = true;
+      const cx = bottleEntry.body.position.x;
+      const cy = bottleEntry.body.position.y;
+      bottleEntry.body.space = null;
+      voxelRenderer.spawnBottleCollect(cx, cy);
+      sfx.pearlPickup(); // reuse pearl sound for now
+      _messageOverlay = {
+        text: bottleEntry.text,
+        timer: BOTTLE_DISPLAY_TIME,
+        fadeOut: false,
+        x: cx,
+        y: cy,
+      };
+    }
+  },
+);
+bottleListener.space = space;
+
 // Piranha collision -> kill if dashing, else death
 const piranhaListener = new InteractionListener(
   CbEvent.BEGIN, InteractionType.SENSOR, playerTag, enemyTag,
@@ -1523,8 +1654,11 @@ const piranhaListener = new InteractionListener(
       const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
       const enemyBody = enemyBodies.find(e => e === b1 || e === b2);
       if (enemyBody && enemyBody.space) {
+        const cx = enemyBody.position.x;
+        const cy = enemyBody.position.y;
         enemyBody.space = null;
         sfx.enemyDeath();
+        voxelRenderer.spawnEnemyDeath(cx, cy);
       }
     } else {
       triggerDeath();
@@ -1581,6 +1715,7 @@ const boulderPiranhaListener = new InteractionListener(
       const cy = enemyBody.position.y;
       enemyBody.space = null;
       sfx.enemyDeath();
+      voxelRenderer.spawnEnemyDeath(cx, cy);
       if (boulderBody && boulderBody.space) {
         if (grabbedBoulder === boulderBody) grabbedBoulder = null;
         boulderBody.space = null;
@@ -1665,6 +1800,7 @@ const boulderPufferfishListener = new InteractionListener(
       const cy = pfBody.position.y;
       pfBody.space = null;
       sfx.enemyDeath();
+      voxelRenderer.spawnEnemyDeath(cx, cy, [0xccaa44, 0xbb9933, 0xddbb55, 0xaa8822, 0xeedd88]);
       if (boulderBody && boulderBody.space) {
         if (grabbedBoulder === boulderBody) grabbedBoulder = null;
         boulderBody.space = null;
@@ -1689,6 +1825,7 @@ const boulderCrabListener = new InteractionListener(
       const cy = crabBody.position.y;
       crabBody.space = null;
       sfx.enemyDeath();
+      voxelRenderer.spawnEnemyDeath(cx, cy, [0xcc3322, 0xdd4433, 0xbb2211, 0xee5544, 0xff8866]);
       if (boulderBody && boulderBody.space) {
         if (grabbedBoulder === boulderBody) grabbedBoulder = null;
         boulderBody.space = null;
@@ -1713,6 +1850,7 @@ const boulderToxicListener = new InteractionListener(
       const cy = tfBody.position.y;
       tfBody.space = null;
       sfx.enemyDeath();
+      voxelRenderer.spawnEnemyDeath(cx, cy, [0x336644, 0x225533, 0x447755, 0x558866, 0x66aa77]);
       if (boulderBody && boulderBody.space) {
         if (grabbedBoulder === boulderBody) grabbedBoulder = null;
         boulderBody.space = null;
@@ -1737,6 +1875,7 @@ const boulderArmoredListener = new InteractionListener(
       const cy = afBody.position.y;
       afBody.space = null;
       sfx.enemyDeath();
+      voxelRenderer.spawnEnemyDeath(cx, cy, [0x556677, 0x445566, 0x667788, 0x334455, 0x778899]);
       if (boulderBody && boulderBody.space) {
         if (grabbedBoulder === boulderBody) grabbedBoulder = null;
         boulderBody.space = null;
@@ -1768,6 +1907,7 @@ const boulderCoralListener = new InteractionListener(
       const cy = coralBody.position.y;
       coralBody.space = null;
       sfx.enemyDeath();
+      voxelRenderer.spawnEnemyDeath(cx, cy, [0x554433, 0x664422, 0x775533, 0x886644, 0xcc6699]);
       if (boulderBody && boulderBody.space) {
         if (grabbedBoulder === boulderBody) grabbedBoulder = null;
         boulderBody.space = null;
@@ -2038,6 +2178,8 @@ function _updateGatesForGroup(group) {
 const keys = {};
 let prevSpace = false;
 let prevGrab = false;
+let prevStun = false;
+let prevSpeed = false;
 
 window.addEventListener('keydown', (e) => {
   keys[e.code] = true;
@@ -2056,7 +2198,13 @@ function getKeyboardInput() {
   const grabDown = keys['KeyE'] || false;
   const grab = grabDown && !prevGrab;
   prevGrab = grabDown;
-  return { dirX, dirY, dash, grab };
+  const stunDown = keys['KeyQ'] || false;
+  const stunPulse = stunDown && !prevStun;
+  prevStun = stunDown;
+  const speedDown = keys['KeyR'] || false;
+  const speedSurge = speedDown && !prevSpeed;
+  prevSpeed = speedDown;
+  return { dirX, dirY, dash, grab, stunPulse, speedSurge };
 }
 
 // ── Camera ──
@@ -2517,6 +2665,29 @@ function _resetEntities() {
     b.angularVel = 0;
   }
 
+  // ── Floating Logs ──
+  for (let i = 0; i < floatingLogBodies.length; i++) {
+    const b = floatingLogBodies[i];
+    const fl = entities.floatingLogs[i];
+    b.position = new Vec2(fl.x, fl.y);
+    b.velocity = new Vec2(0, 0);
+    b.rotation = 0;
+    b.angularVel = 0;
+    if (!b.space) b.space = space;
+  }
+  voxelRenderer.buildFloatingLogs(floatingLogBodies);
+
+  // ── Swinging Anchors ──
+  for (const sa of swingingAnchorBodies) {
+    sa.angle = 0.4;
+    sa.angularVel = 0;
+    const anchorX = sa.pivotX + sa.chainLength * Math.sin(sa.angle);
+    const anchorY = sa.pivotY + sa.chainLength * Math.cos(sa.angle);
+    sa.body.position = new Vec2(anchorX, anchorY);
+    sa.body.velocity = new Vec2(0, 0);
+  }
+  voxelRenderer.buildSwingingAnchors(swingingAnchorBodies);
+
   // ── Switches — reset to inactive ──
   for (const sw of switchBodies) {
     sw.active = false;
@@ -2528,6 +2699,22 @@ function _resetEntities() {
     gate.open = false;
     gate.angle = 0;
   }
+
+  // ── Bottles — reset to uncollected ──
+  for (let i = 0; i < bottleBodies.length; i++) {
+    const bb = bottleBodies[i];
+    const bm = entities.bottleMessages[i];
+    bb.collected = false;
+    bb.body.position = new Vec2(bm.x, bm.y);
+    if (!bb.body.space) bb.body.space = space;
+  }
+  voxelRenderer.buildBottles(bottleBodies);
+
+  // ── Hint stones — no reset needed (static, permanent) ──
+
+  // ── Clear message overlay ──
+  _messageOverlay = null;
+  _activeHint = null;
 
   // ── Restore visibility for all enemy meshes ──
   voxelRenderer.resetEnemyVisibility();
@@ -2761,6 +2948,192 @@ function renderHUD() {
     hudCtx.fillStyle = 'rgba(100, 220, 255, 0.7)';
     hudCtx.fillRect(dbX, dbY, fillW, dbH);
   }
+
+  // ── Skill cooldown indicators (bottom-left corner) ──
+  {
+    const skillState = fishCtrl.getState();
+    const skillY = H - 70;
+    const skillSize = 36;
+    const skillGap = 8;
+
+    // Stun Pulse (Q)
+    const s1x = 22;
+    _drawSkillIcon(s1x, skillY, skillSize, 'Q',
+      'rgba(180, 100, 255, 0.8)', 'rgba(180, 100, 255, 0.3)',
+      skillState.stunPulseCooldownPct, skillState.stunPulseActive);
+
+    // Speed Surge (R)
+    const s2x = s1x + skillSize + skillGap;
+    _drawSkillIcon(s2x, skillY, skillSize, 'R',
+      'rgba(100, 255, 180, 0.8)', 'rgba(100, 255, 180, 0.3)',
+      skillState.speedSurgeCooldownPct, skillState.speedSurgeActive,
+      skillState.speedSurgeTimerPct);
+  }
+
+  // ── Message bubble overlay (bottles + hint stones) ──
+  const msgText = _activeHint !== null
+    ? hintStoneBodies[_activeHint].text
+    : (_messageOverlay ? _messageOverlay.text : null);
+
+  if (msgText) {
+    const { visW, visH } = getVisibleSize();
+    let alpha = 1.0;
+    if (_messageOverlay && _messageOverlay.fadeOut) {
+      alpha = Math.max(0, _messageOverlay.timer / 800);
+    }
+
+    // Position: above the fish
+    const fishSx = (player.position.x - camX) / visW * W;
+    const fishSy = (player.position.y - camY) / visH * H;
+
+    hudCtx.save();
+    hudCtx.globalAlpha = alpha;
+
+    // ── Parse rich text markup ──
+    // Supported: {key:DESKTOP|MOBILE} → key badge, <color='#hex'>text</color> → colored text
+    const _isTouch = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+    const segments = []; // { text, type: 'plain' | 'badge' | 'color', color? }
+    const markupRe = /\{key:([^}|]+)\|([^}]+)\}|<color='([^']+)'>([^<]+)<\/color>/g;
+    let lastIdx = 0;
+    let match;
+    while ((match = markupRe.exec(msgText)) !== null) {
+      if (match.index > lastIdx) segments.push({ text: msgText.slice(lastIdx, match.index), type: 'plain' });
+      if (match[1] !== undefined) {
+        segments.push({ text: _isTouch ? match[2] : match[1], type: 'badge' });
+      } else {
+        segments.push({ text: match[4], type: 'color', color: match[3] });
+      }
+      lastIdx = markupRe.lastIndex;
+    }
+    if (lastIdx < msgText.length) segments.push({ text: msgText.slice(lastIdx), type: 'plain' });
+
+    // ── Measure & word-wrap with inline badges / colored spans ──
+    const textFont = "13px 'Silkscreen', monospace";
+    const badgeFont = "bold 11px 'Silkscreen', monospace";
+    const iconSize = 20;
+    const iconGap = 10;
+    const maxBubW = 320;
+    const padX = 14;
+    const padY = 10;
+    const textOffsetX = iconSize + iconGap;
+    const maxTextW = maxBubW - padX * 2 - textOffsetX;
+    const badgePadX = 6;
+    const lineH = 20;
+
+    // Build flat token list: each word or badge is one token
+    const tokens = [];
+    for (const seg of segments) {
+      if (seg.type === 'badge') {
+        hudCtx.font = badgeFont;
+        const w = hudCtx.measureText(seg.text).width + badgePadX * 2;
+        tokens.push({ text: seg.text, type: 'badge', width: w });
+      } else {
+        // Plain or colored text — split into words, preserve type/color
+        const words = seg.text.split(' ');
+        for (const word of words) {
+          if (word === '') continue;
+          hudCtx.font = textFont;
+          const w = hudCtx.measureText(word).width;
+          tokens.push({ text: word, type: seg.type, color: seg.color, width: w });
+        }
+      }
+    }
+
+    // Wrap tokens into lines
+    hudCtx.font = textFont;
+    const spaceW = hudCtx.measureText(' ').width;
+    const wrappedLines = [[]];
+    let lineW = 0;
+    for (const tok of tokens) {
+      const gap = wrappedLines[wrappedLines.length - 1].length > 0 ? spaceW : 0;
+      if (lineW + gap + tok.width > maxTextW && wrappedLines[wrappedLines.length - 1].length > 0) {
+        wrappedLines.push([]);
+        lineW = 0;
+      }
+      wrappedLines[wrappedLines.length - 1].push(tok);
+      lineW += (wrappedLines[wrappedLines.length - 1].length > 1 ? spaceW : 0) + tok.width;
+    }
+
+    // Compute max line width
+    let maxW = 0;
+    for (const line of wrappedLines) {
+      let w = 0;
+      for (let i = 0; i < line.length; i++) {
+        if (i > 0) w += spaceW;
+        w += line[i].width;
+      }
+      if (w > maxW) maxW = w;
+    }
+
+    const bubW = maxW + padX * 2 + textOffsetX;
+    const bubH = Math.max(wrappedLines.length * lineH + padY * 2, iconSize + padY * 2);
+    const bubX = Math.max(10, Math.min(W - bubW - 10, fishSx - bubW / 2));
+    const bubY = Math.max(10, fishSy - 65 - bubH);
+
+    // Bubble background
+    hudCtx.fillStyle = 'rgba(10, 30, 50, 0.82)';
+    hudCtx.beginPath();
+    hudCtx.roundRect(bubX, bubY, bubW, bubH, 8);
+    hudCtx.fill();
+
+    // Bubble border
+    hudCtx.strokeStyle = _activeHint !== null ? 'rgba(160, 200, 180, 0.6)' : 'rgba(200, 220, 255, 0.5)';
+    hudCtx.lineWidth = 1.5;
+    hudCtx.beginPath();
+    hudCtx.roundRect(bubX, bubY, bubW, bubH, 8);
+    hudCtx.stroke();
+
+    // Small triangle pointer toward fish
+    const triX = Math.max(bubX + 12, Math.min(bubX + bubW - 12, fishSx));
+    hudCtx.fillStyle = 'rgba(10, 30, 50, 0.82)';
+    hudCtx.beginPath();
+    hudCtx.moveTo(triX - 6, bubY + bubH);
+    hudCtx.lineTo(triX + 6, bubY + bubH);
+    hudCtx.lineTo(triX, bubY + bubH + 8);
+    hudCtx.closePath();
+    hudCtx.fill();
+
+    // Icon — left side, vertically centered
+    const icon = _activeHint !== null ? '🪨' : '🍾';
+    const iconY = bubY + (bubH - iconSize) / 2;
+    hudCtx.font = `${iconSize}px sans-serif`;
+    hudCtx.fillText(icon, bubX + padX, iconY + iconSize - 2);
+
+    // ── Render rich text lines ──
+    hudCtx.textAlign = 'left';
+    for (let i = 0; i < wrappedLines.length; i++) {
+      let cx = bubX + padX + textOffsetX;
+      const cy = bubY + padY + lineH * (i + 1) - 3;
+      for (let j = 0; j < wrappedLines[i].length; j++) {
+        if (j > 0) cx += spaceW;
+        const tok = wrappedLines[i][j];
+        if (tok.type === 'badge') {
+          const bh = 16;
+          const by = cy - bh + 3;
+          hudCtx.fillStyle = 'rgba(60, 140, 220, 0.35)';
+          hudCtx.beginPath();
+          hudCtx.roundRect(cx - 2, by, tok.width + 4, bh + 2, 4);
+          hudCtx.fill();
+          hudCtx.strokeStyle = 'rgba(100, 180, 255, 0.6)';
+          hudCtx.lineWidth = 1;
+          hudCtx.beginPath();
+          hudCtx.roundRect(cx - 2, by, tok.width + 4, bh + 2, 4);
+          hudCtx.stroke();
+          hudCtx.fillStyle = '#80d0ff';
+          hudCtx.font = badgeFont;
+          hudCtx.fillText(tok.text, cx + badgePadX, cy);
+          cx += tok.width;
+        } else {
+          hudCtx.fillStyle = tok.type === 'color' ? tok.color : '#ddeeff';
+          hudCtx.font = textFont;
+          hudCtx.fillText(tok.text, cx, cy);
+          cx += tok.width;
+        }
+      }
+    }
+
+    hudCtx.restore();
+  }
 }
 
 // Draw a pixel-art style heart
@@ -2819,6 +3192,69 @@ function _drawClock(cx, cy, r) {
   hudCtx.moveTo(cx, cy);
   hudCtx.lineTo(cx + r * 0.45, cy + r * 0.2);
   hudCtx.stroke();
+  hudCtx.restore();
+}
+
+// Draw a skill icon: square with key label, cooldown sweep, active glow
+function _drawSkillIcon(x, y, size, label, activeColor, cooldownColor, cooldownPct, active, durationPct) {
+  const r = size / 2;
+  const cx = x + r;
+  const cy = y + r;
+
+  hudCtx.save();
+
+  // Background
+  hudCtx.fillStyle = 'rgba(0, 20, 40, 0.6)';
+  hudCtx.beginPath();
+  hudCtx.roundRect(x, y, size, size, 6);
+  hudCtx.fill();
+
+  // Cooldown sweep (darken the icon as cooldown ticks down)
+  if (cooldownPct > 0.01) {
+    hudCtx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    hudCtx.beginPath();
+    hudCtx.moveTo(cx, cy);
+    hudCtx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + cooldownPct * Math.PI * 2);
+    hudCtx.closePath();
+    hudCtx.fill();
+  }
+
+  // Active glow border (when skill is in effect or just fired)
+  if (active || (durationPct !== undefined && durationPct > 0.01)) {
+    const pct = durationPct !== undefined ? durationPct : 1;
+    hudCtx.strokeStyle = activeColor;
+    hudCtx.lineWidth = 2.5;
+    hudCtx.globalAlpha = 0.5 + pct * 0.5;
+    hudCtx.beginPath();
+    hudCtx.roundRect(x, y, size, size, 6);
+    hudCtx.stroke();
+    hudCtx.globalAlpha = 1;
+  } else {
+    // Normal border
+    hudCtx.strokeStyle = cooldownPct > 0.01 ? 'rgba(80, 80, 100, 0.4)' : cooldownColor;
+    hudCtx.lineWidth = 1.5;
+    hudCtx.beginPath();
+    hudCtx.roundRect(x, y, size, size, 6);
+    hudCtx.stroke();
+  }
+
+  // Duration bar (for speed surge — shows remaining time)
+  if (durationPct !== undefined && durationPct > 0.01) {
+    const barH = 3;
+    const barW = size - 6;
+    const barX = x + 3;
+    const barY = y + size - 6;
+    hudCtx.fillStyle = activeColor;
+    hudCtx.fillRect(barX, barY, barW * durationPct, barH);
+  }
+
+  // Key label
+  hudCtx.fillStyle = cooldownPct > 0.01 ? 'rgba(150, 150, 170, 0.5)' : 'rgba(255, 255, 255, 0.8)';
+  hudCtx.font = "bold 14px 'Silkscreen', monospace";
+  hudCtx.textAlign = 'center';
+  hudCtx.fillText(label, cx, cy + 5);
+  hudCtx.textAlign = 'left';
+
   hudCtx.restore();
 }
 
@@ -2938,6 +3374,8 @@ function gameLoop() {
     dirY: Math.abs(kbInput.dirY) > Math.abs(touchInput.dirY) ? kbInput.dirY : touchInput.dirY,
     dash: kbInput.dash || touchInput.dash,
     grab: kbInput.grab || touchInput.grab,
+    stunPulse: kbInput.stunPulse || touchInput.stunPulse,
+    speedSurge: kbInput.speedSurge || touchInput.speedSurge,
   };
 
   // ── Victory check ──
@@ -2957,6 +3395,7 @@ function gameLoop() {
   // ── Update piranha patrol (point-to-point, supports diagonal) ──
   for (const eb of enemyBodies) {
     if (!eb._patrol || !eb.space) continue;
+    if (eb._stunTimer > 0) { eb.velocity = new Vec2(0, 0); continue; }
     const p = eb._patrol;
     const pdx = p.x2 - p.x1;
     const pdy = p.y2 - p.y1;
@@ -2975,6 +3414,7 @@ function gameLoop() {
   // ── Update armored fish patrol (point-to-point, supports diagonal) ──
   for (const af of armoredFishBodies) {
     if (!af._patrol || !af.space) continue;
+    if (af._stunTimer > 0) { af.velocity = new Vec2(0, 0); continue; }
     const p = af._patrol;
     const pdx = p.x2 - p.x1;
     const pdy = p.y2 - p.y1;
@@ -3001,6 +3441,7 @@ function gameLoop() {
   // ── Update shark AI (patrol + chase) ──
   for (const sb of sharkBodies) {
     if (!sb._patrol || !sb.space) continue;
+    if (sb._stunTimer > 0) { sb.velocity = new Vec2(0, 0); sb._chase.chasing = false; continue; }
     const p = sb._patrol;
     const ch = sb._chase;
     const dx = player.position.x - sb.position.x;
@@ -3031,6 +3472,7 @@ function gameLoop() {
   // ── Update pufferfish AI (vertical patrol) ──
   for (const pf of pufferfishBodies) {
     if (!pf._patrol || !pf.space) continue;
+    if (pf._stunTimer > 0) { pf.velocity = new Vec2(0, 0); continue; }
     const p = pf._patrol;
     const py = pf.position.y;
     if (py >= p.maxY) p._dir = -1;
@@ -3041,6 +3483,7 @@ function gameLoop() {
   // ── Update crab AI (horizontal ground patrol) ──
   for (const cb of crabBodies) {
     if (!cb._patrol || !cb.space) continue;
+    if (cb._stunTimer > 0) { cb.velocity = new Vec2(0, 0); continue; }
     const p = cb._patrol;
     const px = cb.position.x;
     if (px >= p.maxX) p._dir = -1;
@@ -3051,6 +3494,7 @@ function gameLoop() {
   // ── Update toxic fish AI (patrol + shoot) ──
   for (const tf of toxicFishBodies) {
     if (!tf._patrol || !tf.space) continue;
+    if (tf._stunTimer > 0) { tf.velocity = new Vec2(0, 0); continue; }
     const p = tf._patrol;
     const px = tf.position.x;
     if (px >= p.maxX) p._dir = -1;
@@ -3161,6 +3605,47 @@ function gameLoop() {
     rb.angularVel *= 0.95;
   }
 
+  // ── Update floating logs (damping, keep stable) ──
+  for (const fb of floatingLogBodies) {
+    fb.velocity = new Vec2(fb.velocity.x * 0.97, fb.velocity.y * 0.97);
+    fb.angularVel *= 0.96;
+  }
+
+  // ── Update swinging anchors (pendulum physics) ──
+  const PENDULUM_GRAVITY = 300; // px/s² — effective gravity for pendulum swing
+  for (const sa of swingingAnchorBodies) {
+    // Pendulum: angular_accel = -g/L * sin(angle)
+    const angAccel = -(PENDULUM_GRAVITY / sa.chainLength) * Math.sin(sa.angle);
+    sa.angularVel += angAccel * DT;
+    sa.angularVel *= 0.9995; // very slight damping — nearly perpetual
+    sa.angle += sa.angularVel * DT;
+    // Position anchor body at center of anchor model (below chain end)
+    const ANCHOR_BODY_OFFSET = 12; // px — offset from chain end to anchor body center
+    const totalLen = sa.chainLength + ANCHOR_BODY_OFFSET;
+    const ax = sa.pivotX + totalLen * Math.sin(sa.angle);
+    const ay = sa.pivotY + totalLen * Math.cos(sa.angle);
+    sa.body.position = new Vec2(ax, ay);
+  }
+
+  // ── Hint stone proximity detection ──
+  _activeHint = null;
+  for (let i = 0; i < hintStoneBodies.length; i++) {
+    const hs = hintStoneBodies[i];
+    const dx = player.position.x - hs.body.position.x;
+    const dy = player.position.y - hs.body.position.y;
+    if (Math.sqrt(dx * dx + dy * dy) < HINT_PROXIMITY) {
+      _activeHint = i;
+      break;
+    }
+  }
+
+  // ── Message overlay timer (bottles) ──
+  if (_messageOverlay && _messageOverlay.timer > 0) {
+    _messageOverlay.timer -= DT * 1000;
+    if (_messageOverlay.timer <= 800) _messageOverlay.fadeOut = true;
+    if (_messageOverlay.timer <= 0) _messageOverlay = null;
+  }
+
   // ── Boulder / Key grab / carry / throw mechanic (E key) ──
   if (grabbedBoulder && !grabbedBoulder.space) {
     grabbedBoulder = null;
@@ -3263,6 +3748,44 @@ function gameLoop() {
   // ── Fish controller update ──
   fishCtrl.update(input, WATER_SURFACE_Y);
 
+  // ── Stun Pulse: on activation frame, stun all enemies within radius ──
+  const fishState0 = fishCtrl.getState();
+  if (fishState0.stunPulseActive) {
+    const stunR = FishController.STUN_PULSE_RADIUS;
+    const stunDur = FishController.STUN_DURATION_MS;
+    const allEnemies = [
+      ...enemyBodies, ...sharkBodies, ...pufferfishBodies,
+      ...crabBodies, ...toxicFishBodies, ...armoredFishBodies,
+    ];
+    for (const eb of allEnemies) {
+      if (!eb.space) continue;
+      const dx = eb.position.x - player.position.x;
+      const dy = eb.position.y - player.position.y;
+      if (Math.sqrt(dx * dx + dy * dy) < stunR) {
+        eb._stunTimer = stunDur;
+      }
+    }
+    sfx.stunPulse();
+    voxelRenderer.spawnStunPulse(player.position.x, player.position.y);
+  }
+
+  // ── Tick down stun timers on all enemies ──
+  const _allStunnableEnemies = [
+    ...enemyBodies, ...sharkBodies, ...pufferfishBodies,
+    ...crabBodies, ...toxicFishBodies, ...armoredFishBodies,
+  ];
+  for (const eb of _allStunnableEnemies) {
+    if (eb._stunTimer > 0) {
+      eb._stunTimer -= DT * 1000;
+      if (eb._stunTimer <= 0) eb._stunTimer = 0;
+    }
+  }
+
+  // ── Speed Surge: play SFX on activation frame ──
+  if (fishState0.speedSurgeActive && fishState0.speedSurgeTimerPct > 0.99) {
+    sfx.speedSurge();
+  }
+
   // ── Clamp player to world bounds ──
   const px = player.position.x;
   const py = player.position.y;
@@ -3294,6 +3817,8 @@ function gameLoop() {
   voxelRenderer.syncFrame(player, fishState, enemyBodies, DT, {
     sharkBodies, pufferfishBodies, crabBodies, toxicFishBodies, projectileBodies,
     armoredFishBodies, spittingCoralBodies, switchBodies, gateBodies,
+    swingingAnchorBodies,
+    camX, camY, camVisW, camVisH,
   });
 
   renderer.render(scene, camera);

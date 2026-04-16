@@ -26,6 +26,10 @@ const PALETTE = [
   { id: 10, char: 'R', labelKey: 'editor.pal.boulder',                 color: '#888',    category: 'items',   previewKey: 'boulder' },
   { id: 11, char: 'T', labelKey: 'editor.pal.raft',                    color: '#8b5a2b', category: 'items',   previewKey: 'raft' },
   { id: 26, char: 'W', labelKey: 'editor.pal.crate',                   color: '#8B6914', category: 'items',   previewKey: 'crate' },
+  { id: 34, char: 'L', labelKey: 'editor.pal.floatingLog',             color: '#6B4A2A', category: 'items',   previewKey: 'floatingLog' },
+  { id: 35, char: 'H', labelKey: 'editor.pal.swAnchor',                color: '#5A5A6A', category: 'items',   previewKey: 'swingingAnchor' },
+  { id: 36, char: 'I', labelKey: 'editor.pal.bottle',                  color: '#88ccaa', category: 'items',   previewKey: 'bottle' },
+  { id: 37, char: 'J', labelKey: 'editor.pal.hintStone',               color: '#7a8a7a', category: 'items',   previewKey: 'hintStone' },
   { id: 27, char: 'K', labelKey: 'editor.pal.breakableWall',           color: '#7a7a8a', category: 'terrain', previewKey: 'breakableWall' },
   { id: 6,  char: 'e', labelKey: 'editor.pal.piranha',                 color: '#ff6060', category: 'enemies', previewKey: 'piranha' },
   { id: 28, char: 'A', labelKey: 'editor.pal.armoredFish',             color: '#6a7a8a', category: 'enemies', previewKey: 'armoredFish' },
@@ -64,8 +68,17 @@ const CATEGORIES = [
 const ID_TO_CHAR = {};
 for (const p of PALETTE) ID_TO_CHAR[p.id] = p.char;
 
+// ── Pre-built lookup caches (avoid PALETTE.find/filter per frame) ──
+const PALETTE_BY_ID = new Map();
+for (const p of PALETTE) PALETTE_BY_ID.set(p.id, p);
+
+const PALETTE_BY_CATEGORY = new Map();
+for (const cat of CATEGORIES) {
+  PALETTE_BY_CATEGORY.set(cat.key, PALETTE.filter(p => p.category === cat.key));
+}
+
 // Entity tile IDs (non-terrain — stored as entity positions)
-const ENTITY_IDS = new Set([5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33]);
+const ENTITY_IDS = new Set([5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37]);
 
 // Enemies with patrol ranges
 const PATROL_DEFAULTS = {
@@ -128,6 +141,10 @@ export class LevelEditor {
     // Move mode (active when Move tool is selected)
     this._movingEntity = null;    // { entityIdx }
 
+    // Entity config toolbar (replaces Shift+click)
+    this._configEntityIdx = -1;   // index into this.entities, or -1 if no toolbar shown
+    this._configBtnRects = [];    // [{ x, y, w, h, action }] — screen-space hit rects
+
     // Category collapse state (all expanded by default)
     this._collapsed = {};
 
@@ -182,6 +199,13 @@ export class LevelEditor {
     // Dirty flag for export
     this.dirty = false;
 
+    // Sidebar rendering cache (offscreen canvas + dirty flag)
+    this._sidebarDirty = true;
+    this._sidebarCanvas = null;  // created on first render
+    this._sidebarCachedH = 0;    // cached canvas height
+    this._prevSelectedTile = -999;
+    this._prevMoveMode = false;
+
     // Editor wants flat camera (no pitch) — game.js reads this
     this.flatCamera = true;
 
@@ -225,9 +249,11 @@ export class LevelEditor {
     for (const [key, url] of Object.entries(this._previews)) {
       if (!url) continue;
       const img = new Image();
+      img.onload = () => this._invalidateSidebar();
       img.src = url;
       this._previewImgs[key] = img;
     }
+    this._invalidateSidebar();
   }
 
   // ── Activate / Deactivate ──
@@ -398,6 +424,7 @@ export class LevelEditor {
         ent.x = newX;
         ent.y = newY;
         this.dirty = true;
+        this._sgCacheDirty = true;
         if (this.onEntityChange) this.onEntityChange(this.entities);
       }
     }
@@ -426,16 +453,22 @@ export class LevelEditor {
       }
     }
 
-    // Drag patrol handle (snapped to tile centers)
+    // Drag patrol handle or chain handle (snapped to tile centers)
     if (this._draggingPatrol && this._mouseDown) {
       const ent = this.entities[this._draggingPatrol.entityIdx];
-      if (ent && ent.patrol) {
-        const { visW: vw, visH: vh } = getVisibleSize();
-        const rawX = this.camX + ((this._mouseScreen.x - SIDEBAR_W) / (this.hudCanvas.width - SIDEBAR_W)) * vw;
-        const rawY = this.camY + (this._mouseScreen.y / this.hudCanvas.height) * vh;
-        // Snap to nearest tile center
-        const snapX = Math.floor(rawX / TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
-        const snapY = Math.floor(rawY / TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
+      const { visW: vw, visH: vh } = getVisibleSize();
+      const rawX = this.camX + ((this._mouseScreen.x - SIDEBAR_W) / (this.hudCanvas.width - SIDEBAR_W)) * vw;
+      const rawY = this.camY + (this._mouseScreen.y / this.hudCanvas.height) * vh;
+      // Snap to nearest tile center
+      const snapX = Math.floor(rawX / TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
+      const snapY = Math.floor(rawY / TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
+
+      if (this._draggingPatrol.handle === 'chain' && ent && ent.tileId === 35) {
+        // Anchor chain length — drag vertically, minimum 1 tile
+        const newLen = Math.max(TILE_SIZE, snapY - ent.y);
+        ent.chainLength = newLen;
+        this.dirty = true;
+      } else if (ent && ent.patrol) {
         if (ent.patrol.x1 !== undefined) {
           // Point-to-point patrol — free drag both axes
           if (this._draggingPatrol.handle === 'min') {
@@ -546,9 +579,18 @@ export class LevelEditor {
     ctx.clip();
     ctx.setTransform(sx, 0, 0, sy, viewX - this.camX * sx, -this.camY * sy);
 
+    // Viewport culling bounds for entities (world coords + margin)
+    const cullMargin = TILE_SIZE * 3;
+    const cullLeft = this.camX - cullMargin;
+    const cullRight = this.camX + visW + cullMargin;
+    const cullTop = this.camY - cullMargin;
+    const cullBottom = this.camY + visH + cullMargin;
+
     for (let i = 0; i < this.entities.length; i++) {
       const ent = this.entities[i];
-      const pal = PALETTE.find(p => p.id === ent.tileId);
+      // Skip entities outside viewport
+      if (ent.x < cullLeft || ent.x > cullRight || ent.y < cullTop || ent.y > cullBottom) continue;
+      const pal = PALETTE_BY_ID.get(ent.tileId);
       const color = pal ? pal.color : '#ffffff';
       // Normalize short hex (#RGB) to full hex (#RRGGBB) for alpha concatenation
       const fullColor = color.length === 4
@@ -619,6 +661,32 @@ export class LevelEditor {
 
         ctx.setLineDash([]);
       }
+
+      // ── Bottle/Hint text preview ──
+      if ((ent.tileId === 36 || ent.tileId === 37) && ent.text) {
+        const truncated = ent.text.length > 20 ? ent.text.substring(0, 20) + '...' : ent.text;
+        ctx.fillStyle = 'rgba(200, 240, 220, 0.85)';
+        ctx.font = `${Math.max(4, 5 / sx)}px 'Silkscreen', monospace`;
+        ctx.textAlign = 'center';
+        ctx.fillText(truncated, ent.x, ent.y + TILE_SIZE / 2 + 8 / sx);
+      }
+
+      // ── Anchor chain length visualization ──
+      if (ent.tileId === 35 && ent.chainLength) {
+        const aColor = fullColor;
+        ctx.strokeStyle = aColor + 'cc';
+        ctx.lineWidth = 2 / sx;
+        ctx.setLineDash([3 / sx, 3 / sx]);
+        // Draw chain line from entity position downward
+        const chainEndY = ent.y + ent.chainLength;
+        ctx.beginPath();
+        ctx.moveTo(ent.x, ent.y);
+        ctx.lineTo(ent.x, chainEndY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // Draw handle at chain end
+        this._drawPatrolHandle(ctx, ent.x, chainEndY, aColor, sx);
+      }
     }
 
     // ── Switch-gate connection lines ──
@@ -645,7 +713,7 @@ export class LevelEditor {
         ctx.rect(viewX, 0, viewW, H);
         ctx.clip();
 
-        const pal = PALETTE.find(p => p.id === this.selectedTile);
+        const pal = PALETTE_BY_ID.get(this.selectedTile);
         const cursorColor = pal ? pal.color : '#fff';
 
         if (this.moveMode) {
@@ -722,6 +790,105 @@ export class LevelEditor {
     ctx.fillText(`\u25B6 ${t('editor.play')}`, playBtnX + btnW / 2, btnY + 15);
 
     ctx.restore();
+
+    // ── Entity config toolbar ──
+    this._renderConfigToolbar(getVisibleSize);
+  }
+
+  // ── Render floating config toolbar above selected entity ──
+  _renderConfigToolbar(getVisibleSize) {
+    this._configBtnRects = [];
+    if (this._configEntityIdx < 0 || this._configEntityIdx >= this.entities.length) return;
+
+    const ent = this.entities[this._configEntityIdx];
+    const ctx = this.hudCtx;
+    const { visW, visH } = getVisibleSize();
+    const viewX = SIDEBAR_W;
+    const viewW = this.hudCanvas.width - SIDEBAR_W;
+    const H = this.hudCanvas.height;
+    const sx = viewW / visW;
+    const sy = H / visH;
+
+    // Convert entity world position to screen position
+    const screenX = viewX + (ent.x - this.camX) * sx;
+    const screenY = (ent.y - this.camY) * sy;
+
+    // Don't render if off-screen
+    if (screenX < viewX || screenX > this.hudCanvas.width || screenY < 0 || screenY > H) return;
+
+    // Determine which buttons to show based on entity type
+    const buttons = [];
+    if (this._isSwitchOrGate(ent.tileId)) {
+      buttons.push({ label: `\u2699 ${t('editor.cfgGroup')}`, action: 'cycleGroup' });
+    }
+    if (ent.tileId === 36 || ent.tileId === 37) {
+      buttons.push({ label: `\u270E ${t('editor.cfgText')}`, action: 'editText' });
+    }
+    // Close button always
+    buttons.push({ label: '\u2715', action: 'close', small: true });
+
+    if (buttons.length <= 1) { // only close button — nothing to configure
+      this._configEntityIdx = -1;
+      return;
+    }
+
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+    const btnH = 24;
+    const btnPad = 6;
+    const btnGap = 4;
+
+    // Measure button widths
+    ctx.font = "bold 9px 'Silkscreen', monospace";
+    const btnWidths = buttons.map(b => b.small ? 24 : Math.max(60, ctx.measureText(b.label).width + 16));
+    const totalW = btnWidths.reduce((a, w) => a + w, 0) + (buttons.length - 1) * btnGap;
+
+    // Position toolbar centered above entity
+    const toolbarX = Math.max(viewX + 4, Math.min(screenX - totalW / 2, this.hudCanvas.width - totalW - 4));
+    const toolbarY = Math.max(TOP_BAR_H + 4, screenY - TILE_SIZE * sy - btnH - 8);
+
+    // Background
+    ctx.fillStyle = 'rgba(6, 21, 32, 0.92)';
+    ctx.strokeStyle = 'rgba(100, 200, 255, 0.5)';
+    ctx.lineWidth = 1;
+    const bgPad = 4;
+    ctx.fillRect(toolbarX - bgPad, toolbarY - bgPad, totalW + bgPad * 2, btnH + bgPad * 2);
+    ctx.strokeRect(toolbarX - bgPad, toolbarY - bgPad, totalW + bgPad * 2, btnH + bgPad * 2);
+
+    // Render buttons
+    let curX = toolbarX;
+    for (let i = 0; i < buttons.length; i++) {
+      const btn = buttons[i];
+      const bw = btnWidths[i];
+
+      ctx.fillStyle = btn.action === 'close' ? 'rgba(120, 40, 40, 0.8)' : 'rgba(40, 80, 120, 0.8)';
+      ctx.fillRect(curX, toolbarY, bw, btnH);
+      ctx.strokeStyle = 'rgba(100, 200, 255, 0.4)';
+      ctx.strokeRect(curX, toolbarY, bw, btnH);
+
+      ctx.fillStyle = '#fff';
+      ctx.font = "bold 9px 'Silkscreen', monospace";
+      ctx.textAlign = 'center';
+      ctx.fillText(btn.label, curX + bw / 2, toolbarY + 16);
+
+      this._configBtnRects.push({
+        x: curX, y: toolbarY, w: bw, h: btnH, action: btn.action,
+      });
+
+      curX += bw + btnGap;
+    }
+
+    // Arrow pointing down to entity
+    ctx.fillStyle = 'rgba(6, 21, 32, 0.92)';
+    ctx.beginPath();
+    ctx.moveTo(screenX - 6, toolbarY + btnH + bgPad);
+    ctx.lineTo(screenX + 6, toolbarY + btnH + bgPad);
+    ctx.lineTo(screenX, toolbarY + btnH + bgPad + 8);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
   }
 
   // ── Draw a draggable patrol handle ──
@@ -739,23 +906,31 @@ export class LevelEditor {
     ctx.restore();
   }
 
+  // ── Rebuild switch-gate group cache ──
+  _rebuildSwitchGateCache() {
+    this._sgSwitchesByGroup = {};
+    this._sgGatesByGroup = {};
+    for (const ent of this.entities) {
+      if (ent.group === undefined) continue;
+      if (ent.tileId >= 30 && ent.tileId <= 32) {
+        if (!this._sgSwitchesByGroup[ent.group]) this._sgSwitchesByGroup[ent.group] = [];
+        this._sgSwitchesByGroup[ent.group].push(ent);
+      } else if (ent.tileId === 33) {
+        if (!this._sgGatesByGroup[ent.group]) this._sgGatesByGroup[ent.group] = [];
+        this._sgGatesByGroup[ent.group].push(ent);
+      }
+    }
+    this._sgCacheDirty = false;
+  }
+
   // ── Switch-gate group connection lines ──
   _drawSwitchGateLinks(ctx, sx) {
     const GROUP_COLORS = ['#44ff44', '#4488ff', '#ff8844', '#ff44ff', '#ffff44',
                           '#44ffff', '#ff4444', '#88ff88', '#8888ff', '#ff88ff'];
-    // Collect switches and gates by group
-    const switchesByGroup = {};
-    const gatesByGroup = {};
-    for (const ent of this.entities) {
-      if (ent.group === undefined) continue;
-      if (ent.tileId >= 30 && ent.tileId <= 32) {
-        if (!switchesByGroup[ent.group]) switchesByGroup[ent.group] = [];
-        switchesByGroup[ent.group].push(ent);
-      } else if (ent.tileId === 33) {
-        if (!gatesByGroup[ent.group]) gatesByGroup[ent.group] = [];
-        gatesByGroup[ent.group].push(ent);
-      }
-    }
+    // Use cached group data
+    if (this._sgCacheDirty !== false) this._rebuildSwitchGateCache();
+    const switchesByGroup = this._sgSwitchesByGroup;
+    const gatesByGroup = this._sgGatesByGroup;
 
     // Draw connection lines between switches and gates in the same group
     for (const g of Object.keys(switchesByGroup)) {
@@ -815,9 +990,46 @@ export class LevelEditor {
     }
   }
 
-  // ── Left sidebar — grid layout ──
+  // ── Invalidate sidebar cache (call when selection, collapse, or scroll changes) ──
+  _invalidateSidebar() {
+    this._sidebarDirty = true;
+  }
+
+  // ── Left sidebar — grid layout (cached to offscreen canvas) ──
   _renderSidebar(W, H) {
+    // Detect changes that require re-render
+    const curMoveMode = this.moveMode;
+    if (this._prevSelectedTile !== this.selectedTile || this._prevMoveMode !== curMoveMode) {
+      this._prevSelectedTile = this.selectedTile;
+      this._prevMoveMode = curMoveMode;
+      this._sidebarDirty = true;
+    }
+
+    // Create or resize offscreen canvas
+    if (!this._sidebarCanvas || this._sidebarCachedH !== H) {
+      this._sidebarCanvas = document.createElement('canvas');
+      this._sidebarCanvas.width = SIDEBAR_W;
+      this._sidebarCanvas.height = H;
+      this._sidebarCachedH = H;
+      this._sidebarDirty = true;
+    }
+
+    if (this._sidebarDirty) {
+      this._sidebarDirty = false;
+      this._renderSidebarToCanvas(H);
+    }
+
+    // Blit cached sidebar
     const ctx = this.hudCtx;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(this._sidebarCanvas, 0, 0);
+    ctx.restore();
+  }
+
+  _renderSidebarToCanvas(H) {
+    const ctx = this._sidebarCanvas.getContext('2d');
+    ctx.clearRect(0, 0, SIDEBAR_W, H);
     const sw = SIDEBAR_W;
     const contentW = sw - SIDEBAR_PAD * 2;
     // How many grid cells fit per row
@@ -854,8 +1066,8 @@ export class LevelEditor {
     let curY = listTop - this._sidebarScrollY;
 
     for (const cat of CATEGORIES) {
-      const items = PALETTE.filter(p => p.category === cat.key);
-      if (items.length === 0) continue;
+      const items = PALETTE_BY_CATEGORY.get(cat.key);
+      if (!items || items.length === 0) continue;
 
       const isCollapsed = this._collapsed[cat.key];
 
@@ -936,7 +1148,7 @@ export class LevelEditor {
 
   // ── Preview of selected tile ──
   _renderPreview(ctx, x, y, w, h) {
-    const pal = PALETTE.find(p => p.id === this.selectedTile);
+    const pal = PALETTE_BY_ID.get(this.selectedTile);
     if (!pal) return;
 
     // Background
@@ -986,8 +1198,8 @@ export class LevelEditor {
     let curY = listTop - this._sidebarScrollY;
 
     for (const cat of CATEGORIES) {
-      const items = PALETTE.filter(p => p.category === cat.key);
-      if (items.length === 0) continue;
+      const items = PALETTE_BY_CATEGORY.get(cat.key);
+      if (!items || items.length === 0) continue;
 
       // Category header hit
       if (screenY >= curY && screenY < curY + CATEGORY_HEADER_H) {
@@ -1050,6 +1262,7 @@ export class LevelEditor {
       const removedEntity = this._removeEntityAt(cx, cy);
       if (hadTile) this._terrainDirty = true;
       if (removedEntity) {
+        this._sgCacheDirty = true;
         if (this.onEntityChange) this.onEntityChange(this.entities);
       }
     } else if (ENTITY_IDS.has(tileId)) {
@@ -1081,10 +1294,19 @@ export class LevelEditor {
       if (tileId >= 30 && tileId <= 33) {
         entry.group = this._nextSwitchGateGroup();
       }
+      // Assign default chain length for swinging anchors
+      if (tileId === 35) {
+        entry.chainLength = 96; // default 3 tiles
+      }
+      // Assign default text for bottles and hint stones
+      if (tileId === 36 || tileId === 37) {
+        entry.text = '...';
+      }
       if (tileId === 7) {
         this.entities = this.entities.filter(e => e.tileId !== 7);
       }
       this.entities.push(entry);
+      this._sgCacheDirty = true;
       if (this.onEntityChange) this.onEntityChange(this.entities);
     } else {
       // Terrain tile
@@ -1125,6 +1347,7 @@ export class LevelEditor {
     if (closestIdx >= 0) {
       this.entities.splice(closestIdx, 1);
       this.dirty = true;
+      this._sgCacheDirty = true;
       if (this.onEntityChange) this.onEntityChange(this.entities);
       return;
     }
@@ -1158,11 +1381,18 @@ export class LevelEditor {
     return closestIdx;
   }
 
-  // ── Check if mouse is near a patrol handle ──
+  // ── Check if mouse is near a patrol handle or anchor chain handle ──
   _findPatrolHandle(wx, wy, sx) {
     const threshold = Math.max(12, 18 / sx);
     for (let i = 0; i < this.entities.length; i++) {
       const ent = this.entities[i];
+      // Anchor chain length handle
+      if (ent.tileId === 35 && ent.chainLength) {
+        const chainEndY = ent.y + ent.chainLength;
+        if (Math.abs(wx - ent.x) < threshold && Math.abs(wy - chainEndY) < threshold) {
+          return { entityIdx: i, handle: 'chain' };
+        }
+      }
       if (!ent.patrol) continue;
       if (ent.patrol.x1 !== undefined) {
         // Point-to-point patrol
@@ -1211,6 +1441,7 @@ export class LevelEditor {
     const maxGroup = this._nextSwitchGateGroup();
     ent.group = ((ent.group || 0) + 1) % Math.max(maxGroup + 1, 1);
     this.dirty = true;
+    this._sgCacheDirty = true;
     if (this.onEntityChange) this.onEntityChange(this.entities);
   }
 
@@ -1271,7 +1502,7 @@ export class LevelEditor {
       output += '// ── Custom Patrol Ranges ──\n';
       output += '// Apply after entity creation:\n';
       for (const p of patrols) {
-        const pal = PALETTE.find(pl => pl.id === p.tileId);
+        const pal = PALETTE_BY_ID.get(p.tileId);
         const name = pal ? t(pal.labelKey) : 'unknown';
         if (p.patrol.x1 !== undefined) {
           output += `// ${name} at (${Math.round(p.x)}, ${Math.round(p.y)}): patrol (${Math.round(p.patrol.x1)},${Math.round(p.patrol.y1)}) → (${Math.round(p.patrol.x2)},${Math.round(p.patrol.y2)})\n`;
@@ -1283,6 +1514,45 @@ export class LevelEditor {
           output += `// ${name} at (${Math.round(p.x)}, ${Math.round(p.y)}): patrol range ±${range}px (vertical)\n`;
         }
       }
+    }
+
+    // Bottle message texts
+    const bottleEnts = this.entities.filter(e => e.tileId === 36 && e.text && e.text !== '...');
+    if (bottleEnts.length > 0) {
+      output += '\n// ── Bottle Messages ──\n';
+      output += 'bottleMessages: [\n';
+      for (const b of bottleEnts) {
+        const col = Math.round((b.x - TILE_SIZE / 2) / TILE_SIZE);
+        const row = Math.round((b.y - TILE_SIZE / 2) / TILE_SIZE);
+        output += `  { row: ${row}, col: ${col}, text: ${JSON.stringify(b.text)} },\n`;
+      }
+      output += '],\n';
+    }
+
+    // Hint stone texts
+    const hintEnts = this.entities.filter(e => e.tileId === 37 && e.text && e.text !== '...');
+    if (hintEnts.length > 0) {
+      output += '\n// ── Hint Stones ──\n';
+      output += 'hintStones: [\n';
+      for (const h of hintEnts) {
+        const col = Math.round((h.x - TILE_SIZE / 2) / TILE_SIZE);
+        const row = Math.round((h.y - TILE_SIZE / 2) / TILE_SIZE);
+        output += `  { row: ${row}, col: ${col}, text: ${JSON.stringify(h.text)} },\n`;
+      }
+      output += '],\n';
+    }
+
+    // Anchor chain length data
+    const anchors = this.entities.filter(e => e.tileId === 35 && e.chainLength);
+    if (anchors.length > 0) {
+      output += '\n// ── Anchor Chain Lengths ──\n';
+      output += 'anchorChainLengths: [\n';
+      for (const a of anchors) {
+        const col = Math.round((a.x - TILE_SIZE / 2) / TILE_SIZE);
+        const row = Math.round((a.y - TILE_SIZE / 2) / TILE_SIZE);
+        output += `  { row: ${row}, col: ${col}, chainLength: ${a.chainLength} },\n`;
+      }
+      output += ']\n';
     }
 
     // Switch-gate group data
@@ -1363,6 +1633,7 @@ export class LevelEditor {
       const n = parseInt(e.code.replace('Digit', ''));
       if (n >= 0 && n < PALETTE.length) {
         this.selectedTile = PALETTE[n].id;
+        this._invalidateSidebar();
         e.preventDefault();
       }
     }
@@ -1377,6 +1648,7 @@ export class LevelEditor {
     if (e.code === 'KeyM' && !e.ctrlKey && !e.metaKey) {
       this.selectedTile = this.moveMode ? 1 : MOVE_TILE_ID;
       this._movingEntity = null;
+      this._invalidateSidebar();
       e.preventDefault();
     }
 
@@ -1415,9 +1687,11 @@ export class LevelEditor {
         if (hit) {
           if (hit.type === 'category') {
             this._collapsed[hit.key] = !this._collapsed[hit.key];
+            this._invalidateSidebar();
           } else if (hit.type === 'tile') {
             this.selectedTile = hit.id;
             this._movingEntity = null;
+            this._invalidateSidebar();
           }
         }
         return;
@@ -1437,9 +1711,27 @@ export class LevelEditor {
         }
       }
 
-      // Shift-click on switch/gate to cycle group
+      // Check config toolbar button click
+      if (this._configEntityIdx >= 0 && this._configBtnRects.length > 0) {
+        for (const btn of this._configBtnRects) {
+          if (e.clientX >= btn.x && e.clientX <= btn.x + btn.w &&
+              e.clientY >= btn.y && e.clientY <= btn.y + btn.h) {
+            this._handleConfigAction(btn.action);
+            return;
+          }
+        }
+        // Clicked outside toolbar — close it
+        this._configEntityIdx = -1;
+      }
+
+      // Shift-click on switch/gate to cycle group (desktop shortcut still works)
       if (e.shiftKey && e.clientX > SIDEBAR_W) {
         this._pendingGroupCycle = { screenX: e.clientX, screenY: e.clientY };
+      }
+
+      // Single click on configurable entity — open config toolbar
+      if (!e.shiftKey && e.clientX > SIDEBAR_W && !this.moveMode) {
+        this._pendingConfigCheck = { screenX: e.clientX, screenY: e.clientY };
       }
 
       // Check double-click
@@ -1504,6 +1796,7 @@ export class LevelEditor {
       const listH = this.hudCanvas.height - listTop - SIDEBAR_PAD;
       const maxScroll = Math.max(0, this._sidebarContentH - listH);
       this._sidebarScrollY = Math.max(0, Math.min(maxScroll, this._sidebarScrollY + e.deltaY));
+      this._invalidateSidebar();
     }
   }
 
@@ -1546,6 +1839,25 @@ export class LevelEditor {
     // World touch — simulate mouse
     this._mouseScreen.x = t.clientX;
     this._mouseScreen.y = t.clientY;
+
+    // Check config toolbar button tap
+    if (this._configEntityIdx >= 0 && this._configBtnRects.length > 0) {
+      for (const btn of this._configBtnRects) {
+        if (t.clientX >= btn.x && t.clientX <= btn.x + btn.w &&
+            t.clientY >= btn.y && t.clientY <= btn.y + btn.h) {
+          e.preventDefault();
+          this._handleConfigAction(btn.action);
+          return;
+        }
+      }
+      // Tapped outside toolbar — close it
+      this._configEntityIdx = -1;
+    }
+
+    // Config check on tap (for configurable entities)
+    if (!this.moveMode && t.clientX > SIDEBAR_W) {
+      this._pendingConfigCheck = { screenX: t.clientX, screenY: t.clientY };
+    }
 
     // Move mode pickup
     if (this.moveMode) {
@@ -1605,6 +1917,7 @@ export class LevelEditor {
         const listH = this.hudCanvas.height - listTop - SIDEBAR_PAD;
         const maxScroll = Math.max(0, this._sidebarContentH - listH);
         this._sidebarScrollY = Math.max(0, Math.min(maxScroll, this._sidebarScrollStart + dy));
+        this._invalidateSidebar();
         return;
       }
     }
@@ -1633,9 +1946,11 @@ export class LevelEditor {
           if (hit) {
             if (hit.type === 'category') {
               this._collapsed[hit.key] = !this._collapsed[hit.key];
+              this._invalidateSidebar();
             } else if (hit.type === 'tile') {
               this.selectedTile = hit.id;
               this._movingEntity = null;
+              this._invalidateSidebar();
             }
           }
         }
@@ -1675,7 +1990,7 @@ export class LevelEditor {
       this._pendingMovePickup = null;
     }
 
-    // Shift-click: cycle switch/gate group
+    // Shift-click: cycle switch/gate group OR edit bottle/hint text
     if (this._pendingGroupCycle) {
       const { visW, visH } = getVisibleSize();
       const viewW = this.hudCanvas.width - SIDEBAR_W;
@@ -1685,8 +2000,37 @@ export class LevelEditor {
       if (idx >= 0 && this._isSwitchOrGate(this.entities[idx].tileId)) {
         this._cycleSwitchGateGroup(idx);
         this._showToast(t('editor.groupToast', { group: this.entities[idx].group }));
+      } else if (idx >= 0 && (this.entities[idx].tileId === 36 || this.entities[idx].tileId === 37)) {
+        // Edit bottle/hint text via prompt
+        const ent = this.entities[idx];
+        const typeName = ent.tileId === 36 ? 'Bottle' : 'Hint Stone';
+        const newText = prompt(`${typeName} text:`, ent.text || '...');
+        if (newText !== null) {
+          ent.text = newText;
+          this.dirty = true;
+          this._showToast(`${typeName}: "${newText.substring(0, 30)}${newText.length > 30 ? '...' : ''}"`);
+        }
       }
       this._pendingGroupCycle = null;
+    }
+
+    // Config toolbar: check if click landed on a configurable entity
+    if (this._pendingConfigCheck) {
+      const { visW, visH } = getVisibleSize();
+      const viewW = this.hudCanvas.width - SIDEBAR_W;
+      const wx = this.camX + ((this._pendingConfigCheck.screenX - SIDEBAR_W) / viewW) * visW;
+      const wy = this.camY + (this._pendingConfigCheck.screenY / this.hudCanvas.height) * visH;
+      const idx = this._findEntityAt(wx, wy);
+      if (idx >= 0) {
+        const ent = this.entities[idx];
+        const isConfigurable = this._isSwitchOrGate(ent.tileId) || ent.tileId === 36 || ent.tileId === 37;
+        if (isConfigurable) {
+          this._configEntityIdx = idx;
+          this._pendingConfigCheck = null;
+          return; // don't place tile when opening toolbar
+        }
+      }
+      this._pendingConfigCheck = null;
     }
 
     // Single click placement (mouse released before paint delay expired)
@@ -1694,6 +2038,30 @@ export class LevelEditor {
       this._lastPlacedCell = null; // reset so placement isn't skipped
       this._placeTileAtMouse(getVisibleSize);
       this._pendingSinglePlace = false;
+    }
+  }
+
+  // ── Handle config toolbar button action ──
+  _handleConfigAction(action) {
+    if (action === 'close') {
+      this._configEntityIdx = -1;
+      return;
+    }
+
+    const ent = this.entities[this._configEntityIdx];
+    if (!ent) { this._configEntityIdx = -1; return; }
+
+    if (action === 'cycleGroup') {
+      this._cycleSwitchGateGroup(this._configEntityIdx);
+      this._showToast(t('editor.groupToast', { group: ent.group }));
+    } else if (action === 'editText') {
+      const typeName = ent.tileId === 36 ? 'Bottle' : 'Hint Stone';
+      const newText = prompt(`${typeName} text:`, ent.text || '...');
+      if (newText !== null) {
+        ent.text = newText;
+        this.dirty = true;
+        this._showToast(`${typeName}: "${newText.substring(0, 30)}${newText.length > 30 ? '...' : ''}"`);
+      }
     }
   }
 
@@ -1942,6 +2310,35 @@ export class LevelEditor {
           if (entry) { tempScene.remove(entry.mesh); result = entry.mesh; }
           break;
         }
+        case 34: { // Floating Log
+          const fakeBody = { position: { x: 0, y: 0 } };
+          vr.buildFloatingLogs([fakeBody]);
+          const entry = vr.floatingLogMeshes.pop();
+          if (entry) { tempScene.remove(entry.mesh); result = entry.mesh; }
+          break;
+        }
+        case 35: { // Swinging Anchor
+          const fakeBody = { position: { x: 0, y: 0 } };
+          const fakeData = { body: fakeBody, pivotX: 0, pivotY: 0, chainLength: 96 };
+          vr.buildSwingingAnchors([fakeData]);
+          const entry = vr.swingingAnchorMeshes.pop();
+          if (entry) { tempScene.remove(entry.mesh); result = entry.mesh; }
+          break;
+        }
+        case 36: { // Bottle Message
+          const fakeBody = { position: { x: 0, y: 0 } };
+          vr.buildBottles([{ body: fakeBody, text: '...', collected: false }]);
+          const entry = vr.bottleMeshes.pop();
+          if (entry) { tempScene.remove(entry.mesh); result = entry.mesh; }
+          break;
+        }
+        case 37: { // Hint Stone
+          const fakeBody = { position: { x: 0, y: 0 } };
+          vr.buildHintStones([{ body: fakeBody, text: '...' }]);
+          const entry = vr.hintStoneMeshes.pop();
+          if (entry) { tempScene.remove(entry.mesh); result = entry.mesh; }
+          break;
+        }
       }
     } finally {
       vr.scene = origScene;
@@ -2066,6 +2463,55 @@ export function generateEditorPreviews(THREE, VoxelRendererClass, existingCodexP
       tempScene.remove(entry.mesh);
       entry.mesh.position.set(0, 0, 0);
       previews.gate = _renderGroupPreview(THREE, offRenderer, entry.mesh, 50);
+    }
+  }
+
+  // Floating Log preview
+  if (!previews.floatingLog) {
+    const fakeBody = { position: { x: 0, y: 0 } };
+    vr.buildFloatingLogs([fakeBody]);
+    const entry = vr.floatingLogMeshes.pop();
+    if (entry) {
+      tempScene.remove(entry.mesh);
+      entry.mesh.position.set(0, 0, 0);
+      previews.floatingLog = _renderGroupPreview(THREE, offRenderer, entry.mesh, 40);
+    }
+  }
+
+  // Swinging Anchor preview
+  if (!previews.swingingAnchor) {
+    const fakeBody = { position: { x: 0, y: 0 } };
+    const fakeData = { body: fakeBody, pivotX: 0, pivotY: 0, chainLength: 96 };
+    vr.buildSwingingAnchors([fakeData]);
+    const entry = vr.swingingAnchorMeshes.pop();
+    if (entry) {
+      tempScene.remove(entry.mesh);
+      entry.mesh.position.set(0, 0, 0);
+      previews.swingingAnchor = _renderGroupPreview(THREE, offRenderer, entry.mesh, 80);
+    }
+  }
+
+  // Bottle preview
+  if (!previews.bottle) {
+    const fakeBody = { position: { x: 0, y: 0 } };
+    vr.buildBottles([{ body: fakeBody, text: '...', collected: false }]);
+    const entry = vr.bottleMeshes.pop();
+    if (entry) {
+      tempScene.remove(entry.mesh);
+      entry.mesh.position.set(0, 0, 0);
+      previews.bottle = _renderGroupPreview(THREE, offRenderer, entry.mesh, 30);
+    }
+  }
+
+  // Hint Stone preview
+  if (!previews.hintStone) {
+    const fakeBody = { position: { x: 0, y: 0 } };
+    vr.buildHintStones([{ body: fakeBody, text: '...' }]);
+    const entry = vr.hintStoneMeshes.pop();
+    if (entry) {
+      tempScene.remove(entry.mesh);
+      entry.mesh.position.set(0, 0, 0);
+      previews.hintStone = _renderGroupPreview(THREE, offRenderer, entry.mesh, 30);
     }
   }
 

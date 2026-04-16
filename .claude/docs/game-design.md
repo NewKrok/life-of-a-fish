@@ -43,6 +43,16 @@ A small clownfish living on a coral reef spots a mysterious glow coming from far
 
 ---
 
+## Core Design Principle — Underwater Movement
+
+The game takes place almost entirely underwater. The fish **swims freely** in all directions — there is no ground-walking, no jumping onto platforms, and no classic platformer gravity while submerged. "Standing on" something is not a meaningful concept underwater; the fish simply swims over, under, and around obstacles.
+
+The only exception is when the fish leaps out of the water (surface jump). In the air, gravity applies briefly, but this is a short dolphin-leap arc — the game does **not** become a classic platformer during these moments. The fish belongs in the water.
+
+This means entities like floating logs and swinging anchors are **obstacles and tools to interact with while swimming**, not platforms to land on. The fish pushes logs, squeezes past anchors, or uses them to block enemy paths — but never "rides" them like a Mario platform.
+
+---
+
 ## World Structure
 
 5 worlds. Each world = 3–4 levels + 1 boss. Each introduces 1–2 new mechanics that subsequent worlds build on.
@@ -198,9 +208,9 @@ Design principles:
 - *Codex: "Ancient mechanisms still working after centuries. Press the switch and the gate obeys — for a while."*
 
 ### Moving Physical Elements
-- **Floating logs:** Drift in currents, can stand on or push against. Solid physics bodies
-- **Swinging anchors:** Pendulum motion, usable as platforms. Timed jumps needed
-- **Drifting debris:** Smaller pieces that bump the fish, environmental flavor
+- **Floating logs:** Float on water surface or underwater. Pushable solid physics bodies — the fish swims into them to move them. Can be used to hold down pressure switches, block enemy patrol paths, or create makeshift barriers. Similar to crates but they float instead of sinking
+- **Swinging anchors:** Pendulum motion on a chain attached to a fixed ceiling point. Moving obstacles the fish must time its swim through. Chain length is configurable in the editor. The fish navigates around them, not rides them (see Core Design Principle)
+- ~~**Drifting debris:**~~ Deferred to roadmap #12 (Water Currents) where debris will serve as visual current-direction indicators
 
 ### Bottle Messages
 - Small corked bottle half-buried in sand or wedged in rocks
@@ -300,12 +310,12 @@ Plus ~25 hidden bottle messages and the Codex encyclopedia.
 | 3 | Armored Fish | New enemy: patrols L-R, dash bounces off, killed by boulder only | **Done** |
 | 4 | Spitting Coral | New enemy: fixed on ground, 3 projectiles upward in fan pattern | **Done** |
 | 5 | Switches & gates | Toggle / pressure / timed types, boulder activation | **Done** |
-| 6 | Moving physical elements | Floating logs, swinging anchors, current-drifting debris | Pending |
-| 7 | Bottle messages | Hidden collectible messages, bubble UI, Codex "Explorer's Notes" | Pending |
+| 6 | Moving physical elements | Floating logs, swinging anchors (debris deferred to #12) | **Done** |
+| 7 | Bottle messages + Hint stones | Collectible bottles (text + disappear) + permanent hint stones (proximity text). Editor text editing. Codex tracking deferred | **Done** |
 | 8 | Dark level mode | Limited visibility, light circle around fish | Pending |
 | 9 | Skill: Light Pulse | Expanded light radius ~3s, ~15s cooldown | Pending |
-| 10 | Skill: Stun Pulse | Stun nearby enemies ~3s, ~20s cooldown | Pending |
-| 11 | Skill: Speed Surge | Sprint boost ~4s, ~25s cooldown | Pending |
+| 10 | Skill: Stun Pulse | Stun nearby enemies ~3s, ~20s cooldown | **Done** |
+| 11 | Skill: Speed Surge | Sprint boost ~4s, ~25s cooldown | **Done** |
 | 12 | Water currents | Flow zones that push the fish directionally | Pending |
 | 13 | Boss fight system | Boss arena structure + first boss (Giant Crab) | Pending |
 | 14 | Star system | 3-star rating per level, unlock logic, UI | Pending |

@@ -8,7 +8,13 @@
 
 2. **Implement** — code the feature with:
    - Editor integration (palette entry, preview, placement support)
+   - Codex integration (see step 2b)
    - Sandbox level placement (place a few instances in level 1 for testing)
+
+2b. **Update Codex** — every new entity/mechanic needs all three:
+   - `CODEX_DATA` entry in `game.js` (category, preview key, i18n key, tag)
+   - i18n codex text in `locales/en.json` AND `locales/hu.json` (`codex.<key>.name`, `.tagLabel`, `.desc`, `.tip`)
+   - Preview thumbnail in `codex-renderer.js` (`generateCodexPreviews`) — build the model, render to dataURL
 
 3. **Write Vitest tests** where meaningful — test logic, not pixels:
    - Entity extraction (new tile IDs parsed correctly, cleared from TILES)

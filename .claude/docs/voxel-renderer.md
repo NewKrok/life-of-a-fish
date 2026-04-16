@@ -31,9 +31,15 @@ Auto-generated visual layer behind terrain that simulates cave openings. Not a t
 
 **Constants**: `CAVE_BG_Z_OFFSET` (-32px), `CAVE_BG_DARKEN` (0.35), `CAVE_BG_NEIGHBOR_RADIUS` (2 tiles).
 
+## Entity Mesh Optimization
+
+Entity voxels use a `VoxelCollector` + `_mergeVoxelGroup` system that batches voxels by color into `InstancedMesh` objects. This reduces draw calls from ~60 per entity (one Mesh per voxel) to ~6-10 (one InstancedMesh per unique color). A shared `BoxGeometry` per voxel size is cached in `_sharedGeoCache`.
+
+**Frustum culling**: The `syncFrame` method receives viewport bounds (`camX`, `camY`, `camVisW`, `camVisH`) in the extras parameter. Off-screen entities are set to `visible = false` with a 120px margin to prevent pop-in.
+
 ## Fish Models
 
-Voxel groups built from hardcoded coordinate arrays:
+Voxel groups built from hardcoded coordinate arrays, merged via `VoxelCollector`:
 
 **Player fish** (orange `0xff8c42`):
 - Body block, white eye with dark pupil, yellow top fin, red-orange tail
@@ -183,6 +189,36 @@ Built via `buildRafts(raftBodies)`:
 - Colors: `PLANK` browns (0x6B4914–0xA07828), `ROPE` (0x99884C)
 - Synced from physics body position + rotation each frame
 
+### Floating Logs
+Built via `buildFloatingLogs(floatingLogBodies)`:
+- Natural driftwood appearance — cylindrical log shape (~11 voxels long, ~3 radius)
+- Colors: `BARK` browns (0x4A3218–0x8B6B3A), occasional `MOSS` patches (0x4A6B3A), `INNER` wood visible at ends (0xA08050)
+- Tapered ends, stub branches for detail
+- Synced from physics body position + rotation each frame
+
+### Swinging Anchors
+Built via `buildSwingingAnchors(anchorData)`:
+- Classic nautical anchor shape — vertical shank, cross arm (fluke bar), curved fluke tips, ring at top
+- Chain links rendered as voxels from anchor ring upward to pivot point
+- Colors: `METAL` grays (0x3A3A4A–0x6A6A7A), `RUST` (0x7A4A2A), `CHAIN` (0x6A6A7A)
+- Pivot marker (bracket) at top of chain
+- Position synced from pendulum physics each frame (kinematic body)
+
+### Bottles
+Built via `buildBottles(bottleData)`:
+- Small corked bottle shape (~3 wide × 7 tall voxels)
+- Glass body with emissive glow (`GLASS` 0x88ccaa, `GLOW` 0xaaeedd)
+- Cork at top, tiny scroll (paper) visible inside
+- Gentle bob animation in syncFrame
+- `spawnBottleCollect(x, y)` spawns sparkle particle burst on collection
+
+### Hint Stones
+Built via `buildHintStones(hintData)`:
+- Small stone tablet (~5×5×3 voxels) with carved symbols on front face
+- Colors: `STONE` grays (0x5a6a5a–0x8a9a8a), `MOSS` accents (0x4a7a3a), `SYMBOL` highlights (0xaaccbb)
+- Seaweed tufts on top for natural look
+- Static position — no animation needed
+
 ## Bubbles
 
 ### Player/Piranha Bubbles
@@ -243,6 +279,30 @@ Built via `buildRafts(raftBodies)`:
 | Hemisphere  | `0x88ccff` / `0x886644` | 0.4 | Natural sky/ground coloring |
 | Fog         | `FogExp2`  | 0.0006    | Exponential depth fade (reduced) |
 
+## Skill Visual Effects
+
+### Stun Pulse Ring
+- Expanding purple ring (`0x8833cc`) triggered by `spawnStunPulseRing(x, y)`
+- `RingGeometry` that scales outward from 0 to `STUN_PULSE_RADIUS` (80px)
+- `AdditiveBlending`, fades opacity as it expands
+- Lifetime ~0.5s, auto-removed after animation completes
+
+### Stun Dizzy Stars
+- Small rotating star particles above stunned enemies
+- Spawned per enemy when stun is applied, orbit in a circle above the enemy's head
+- Yellow `0xffdd44` with emissive glow
+- Removed when enemy's `_stunTimer` expires
+
+### Stun Wobble
+- Stunned enemies get sinusoidal rotation wobble on Z axis
+- Applied in `syncFrame()` when enemy body has `_stunTimer > 0`
+
+### Speed Surge Trail
+- Green trail particles (`0x44ff88`) spawned behind the player during Speed Surge
+- Small cubes with `AdditiveBlending`, short lifetime (~0.5s)
+- Emitted every few frames while `fishController.speedSurgeActive` is true
+- Fade out and are removed on expiry
+
 ## Key Method: `syncFrame()`
 
 Called every frame after physics step. Updates:
@@ -259,7 +319,8 @@ Called every frame after physics step. Updates:
 11. Gate pivot rotation animation (swing open/close)
 12. Projectile positions, spin rotation, emissive pulse, remove expired
 9. Pearl bob + spin animation; remove collected pearls (body.space === null)
-10. Buoy, boulder, raft positions + rotations from physics bodies
+10. Buoy, boulder, raft, floating log positions + rotations from physics bodies
+10b. Swinging anchor positions from pendulum physics
 11. Bubble positions, opacity, and lifetime (including horizontal `vx` drag for splash particles)
 7. Surface disturbance aging, spread growth, and cleanup
 8. God ray sway and opacity pulsing

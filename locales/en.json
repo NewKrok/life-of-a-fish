@@ -66,7 +66,9 @@
   },
   "touch": {
     "dash": "DASH",
-    "grab": "GRAB"
+    "grab": "GRAB",
+    "stun": "STUN",
+    "speed": "SPEED"
   },
   "codex": {
     "title": "Codex",
@@ -226,6 +228,42 @@
       "tagLabel": "Zone",
       "desc": "Where the ocean meets the sky. Cross it to jump into the air — your fish flops around up there, so don't stay long!",
       "tip": "Tip: Jump out for hard-to-reach pearls, but gravity pulls you back fast."
+    },
+    "floatingLog": {
+      "name": "Floating Log",
+      "tagLabel": "Pushable",
+      "desc": "A waterlogged piece of driftwood drifting in the ocean. Heavy enough to hold down a pressure switch, light enough to push around. A handy underwater tool.",
+      "tip": "Tip: Push logs onto pressure switches to keep gates open, or use them to block enemy patrol paths."
+    },
+    "swingingAnchor": {
+      "name": "Swinging Anchor",
+      "tagLabel": "Obstacle",
+      "desc": "A heavy iron anchor hanging from a chain, swinging back and forth like a pendulum. The rust hasn't slowed it down one bit.",
+      "tip": "Tip: Time your swim to pass when the anchor swings away. Don't get caught in its path!"
+    },
+    "bottle": {
+      "name": "Bottle Message",
+      "tagLabel": "Collectible",
+      "desc": "A small corked bottle with a rolled-up note inside. Someone left these scattered across the ocean — funny notes, cryptic hints, and the occasional heartfelt message.",
+      "tip": "Tip: Swim into a bottle to read its message. It disappears after collection, so savor every word."
+    },
+    "hintStone": {
+      "name": "Hint Stone",
+      "tagLabel": "Guide",
+      "desc": "An ancient stone tablet with carved symbols. Swim close to read the inscription — it glows faintly when you're near. Unlike bottles, it never disappears.",
+      "tip": "Tip: Look for hint stones near new mechanics. They often explain how things work."
+    },
+    "stunPulse": {
+      "name": "Stun Pulse",
+      "tagLabel": "Skill",
+      "desc": "A gift from the deep — a deep-sea crystal resonated near you and granted this power. Release a pulse of energy that stuns all nearby enemies for 3 seconds, freezing them in place.",
+      "tip": "Tip: Press Q to stun nearby enemies. 20-second cooldown. Perfect for slipping past armored fish or stopping a shark chase."
+    },
+    "speedSurge": {
+      "name": "Speed Surge",
+      "tagLabel": "Skill",
+      "desc": "A gift from the ancients — an ancient wall inscription glowed as you passed. Grants a 4-second burst of incredible speed, boosting thrust and max velocity.",
+      "tip": "Tip: Press R to sprint. 25-second cooldown. Use it to outrun currents, escape danger, or reach timed switches before they close."
     }
   },
   "editor": {
@@ -234,10 +272,12 @@
     "play": "PLAY",
     "coordinates": "Col:{col} Row:{row}",
     "moveMode": "MOVE",
-    "controls": "G=grid  Shift+click=link  M=move",
+    "controls": "G=grid  M=move  Click entity=config",
     "copiedToast": "Level data copied to clipboard!",
     "copyFailed": "Copy failed — check clipboard permissions",
     "groupToast": "Group → {group}",
+    "cfgGroup": "Group",
+    "cfgText": "Text",
     "restartTitle": "Restart",
     "exitTitle": "Back to Editor",
     "cat": {
@@ -283,7 +323,11 @@
       "chestBlue": "Chest Blue",
       "chestGreen": "Chest Green",
       "chestYellow": "Chest Yellow",
-      "chestPurple": "Chest Purple"
+      "chestPurple": "Chest Purple",
+      "floatingLog": "Floating Log",
+      "swAnchor": "Sw. Anchor",
+      "bottle": "Bottle",
+      "hintStone": "Hint Stone"
     }
   }
 }

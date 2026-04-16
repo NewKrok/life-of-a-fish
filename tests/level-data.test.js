@@ -99,12 +99,12 @@ describe('tile parsing', () => {
     }
   });
 
-  it('all tile values are valid (0-33)', () => {
+  it('all tile values are valid (0-37)', () => {
     for (let r = 0; r < LEVEL_ROWS; r++) {
       for (let c = 0; c < LEVEL_COLS; c++) {
         const t = TILES[r][c];
         expect(t).toBeGreaterThanOrEqual(0);
-        expect(t).toBeLessThanOrEqual(33);
+        expect(t).toBeLessThanOrEqual(37);
       }
     }
   });
@@ -178,6 +178,10 @@ describe('getLevelEntities', () => {
       ...ent.pressureSwitches,
       ...ent.timedSwitches,
       ...ent.gates,
+      ...ent.floatingLogs,
+      ...ent.swingingAnchors,
+      ...ent.bottleMessages,
+      ...ent.hintStones,
     ];
     for (const pos of allPositions) {
       expect(pos.x).toBeGreaterThanOrEqual(0);
@@ -277,6 +281,82 @@ describe('getLevelEntities', () => {
     for (const g of ent.gates) {
       const hasMatchingSwitch = allSwitches.some(s => s.group === g.group);
       expect(hasMatchingSwitch).toBe(true);
+    }
+  });
+
+  it('extracts floating logs from level 1', () => {
+    const ent = getLevelEntities();
+    expect(ent.floatingLogs.length).toBeGreaterThan(0);
+    for (const fl of ent.floatingLogs) {
+      expect(fl.x).toBeGreaterThan(0);
+      expect(fl.y).toBeGreaterThan(0);
+    }
+  });
+
+  it('extracts swinging anchors from level 1 with chain length', () => {
+    const ent = getLevelEntities();
+    expect(ent.swingingAnchors.length).toBeGreaterThan(0);
+    for (const sa of ent.swingingAnchors) {
+      expect(sa.x).toBeGreaterThan(0);
+      expect(sa.y).toBeGreaterThan(0);
+      expect(sa.chainLength).toBeGreaterThanOrEqual(32); // at least 1 tile
+    }
+  });
+
+  it('anchor chain lengths are assigned from level metadata', () => {
+    const ent = getLevelEntities();
+    // Level 1 has anchorChainLengths metadata with chainLength: 128
+    const customAnchor = ent.swingingAnchors.find(a => a.chainLength === 128);
+    expect(customAnchor).toBeDefined();
+  });
+
+  it('extracts bottle messages from level 1 with text', () => {
+    const ent = getLevelEntities();
+    expect(ent.bottleMessages.length).toBeGreaterThan(0);
+    for (const bm of ent.bottleMessages) {
+      expect(bm.x).toBeGreaterThan(0);
+      expect(bm.y).toBeGreaterThan(0);
+      expect(typeof bm.text).toBe('string');
+      expect(bm.text.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('bottle message texts are assigned from level metadata', () => {
+    const ent = getLevelEntities();
+    // Level 1 has bottleMessages metadata with specific texts
+    const pufferBottle = ent.bottleMessages.find(b => b.text.includes('pufferfish'));
+    expect(pufferBottle).toBeDefined();
+  });
+
+  it('extracts hint stones from level 1 with text', () => {
+    const ent = getLevelEntities();
+    expect(ent.hintStones.length).toBeGreaterThan(0);
+    for (const hs of ent.hintStones) {
+      expect(hs.x).toBeGreaterThan(0);
+      expect(hs.y).toBeGreaterThan(0);
+      expect(typeof hs.text).toBe('string');
+      expect(hs.text.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('hint stone texts are assigned from level metadata', () => {
+    const ent = getLevelEntities();
+    const dashHint = ent.hintStones.find(h => h.text.includes('Dash'));
+    expect(dashHint).toBeDefined();
+  });
+
+  it('floating logs are not included in merged solid bodies', () => {
+    const ent = getLevelEntities();
+    const bodies = getMergedSolidBodies();
+    for (const fl of ent.floatingLogs) {
+      for (const body of bodies) {
+        const left = body.x - body.w / 2;
+        const right = body.x + body.w / 2;
+        const top = body.y - body.h / 2;
+        const bottom = body.y + body.h / 2;
+        const inside = fl.x > left && fl.x < right && fl.y > top && fl.y < bottom;
+        expect(inside).toBe(false);
+      }
     }
   });
 

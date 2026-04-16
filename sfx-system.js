@@ -409,6 +409,69 @@ export class SfxSystem {
     noise.stop(t + 0.07);
   }
 
+  // ── 13. Stun Pulse — electric zap burst ──
+  stunPulse() {
+    if (!this._ensureCtx()) return;
+    const t = this._ctx.currentTime;
+    // Rising electric tone
+    const osc1 = this._osc('sawtooth', 200, t);
+    const g1 = this._env(osc1, t, 0.005, 0.2, 0.3);
+    osc1.frequency.exponentialRampToValueAtTime(800, t + 0.08);
+    osc1.frequency.exponentialRampToValueAtTime(400, t + 0.2);
+    osc1.stop(t + 0.22);
+    // High sparkle
+    const osc2 = this._osc('sine', 1200, t + 0.02);
+    const g2 = this._env(osc2, t + 0.02, 0.003, 0.15, 0.25);
+    osc2.frequency.exponentialRampToValueAtTime(2400, t + 0.08);
+    osc2.frequency.exponentialRampToValueAtTime(600, t + 0.17);
+    osc2.stop(t + 0.19);
+    // Filtered noise burst for impact
+    const noise = this._noise(0.12);
+    const nGain = this._ctx.createGain();
+    const filt = this._ctx.createBiquadFilter();
+    filt.type = 'bandpass';
+    filt.frequency.value = 1500;
+    filt.Q.value = 3;
+    noise.connect(filt);
+    filt.connect(nGain);
+    nGain.connect(this._masterGain);
+    nGain.gain.setValueAtTime(0.15, t);
+    nGain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+    noise.start(t);
+    noise.stop(t + 0.13);
+  }
+
+  // ── 14. Speed Surge — whoosh + rising power-up ──
+  speedSurge() {
+    if (!this._ensureCtx()) return;
+    const t = this._ctx.currentTime;
+    // Rising whoosh
+    const osc1 = this._osc('sine', 180, t);
+    const g1 = this._env(osc1, t, 0.01, 0.25, 0.25);
+    osc1.frequency.exponentialRampToValueAtTime(600, t + 0.15);
+    osc1.frequency.exponentialRampToValueAtTime(350, t + 0.25);
+    osc1.stop(t + 0.27);
+    // Bright shimmer
+    const osc2 = this._osc('triangle', 800, t + 0.05);
+    const g2 = this._env(osc2, t + 0.05, 0.005, 0.2, 0.2);
+    osc2.frequency.exponentialRampToValueAtTime(1400, t + 0.12);
+    osc2.frequency.exponentialRampToValueAtTime(1000, t + 0.25);
+    osc2.stop(t + 0.27);
+    // Filtered noise for wind
+    const noise = this._noise(0.15);
+    const nGain = this._ctx.createGain();
+    const filt = this._ctx.createBiquadFilter();
+    filt.type = 'highpass';
+    filt.frequency.value = 2000;
+    noise.connect(filt);
+    filt.connect(nGain);
+    nGain.connect(this._masterGain);
+    nGain.gain.setValueAtTime(0.1, t);
+    nGain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+    noise.start(t);
+    noise.stop(t + 0.16);
+  }
+
   // ── Helpers ──
 
   _ensureCtx() {

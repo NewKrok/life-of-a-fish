@@ -2,6 +2,10 @@
 
 Underwater fish platformer — 2D side-scrolling game running in the browser.
 
+## Core Design Principle — Underwater Movement
+
+The game is almost entirely underwater. The fish swims freely in all directions — no ground-walking, no jumping onto platforms. "Standing on" things is meaningless underwater. Entities are obstacles/tools to interact with while swimming (push, dodge, block), not platforms to ride. The only exception is the brief dolphin-leap arc when the fish jumps out of the water, but even that doesn't turn the game into a classic platformer.
+
 ## Tech Stack
 
 - **Physics**: nape-js v3.26.0 (CDN) — rigid body, fluid simulation, collision
@@ -24,7 +28,7 @@ npx http-server
 ```
 index.html            — Entry point, two canvases (WebGL + HUD overlay)
 game.js               — Main game loop, physics setup, camera, collision listeners
-fish-controller.js    — Player movement: swim/dash/jump states, water detection
+fish-controller.js    — Player movement: swim/dash/jump states, skills (stun/speed), water detection
 voxel-renderer.js     — Three.js voxel rendering: terrain, fish models, bubbles, water
 level-data.js         — Tile map definition (125×25), entity parsing, body merging
 level-editor.js       — In-game level editor (F4): tile palette, entity placement, patrol editing
@@ -63,15 +67,16 @@ In-game editor activated with **F4**. Works in both menu and game states. Pauses
 
 ### Game Loop (game.js, 60 FPS)
 
-1. Aggregate input (keyboard + touch)
-2. Update enemy patrol AI
-3. `FishController.update()` — movement, dash, water transitions
-4. Clamp player to world bounds
-5. `nape.Space.step()` — physics (dt=1/60, 8 velocity / 3 position iterations)
-6. Camera smooth-follow player
-7. `VoxelRenderer.syncFrame()` — sync 3D meshes to physics bodies
-8. Three.js render
-9. HUD canvas draw (pearl count, state, depth, controls)
+1. Aggregate input (keyboard + touch, including skill keys Q/R)
+2. Update enemy patrol AI (skip stunned enemies)
+3. `FishController.update()` — movement, dash, skills (stun pulse, speed surge), water transitions
+4. Stun Pulse AoE check + Speed Surge SFX trigger
+5. Clamp player to world bounds
+6. `nape.Space.step()` — physics (dt=1/60, 8 velocity / 3 position iterations)
+7. Camera smooth-follow player
+8. `VoxelRenderer.syncFrame()` — sync 3D meshes to physics bodies, stun wobble, speed trail
+9. Three.js render
+10. HUD canvas draw (pearl count, skill cooldowns, dash bar, controls)
 
 ### Physics (nape-js)
 
@@ -85,7 +90,27 @@ In-game editor activated with **F4**. Works in both menu and game states. Pauses
 - Crates: dynamic bodies (float/roll in water), destroyed by dashing, wood plank particles, ~30% pearl drop
 - Switches: static sensor bodies, 3 types: toggle (one-shot, stays open), pressure (open while weight on it), timed (5s then closes). Activated by player/boulder/key/crate contact
 - Gates: kinematic bodies (2 tiles tall, 1 tile wide), linked to switches by group ID, swing open sideways around left-edge hinge
+- Floating logs: dynamic bodies, float in water, pushable by player/objects, can activate pressure switches
+- Swinging anchors: kinematic bodies, pendulum physics from ceiling pivot point, configurable chain length via `anchorChainLengths` metadata
+- Bottle messages: static sensor bodies, collectible (disappear on contact), show text overlay
+- Hint stones: static sensor bodies, permanent, show text when player is within proximity range (~48px)
 - Each entity class has its own `CbType` for collision filtering
+
+### Skills — "Gifts of the Ocean" (fish-controller.js + game.js)
+
+Two active skills, available from the start for testing (will be story-gated per world later):
+
+| Skill | Key | Duration | Cooldown | Effect |
+|-------|-----|----------|----------|--------|
+| Stun Pulse | Q / touch | instant | 20s | 80px AoE stun, enemies frozen 3s |
+| Speed Surge | R / touch | 4s | 25s | 1.8× max speed, 1.6× thrust |
+
+- **FishController** manages all skill state: cooldowns, timers, activation flags
+- **game.js** handles Stun Pulse AoE (finds enemies within radius, sets `_stunTimer` on bodies) and SFX triggers
+- Enemy patrol loops skip movement when `_stunTimer > 0` (velocity zeroed, no shooting, shark chase cancelled)
+- **VoxelRenderer** provides visual feedback: expanding purple ring on pulse, dizzy star particles on stunned enemies, green speed trail particles during surge
+- **HUD** shows two skill icons (bottom-left) with cooldown sweep overlay and active glow border
+- **Touch controls**: STUN and SPEED buttons above the joystick on mobile
 
 ### Rendering (Three.js)
 
@@ -139,10 +164,18 @@ Tile map is a string grid (125 cols × 25 rows, 32px tiles):
 | `N`  | Pressure Switch | 31  |
 | `O`  | Timed Switch | 32     |
 | `G`  | Gate         | 33     |
+| `L`  | Floating Log | 34     |
+| `H`  | Swinging Anchor | 35  |
+| `I`  | Bottle Message | 36   |
+| `J`  | Hint Stone     | 37   |
 
 Keys are carriable/throwable like boulders but deal no damage. Throwing a key at its matching-color chest opens the chest with a particle effect and spawns a pearl. Chest pearls are included in `TOTAL_PEARLS` from level start.
 
 Switches and gates are linked by group IDs stored in `switchGateGroups` metadata per level. Toggle switches flip on player contact. Pressure switches stay active while a boulder/key rests on them. Timed switches activate for 5s then auto-close. Gates are 2-tile-tall metal grates that swing open around a top hinge.
+
+Floating logs are dynamic bodies that float in water and can be pushed. Swinging anchors hang from ceiling pivot points on chains and swing as pendulums. Chain length is configurable via `anchorChainLengths` metadata per level (default: 96px = 3 tiles). The anchor tile position represents the pivot point; the anchor body swings below.
+
+Bottle messages are collectible — swim into them to read the text, then the bottle disappears. Hint stones are permanent — swim close to read, text disappears when you leave. Both store custom text via level metadata (`bottleMessages`, `hintStones` arrays with `{ row, col, text }`). In the editor, Shift+click on a placed bottle/hint stone opens a text prompt.
 
 Water surface is at row 4 (128px).
 
@@ -159,6 +192,8 @@ Deep-dive docs live in `.claude/docs/`. Refer to these when working on the relev
 **When the user requests a roadmap item by number (e.g. "#3"), MUST follow the workflow in [workflow.md](.claude/docs/workflow.md) before writing any code.**
 
 **After completing a task**, check whether the changes affect any of these docs and update them to stay in sync with the code.
+
+**Codex is mandatory for every new entity/mechanic.** Three integration points: `CODEX_DATA` in `game.js`, i18n entries in `locales/en.json` + `locales/hu.json` (`codex.<key>.*`), and preview in `codex-renderer.js`. See [workflow.md](.claude/docs/workflow.md) step 2b.
 
 ## Conventions
 
