@@ -3818,6 +3818,7 @@ function gameLoop() {
     sharkBodies, pufferfishBodies, crabBodies, toxicFishBodies, projectileBodies,
     armoredFishBodies, spittingCoralBodies, switchBodies, gateBodies,
     swingingAnchorBodies,
+    camX, camY, camVisW, camVisH,
   });
 
   renderer.render(scene, camera);

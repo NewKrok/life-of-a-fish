@@ -31,9 +31,15 @@ Auto-generated visual layer behind terrain that simulates cave openings. Not a t
 
 **Constants**: `CAVE_BG_Z_OFFSET` (-32px), `CAVE_BG_DARKEN` (0.35), `CAVE_BG_NEIGHBOR_RADIUS` (2 tiles).
 
+## Entity Mesh Optimization
+
+Entity voxels use a `VoxelCollector` + `_mergeVoxelGroup` system that batches voxels by color into `InstancedMesh` objects. This reduces draw calls from ~60 per entity (one Mesh per voxel) to ~6-10 (one InstancedMesh per unique color). A shared `BoxGeometry` per voxel size is cached in `_sharedGeoCache`.
+
+**Frustum culling**: The `syncFrame` method receives viewport bounds (`camX`, `camY`, `camVisW`, `camVisH`) in the extras parameter. Off-screen entities are set to `visible = false` with a 120px margin to prevent pop-in.
+
 ## Fish Models
 
-Voxel groups built from hardcoded coordinate arrays:
+Voxel groups built from hardcoded coordinate arrays, merged via `VoxelCollector`:
 
 **Player fish** (orange `0xff8c42`):
 - Body block, white eye with dark pupil, yellow top fin, red-orange tail

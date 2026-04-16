@@ -272,10 +272,12 @@
     "play": "JÁTÉK",
     "coordinates": "Oszl:{col} Sor:{row}",
     "moveMode": "MOZGATÁS",
-    "controls": "G=rács  Shift+klikk=összeköt  M=mozgat",
+    "controls": "G=rács  M=mozgat  Klikk elemre=beáll.",
     "copiedToast": "Pályaadatok másolva a vágólapra!",
     "copyFailed": "Másolás sikertelen — ellenőrizd a vágólap engedélyeket",
     "groupToast": "Csoport → {group}",
+    "cfgGroup": "Csoport",
+    "cfgText": "Szöveg",
     "restartTitle": "Újraindítás",
     "exitTitle": "Vissza a szerkesztőbe",
     "cat": {

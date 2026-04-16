@@ -7,6 +7,99 @@ import { TILE_SIZE, LEVEL_COLS, LEVEL_ROWS, TILES, WATER_SURFACE_Y, WORLD_W, WOR
 
 const VOXEL_DEPTH = TILE_SIZE; // Z depth of each voxel
 
+// ── Shared geometry cache (one BoxGeometry per voxel size) ──
+const _sharedGeoCache = {};
+
+function _getSharedGeo(THREE, V) {
+  if (!_sharedGeoCache[V]) {
+    _sharedGeoCache[V] = new THREE.BoxGeometry(V, V, V);
+  }
+  return _sharedGeoCache[V];
+}
+
+// ── Merge voxel data into a Group with one Mesh per unique material key ──
+// voxelData: [{ x, y, z, color, emissive? }]
+// V: voxel size
+// matProps: { roughness, metalness, ... } — shared properties for all voxels
+// Returns a THREE.Group with merged meshes (one per color+emissive combo)
+function _mergeVoxelGroup(THREE, voxelData, V, matProps = {}) {
+  const group = new THREE.Group();
+  if (voxelData.length === 0) return group;
+
+  // Group voxels by material key (color + emissive combo)
+  const buckets = new Map();
+  for (const v of voxelData) {
+    const key = v.emissive !== undefined ? `${v.color}_${v.emissive}` : `${v.color}`;
+    if (!buckets.has(key)) {
+      buckets.set(key, { color: v.color, emissive: v.emissive, positions: [] });
+    }
+    buckets.get(key).positions.push(v.x, v.y, v.z);
+  }
+
+  const baseGeo = _getSharedGeo(THREE, V);
+
+  for (const [, bucket] of buckets) {
+    const count = bucket.positions.length / 3;
+    if (count === 0) continue;
+
+    // Use InstancedMesh for each color bucket
+    const matOpts = {
+      color: bucket.color,
+      roughness: matProps.roughness ?? 0.85,
+      metalness: matProps.metalness ?? 0.0,
+      ...( bucket.emissive !== undefined ? {
+        emissive: bucket.emissive,
+        emissiveIntensity: matProps.emissiveIntensity ?? 0.4,
+      } : {}),
+    };
+    if (matProps.transparent) {
+      matOpts.transparent = true;
+      matOpts.opacity = matProps.opacity ?? 0.5;
+    }
+    const mat = new THREE.MeshStandardMaterial(matOpts);
+    const mesh = new THREE.InstancedMesh(baseGeo, mat, count);
+
+    const dummy = new THREE.Object3D();
+    for (let i = 0; i < count; i++) {
+      dummy.position.set(
+        bucket.positions[i * 3],
+        bucket.positions[i * 3 + 1],
+        bucket.positions[i * 3 + 2]
+      );
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    group.add(mesh);
+  }
+
+  return group;
+}
+
+// ── VoxelCollector: lightweight accumulator for voxel data ──
+// Usage: const vc = new VoxelCollector(V);
+//        vc.add(x, y, z, color);          // position in grid coords
+//        vc.add(x, y, z, color, emissive); // with emissive
+//        const group = vc.build(THREE, matProps);
+class VoxelCollector {
+  constructor(V) {
+    this.V = V;
+    this.data = [];
+  }
+  add(x, y, z, color, emissive) {
+    const V = this.V;
+    const entry = { x: x * V, y: y * V, z: z * V, color };
+    if (emissive !== undefined) entry.emissive = emissive;
+    this.data.push(entry);
+  }
+  row(xs, y, z, color) {
+    for (const x of xs) this.add(x, y, z, color);
+  }
+  build(THREE, matProps = {}) {
+    return _mergeVoxelGroup(THREE, this.data, this.V, matProps);
+  }
+}
+
 // ── God Ray Constants ──
 const GOD_RAY_COUNT = 12;           // number of light beams
 const GOD_RAY_MAX_WIDTH = 80;       // px, widest beam at bottom
@@ -763,16 +856,9 @@ export class VoxelRenderer {
   // ── Build the player fish model (voxel style, Magikarp-inspired) ──
   buildFish() {
     const THREE = this.THREE;
-    const group = new THREE.Group();
     const V = 2; // smaller voxel for more detail
-
-    const addVoxel = (x, y, z, color) => {
-      const geo = new THREE.BoxGeometry(V, V, V);
-      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0.0 });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(x * V, y * V, z * V);
-      return mesh;
-    };
+    const vc = new VoxelCollector(V);
+    const matProps = { roughness: 0.85, metalness: 0.0 };
 
     // Colors
     const RED = 0xcc2222;
@@ -787,11 +873,6 @@ export class VoxelRenderer {
     const WHISKER = 0xd4a010;
     const MOUTH = 0xc87830;
 
-    // Helper: add a row of voxels along X for a given y, z, color
-    const row = (xs, y, z, color) => {
-      for (const x of xs) group.add(addVoxel(x, y, z, color));
-    };
-
     // ── Body: round oval shape, 10 long × 8 tall × 6 deep ──
     // Build layer by layer in Z. Body is symmetric around z=2.5
     // Each Z-slice defines rows [y] -> x range
@@ -799,120 +880,132 @@ export class VoxelRenderer {
     // Z=0, Z=5 (outermost edges, small)
     const sliceOuter = () => {
       // Red upper body
-      row([3, 4, 5, 6], 3, 0, RED);
-      row([3, 4, 5, 6], 2, 0, RED);
-      row([4, 5], 1, 0, RED_LIGHT);
+      vc.row([3, 4, 5, 6], 3, 0, RED);
+      vc.row([3, 4, 5, 6], 2, 0, RED);
+      vc.row([4, 5], 1, 0, RED_LIGHT);
       // White belly
-      row([4, 5], 0, 0, WHITE);
-      row([4, 5], -1, 0, WHITE);
+      vc.row([4, 5], 0, 0, WHITE);
+      vc.row([4, 5], -1, 0, WHITE);
     };
 
     // Z=1, Z=4 (mid-outer, bigger)
     const sliceMidOuter = () => {
-      row([2, 3, 4, 5, 6, 7], 4, 1, RED);
-      row([1, 2, 3, 4, 5, 6, 7, 8], 3, 1, RED);
-      row([1, 2, 3, 4, 5, 6, 7, 8], 2, 1, RED_LIGHT);
-      row([2, 3, 4, 5, 6, 7, 8], 1, 1, RED_LIGHT);
+      vc.row([2, 3, 4, 5, 6, 7], 4, 1, RED);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8], 3, 1, RED);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8], 2, 1, RED_LIGHT);
+      vc.row([2, 3, 4, 5, 6, 7, 8], 1, 1, RED_LIGHT);
       // White belly
-      row([2, 3, 4, 5, 6, 7, 8], 0, 1, WHITE);
-      row([3, 4, 5, 6, 7], -1, 1, WHITE);
-      row([4, 5, 6], -2, 1, WHITE_LIGHT);
+      vc.row([2, 3, 4, 5, 6, 7, 8], 0, 1, WHITE);
+      vc.row([3, 4, 5, 6, 7], -1, 1, WHITE);
+      vc.row([4, 5, 6], -2, 1, WHITE_LIGHT);
     };
 
     // Z=2, Z=3 (center, biggest cross-section)
     const sliceCenter = () => {
-      row([3, 4, 5, 6], 5, 2, RED_DARK);
-      row([1, 2, 3, 4, 5, 6, 7, 8], 4, 2, RED);
-      row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 3, 2, RED);
-      row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 2, 2, RED_LIGHT);
-      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 1, 2, RED_LIGHT);
+      vc.row([3, 4, 5, 6], 5, 2, RED_DARK);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8], 4, 2, RED);
+      vc.row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 3, 2, RED);
+      vc.row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 2, 2, RED_LIGHT);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8, 9], 1, 2, RED_LIGHT);
       // White belly
-      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 0, 2, WHITE);
-      row([2, 3, 4, 5, 6, 7, 8], -1, 2, WHITE);
-      row([3, 4, 5, 6, 7], -2, 2, WHITE_LIGHT);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8, 9], 0, 2, WHITE);
+      vc.row([2, 3, 4, 5, 6, 7, 8], -1, 2, WHITE);
+      vc.row([3, 4, 5, 6, 7], -2, 2, WHITE_LIGHT);
     };
 
     // Place body slices symmetrically
     // Z=0 and Z=5
     sliceOuter();
     // Mirror Z=0 to Z=5
-    for (const child of [...group.children]) {
-      if (child.position.z === 0) {
-        group.add(addVoxel(child.position.x / V, child.position.y / V, 5, child.material.color.getHex()));
+    const snap0 = vc.data.length;
+    for (let i = 0; i < snap0; i++) {
+      const d = vc.data[i];
+      if (d.z === 0) {
+        vc.add(d.x / V, d.y / V, 5, d.color);
       }
     }
 
     // Z=1 and Z=4
-    const countBefore1 = group.children.length;
+    const snap1 = vc.data.length;
     sliceMidOuter();
-    const addedSlice1 = group.children.slice(countBefore1);
-    for (const child of addedSlice1) {
-      group.add(addVoxel(child.position.x / V, child.position.y / V, 4, child.material.color.getHex()));
+    const added1 = vc.data.length;
+    for (let i = snap1; i < added1; i++) {
+      const d = vc.data[i];
+      vc.add(d.x / V, d.y / V, 4, d.color);
     }
 
     // Z=2 and Z=3
-    const countBefore2 = group.children.length;
+    const snap2 = vc.data.length;
     sliceCenter();
-    const addedSlice2 = group.children.slice(countBefore2);
-    for (const child of addedSlice2) {
-      group.add(addVoxel(child.position.x / V, child.position.y / V, 3, child.material.color.getHex()));
+    const added2 = vc.data.length;
+    for (let i = snap2; i < added2; i++) {
+      const d = vc.data[i];
+      vc.add(d.x / V, d.y / V, 3, d.color);
     }
 
     // ── Horizontal scale pattern (dark red stripes on body) ──
     for (const z of [1, 2, 3, 4]) {
-      row([2, 4, 6, 8], 3, z, RED_DARK);
-      row([3, 5, 7], 2, z, RED_DARK);
+      vc.row([2, 4, 6, 8], 3, z, RED_DARK);
+      vc.row([3, 5, 7], 2, z, RED_DARK);
     }
 
     // ── Eyes (on outermost visible Z layers: z=0 and z=5) ──
     // Left eye (z=0 side) — 2 voxels tall
-    group.add(addVoxel(8, 3, -0.2, EYE_WHITE));
-    group.add(addVoxel(8, 2, -0.2, EYE_WHITE));
-    const pupilL = addVoxel(8, 2.8, -0.5, EYE_BLACK);
-    pupilL.scale.set(0.7, 0.7, 0.4);
-    group.add(pupilL);
+    vc.add(8, 3, -0.2, EYE_WHITE);
+    vc.add(8, 2, -0.2, EYE_WHITE);
     // Right eye (z=5 side) — 2 voxels tall
-    group.add(addVoxel(8, 3, 5.2, EYE_WHITE));
-    group.add(addVoxel(8, 2, 5.2, EYE_WHITE));
-    const pupilR = addVoxel(8, 2.8, 5.5, EYE_BLACK);
-    pupilR.scale.set(0.7, 0.7, 0.4);
-    group.add(pupilR);
+    vc.add(8, 3, 5.2, EYE_WHITE);
+    vc.add(8, 2, 5.2, EYE_WHITE);
 
     // ── Mouth (front, slightly open) ──
-    group.add(addVoxel(9, 1, 2, MOUTH));
-    group.add(addVoxel(9, 1, 3, MOUTH));
+    vc.add(9, 1, 2, MOUTH);
+    vc.add(9, 1, 3, MOUTH);
 
     // ── Whiskers / barbels (yellow, hanging down from mouth) ──
-    group.add(addVoxel(10, 1, 1, WHISKER));
-    group.add(addVoxel(10, 0, 1, WHISKER));
-    group.add(addVoxel(10, 1, 4, WHISKER));
-    group.add(addVoxel(10, 0, 4, WHISKER));
+    vc.add(10, 1, 1, WHISKER);
+    vc.add(10, 0, 1, WHISKER);
+    vc.add(10, 1, 4, WHISKER);
+    vc.add(10, 0, 4, WHISKER);
 
     // ── Dorsal crown / top fin (yellow crest) ──
     // Base row
     for (const x of [3, 4, 5, 6]) {
       for (const z of [2, 3]) {
-        group.add(addVoxel(x, 6, z, YELLOW));
+        vc.add(x, 6, z, YELLOW);
       }
     }
     // Tips (narrower)
     for (const x of [4, 5]) {
       for (const z of [2, 3]) {
-        group.add(addVoxel(x, 7, z, YELLOW_DARK));
+        vc.add(x, 7, z, YELLOW_DARK);
       }
     }
 
     // ── Pectoral fins (small yellow, on sides) ──
     // Left fin (z=-1)
-    group.add(addVoxel(5, 0, -1, YELLOW));
-    group.add(addVoxel(6, 0, -1, YELLOW));
-    group.add(addVoxel(5, -1, -1, YELLOW_DARK));
-    group.add(addVoxel(6, -1, -1, YELLOW_DARK));
+    vc.add(5, 0, -1, YELLOW);
+    vc.add(6, 0, -1, YELLOW);
+    vc.add(5, -1, -1, YELLOW_DARK);
+    vc.add(6, -1, -1, YELLOW_DARK);
     // Right fin (z=6)
-    group.add(addVoxel(5, 0, 6, YELLOW));
-    group.add(addVoxel(6, 0, 6, YELLOW));
-    group.add(addVoxel(5, -1, 6, YELLOW_DARK));
-    group.add(addVoxel(6, -1, 6, YELLOW_DARK));
+    vc.add(5, 0, 6, YELLOW);
+    vc.add(6, 0, 6, YELLOW);
+    vc.add(5, -1, 6, YELLOW_DARK);
+    vc.add(6, -1, 6, YELLOW_DARK);
+
+    const group = vc.build(THREE, matProps);
+
+    // Pupils (custom scale — added as individual meshes)
+    const geo = _getSharedGeo(THREE, V);
+    const pupilMat = new THREE.MeshStandardMaterial({ color: EYE_BLACK, roughness: 0.85, metalness: 0.0 });
+    const pupilL = new THREE.Mesh(geo, pupilMat);
+    pupilL.position.set(8 * V, 2.8 * V, -0.5 * V);
+    pupilL.scale.set(0.7, 0.7, 0.4);
+    group.add(pupilL);
+    const pupilR = new THREE.Mesh(geo, pupilMat);
+    pupilR.position.set(8 * V, 2.8 * V, 5.5 * V);
+    pupilR.scale.set(0.7, 0.7, 0.4);
+    group.add(pupilR);
 
     // ── Tail (separate group for animation) ──
     const tailPivot = new THREE.Group();
@@ -921,6 +1014,7 @@ export class VoxelRenderer {
     const TAIL_Y_DARK = 0xd09000;
 
     // Tail fan shape — spreads out vertically
+    const tailVc = new VoxelCollector(V);
     const tailVoxels = [
       // Connecting segment
       [-1, 2, 0, TAIL_Y], [-1, 1, 0, TAIL_Y], [-1, 0, 0, TAIL_Y], [-1, -1, 0, TAIL_Y],
@@ -937,8 +1031,9 @@ export class VoxelRenderer {
       [-3, 4, 1, TAIL_Y_DARK], [-3, -3, 1, TAIL_Y_DARK],
     ];
     for (const [x, y, z, color] of tailVoxels) {
-      tailPivot.add(addVoxel(x, y, z, color));
+      tailVc.add(x, y, z, color);
     }
+    tailPivot.add(tailVc.build(THREE, matProps));
     group.add(tailPivot);
     this.fishTailPivot = tailPivot;
 
@@ -959,16 +1054,8 @@ export class VoxelRenderer {
   // ── Build an enemy fish (dark/purple, Magikarp-style) ──
   buildEnemyFish() {
     const THREE = this.THREE;
-    const group = new THREE.Group();
     const V = 2;
-
-    const addVoxel = (x, y, z, color) => {
-      const geo = new THREE.BoxGeometry(V, V, V);
-      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0.0 });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(x * V, y * V, z * V);
-      return mesh;
-    };
+    const vc = new VoxelCollector(V);
 
     // Colors
     const BODY = 0x662244;
@@ -980,40 +1067,36 @@ export class VoxelRenderer {
     const FIN_DARK = 0x772255;
     const EYE_RED = 0xff2222;
 
-    const row = (xs, y, z, color) => {
-      for (const x of xs) group.add(addVoxel(x, y, z, color));
-    };
-
     // Z=0, Z=5 (outermost)
     const sliceOuter = (z) => {
-      row([3, 4, 5, 6], 3, z, BODY);
-      row([3, 4, 5, 6], 2, z, BODY_LIGHT);
-      row([4, 5], 1, z, BODY_LIGHT);
-      row([4, 5], 0, z, BELLY);
-      row([4, 5], -1, z, BELLY);
+      vc.row([3, 4, 5, 6], 3, z, BODY);
+      vc.row([3, 4, 5, 6], 2, z, BODY_LIGHT);
+      vc.row([4, 5], 1, z, BODY_LIGHT);
+      vc.row([4, 5], 0, z, BELLY);
+      vc.row([4, 5], -1, z, BELLY);
     };
 
     // Z=1, Z=4 (mid)
     const sliceMid = (z) => {
-      row([2, 3, 4, 5, 6, 7], 4, z, BODY);
-      row([1, 2, 3, 4, 5, 6, 7, 8], 3, z, BODY);
-      row([1, 2, 3, 4, 5, 6, 7, 8], 2, z, BODY_LIGHT);
-      row([2, 3, 4, 5, 6, 7, 8], 1, z, BODY_LIGHT);
-      row([2, 3, 4, 5, 6, 7, 8], 0, z, BELLY);
-      row([3, 4, 5, 6, 7], -1, z, BELLY);
-      row([4, 5, 6], -2, z, BELLY_LIGHT);
+      vc.row([2, 3, 4, 5, 6, 7], 4, z, BODY);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8], 3, z, BODY);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8], 2, z, BODY_LIGHT);
+      vc.row([2, 3, 4, 5, 6, 7, 8], 1, z, BODY_LIGHT);
+      vc.row([2, 3, 4, 5, 6, 7, 8], 0, z, BELLY);
+      vc.row([3, 4, 5, 6, 7], -1, z, BELLY);
+      vc.row([4, 5, 6], -2, z, BELLY_LIGHT);
     };
 
     // Z=2, Z=3 (center)
     const sliceCenter = (z) => {
-      row([3, 4, 5, 6], 5, z, BODY_DARK);
-      row([1, 2, 3, 4, 5, 6, 7, 8], 4, z, BODY);
-      row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 3, z, BODY);
-      row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 2, z, BODY_LIGHT);
-      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 1, z, BODY_LIGHT);
-      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 0, z, BELLY);
-      row([2, 3, 4, 5, 6, 7, 8], -1, z, BELLY);
-      row([3, 4, 5, 6, 7], -2, z, BELLY_LIGHT);
+      vc.row([3, 4, 5, 6], 5, z, BODY_DARK);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8], 4, z, BODY);
+      vc.row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 3, z, BODY);
+      vc.row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 2, z, BODY_LIGHT);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8, 9], 1, z, BODY_LIGHT);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8, 9], 0, z, BELLY);
+      vc.row([2, 3, 4, 5, 6, 7, 8], -1, z, BELLY);
+      vc.row([3, 4, 5, 6, 7], -2, z, BELLY_LIGHT);
     };
 
     sliceOuter(0); sliceOuter(5);
@@ -1022,29 +1105,33 @@ export class VoxelRenderer {
 
     // Scale pattern
     for (const z of [1, 2, 3, 4]) {
-      row([2, 4, 6, 8], 3, z, BODY_DARK);
-      row([3, 5, 7], 2, z, BODY_DARK);
+      vc.row([2, 4, 6, 8], 3, z, BODY_DARK);
+      vc.row([3, 5, 7], 2, z, BODY_DARK);
     }
 
     // Eyes (angry red) — 2 voxels tall
-    group.add(addVoxel(8, 3, -0.2, EYE_RED));
-    group.add(addVoxel(8, 2, -0.2, EYE_RED));
-    group.add(addVoxel(8, 3, 5.2, EYE_RED));
-    group.add(addVoxel(8, 2, 5.2, EYE_RED));
+    vc.add(8, 3, -0.2, EYE_RED);
+    vc.add(8, 2, -0.2, EYE_RED);
+    vc.add(8, 3, 5.2, EYE_RED);
+    vc.add(8, 2, 5.2, EYE_RED);
 
     // Spiky dorsal fin (reduced height)
     for (const x of [2, 3, 4, 5, 6, 7]) {
       for (const z of [2, 3]) {
-        group.add(addVoxel(x, 6, z, FIN));
+        vc.add(x, 6, z, FIN);
       }
     }
     for (const x of [4, 5]) {
       for (const z of [2, 3]) {
-        group.add(addVoxel(x, 7, z, FIN_DARK));
+        vc.add(x, 7, z, FIN_DARK);
       }
     }
 
-    // Tail (separate group for animation)
+    // Build merged body group
+    const group = vc.build(THREE, { roughness: 0.85, metalness: 0.0 });
+
+    // Tail (separate group for animation — also merged)
+    const tailVc = new VoxelCollector(V);
     const tailPivot = new THREE.Group();
     tailPivot.position.set(0, V * 1.5, V * 2.5);
     const tailVoxels = [
@@ -1055,7 +1142,9 @@ export class VoxelRenderer {
       [-3, 3, 0], [-3, -2, 0], [-3, 4, 0], [-3, -3, 0],
       [-3, 3, 1], [-3, -2, 1], [-3, 4, 1], [-3, -3, 1],
     ];
-    for (const [x, y, z] of tailVoxels) tailPivot.add(addVoxel(x, y, z, FIN));
+    for (const [x, y, z] of tailVoxels) tailVc.add(x, y, z, FIN);
+    const tailMerged = tailVc.build(THREE, { roughness: 0.85, metalness: 0.0 });
+    tailPivot.add(tailMerged);
     group.add(tailPivot);
 
     // Center the voxel group on physics capsule center
@@ -1075,16 +1164,8 @@ export class VoxelRenderer {
   // ── Build shark enemy (chase fish — similar shape to enemy but blue-grey) ──
   buildShark() {
     const THREE = this.THREE;
-    const group = new THREE.Group();
     const V = 2;
-
-    const addVoxel = (x, y, z, color) => {
-      const geo = new THREE.BoxGeometry(V, V, V);
-      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.8, metalness: 0.1 });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(x * V, y * V, z * V);
-      return mesh;
-    };
+    const vc = new VoxelCollector(V);
 
     const BODY = 0x445566;
     const BODY_DARK = 0x334455;
@@ -1096,75 +1177,73 @@ export class VoxelRenderer {
     const EYE = 0x111111;
     const TEETH = 0xffffff;
 
-    const row = (xs, y, z, color) => {
-      for (const x of xs) group.add(addVoxel(x, y, z, color));
-    };
-
-    // Slightly longer body than regular enemy — shark-like
     const sliceOuter = (z) => {
-      row([3, 4, 5, 6, 7], 3, z, BODY);
-      row([3, 4, 5, 6, 7], 2, z, BODY_LIGHT);
-      row([4, 5, 6], 1, z, BODY_LIGHT);
-      row([5, 6], 0, z, BELLY);
-      row([5, 6], -1, z, BELLY);
+      vc.row([3, 4, 5, 6, 7], 3, z, BODY);
+      vc.row([3, 4, 5, 6, 7], 2, z, BODY_LIGHT);
+      vc.row([4, 5, 6], 1, z, BODY_LIGHT);
+      vc.row([5, 6], 0, z, BELLY);
+      vc.row([5, 6], -1, z, BELLY);
     };
 
     const sliceMid = (z) => {
-      row([2, 3, 4, 5, 6, 7, 8], 4, z, BODY);
-      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 3, z, BODY);
-      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 2, z, BODY_LIGHT);
-      row([2, 3, 4, 5, 6, 7, 8, 9], 1, z, BODY_LIGHT);
-      row([3, 4, 5, 6, 7, 8, 9], 0, z, BELLY);
-      row([4, 5, 6, 7, 8], -1, z, BELLY);
-      row([5, 6, 7], -2, z, BELLY_LIGHT);
+      vc.row([2, 3, 4, 5, 6, 7, 8], 4, z, BODY);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8, 9], 3, z, BODY);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8, 9], 2, z, BODY_LIGHT);
+      vc.row([2, 3, 4, 5, 6, 7, 8, 9], 1, z, BODY_LIGHT);
+      vc.row([3, 4, 5, 6, 7, 8, 9], 0, z, BELLY);
+      vc.row([4, 5, 6, 7, 8], -1, z, BELLY);
+      vc.row([5, 6, 7], -2, z, BELLY_LIGHT);
     };
 
     const sliceCenter = (z) => {
-      row([3, 4, 5, 6, 7], 5, z, BODY_DARK);
-      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 4, z, BODY);
-      row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 3, z, BODY);
-      row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 2, z, BODY_LIGHT);
-      row([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 1, z, BODY_LIGHT);
-      row([2, 3, 4, 5, 6, 7, 8, 9, 10], 0, z, BELLY);
-      row([3, 4, 5, 6, 7, 8], -1, z, BELLY);
-      row([4, 5, 6, 7], -2, z, BELLY_LIGHT);
+      vc.row([3, 4, 5, 6, 7], 5, z, BODY_DARK);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8, 9], 4, z, BODY);
+      vc.row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 3, z, BODY);
+      vc.row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 2, z, BODY_LIGHT);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 1, z, BODY_LIGHT);
+      vc.row([2, 3, 4, 5, 6, 7, 8, 9, 10], 0, z, BELLY);
+      vc.row([3, 4, 5, 6, 7, 8], -1, z, BELLY);
+      vc.row([4, 5, 6, 7], -2, z, BELLY_LIGHT);
     };
 
     sliceOuter(0); sliceOuter(5);
     sliceMid(1); sliceMid(4);
     sliceCenter(2); sliceCenter(3);
 
-    // Pointed snout — extra voxels at front
+    // Pointed snout
     for (const z of [2, 3]) {
-      group.add(addVoxel(11, 2, z, BODY_LIGHT));
-      group.add(addVoxel(11, 1, z, BELLY));
+      vc.add(11, 2, z, BODY_LIGHT);
+      vc.add(11, 1, z, BELLY);
     }
 
     // Teeth at front
     for (const z of [2, 3]) {
-      group.add(addVoxel(10, -1, z, TEETH));
-      group.add(addVoxel(11, 0, z, TEETH));
+      vc.add(10, -1, z, TEETH);
+      vc.add(11, 0, z, TEETH);
     }
 
-    // Eyes — dark, menacing
-    group.add(addVoxel(9, 3, -0.2, EYE));
-    group.add(addVoxel(9, 2, -0.2, EYE));
-    group.add(addVoxel(9, 3, 5.2, EYE));
-    group.add(addVoxel(9, 2, 5.2, EYE));
+    // Eyes
+    vc.add(9, 3, -0.2, EYE);
+    vc.add(9, 2, -0.2, EYE);
+    vc.add(9, 3, 5.2, EYE);
+    vc.add(9, 2, 5.2, EYE);
 
     // Tall dorsal fin
     for (const x of [3, 4, 5, 6]) {
       for (const z of [2, 3]) {
-        group.add(addVoxel(x, 6, z, FIN));
-        group.add(addVoxel(x, 7, z, FIN_DARK));
+        vc.add(x, 6, z, FIN);
+        vc.add(x, 7, z, FIN_DARK);
       }
     }
     for (const z of [2, 3]) {
-      group.add(addVoxel(4, 8, z, FIN_DARK));
-      group.add(addVoxel(5, 8, z, FIN_DARK));
+      vc.add(4, 8, z, FIN_DARK);
+      vc.add(5, 8, z, FIN_DARK);
     }
 
-    // Tail
+    const group = vc.build(THREE, { roughness: 0.8, metalness: 0.1 });
+
+    // Tail (merged)
+    const tailVc = new VoxelCollector(V);
     const tailPivot = new THREE.Group();
     tailPivot.position.set(0, V * 1.5, V * 2.5);
     const tailVoxels = [
@@ -1175,7 +1254,8 @@ export class VoxelRenderer {
       [-3, 4, 0], [-3, 3, 0], [-3, -2, 0], [-3, -3, 0],
       [-3, 4, 1], [-3, 3, 1], [-3, -2, 1], [-3, -3, 1],
     ];
-    for (const [x, y, z] of tailVoxels) tailPivot.add(addVoxel(x, y, z, FIN));
+    for (const [x, y, z] of tailVoxels) tailVc.add(x, y, z, FIN);
+    tailPivot.add(tailVc.build(THREE, { roughness: 0.8, metalness: 0.1 }));
     group.add(tailPivot);
 
     group.position.set(-5 * V, -1.5 * V, -2.5 * V);
@@ -1192,16 +1272,8 @@ export class VoxelRenderer {
   // ── Build pufferfish enemy (round, spiky, moves up-down) ──
   buildPufferfish() {
     const THREE = this.THREE;
-    const group = new THREE.Group();
     const V = 2;
-
-    const addVoxel = (x, y, z, color) => {
-      const geo = new THREE.BoxGeometry(V, V, V);
-      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.9, metalness: 0.0 });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(x * V, y * V, z * V);
-      return mesh;
-    };
+    const vc = new VoxelCollector(V);
 
     const BODY = 0xccaa44;
     const BODY_LIGHT = 0xddbb55;
@@ -1210,75 +1282,60 @@ export class VoxelRenderer {
     const EYE = 0x222222;
     const EYE_WHITE = 0xffffff;
 
-    const row = (xs, y, z, color) => {
-      for (const x of xs) group.add(addVoxel(x, y, z, color));
-    };
-
-    // Round body — 6 slices in Z
-    // Z=0, Z=5 (outer)
     const sliceOuter = (z) => {
-      row([2, 3, 4], 3, z, BODY);
-      row([1, 2, 3, 4, 5], 2, z, BODY);
-      row([1, 2, 3, 4, 5], 1, z, BODY_LIGHT);
-      row([2, 3, 4], 0, z, BELLY);
+      vc.row([2, 3, 4], 3, z, BODY);
+      vc.row([1, 2, 3, 4, 5], 2, z, BODY);
+      vc.row([1, 2, 3, 4, 5], 1, z, BODY_LIGHT);
+      vc.row([2, 3, 4], 0, z, BELLY);
     };
 
-    // Z=1, Z=4 (mid)
     const sliceMid = (z) => {
-      row([1, 2, 3, 4, 5], 4, z, BODY);
-      row([0, 1, 2, 3, 4, 5, 6], 3, z, BODY);
-      row([0, 1, 2, 3, 4, 5, 6], 2, z, BODY);
-      row([0, 1, 2, 3, 4, 5, 6], 1, z, BODY_LIGHT);
-      row([1, 2, 3, 4, 5], 0, z, BELLY);
-      row([2, 3, 4], -1, z, BELLY);
+      vc.row([1, 2, 3, 4, 5], 4, z, BODY);
+      vc.row([0, 1, 2, 3, 4, 5, 6], 3, z, BODY);
+      vc.row([0, 1, 2, 3, 4, 5, 6], 2, z, BODY);
+      vc.row([0, 1, 2, 3, 4, 5, 6], 1, z, BODY_LIGHT);
+      vc.row([1, 2, 3, 4, 5], 0, z, BELLY);
+      vc.row([2, 3, 4], -1, z, BELLY);
     };
 
-    // Z=2, Z=3 (center)
     const sliceCenter = (z) => {
-      row([2, 3, 4], 5, z, BODY);
-      row([1, 2, 3, 4, 5], 4, z, BODY);
-      row([0, 1, 2, 3, 4, 5, 6], 3, z, BODY);
-      row([0, 1, 2, 3, 4, 5, 6], 2, z, BODY);
-      row([0, 1, 2, 3, 4, 5, 6], 1, z, BODY_LIGHT);
-      row([1, 2, 3, 4, 5], 0, z, BELLY);
-      row([2, 3, 4], -1, z, BELLY);
+      vc.row([2, 3, 4], 5, z, BODY);
+      vc.row([1, 2, 3, 4, 5], 4, z, BODY);
+      vc.row([0, 1, 2, 3, 4, 5, 6], 3, z, BODY);
+      vc.row([0, 1, 2, 3, 4, 5, 6], 2, z, BODY);
+      vc.row([0, 1, 2, 3, 4, 5, 6], 1, z, BODY_LIGHT);
+      vc.row([1, 2, 3, 4, 5], 0, z, BELLY);
+      vc.row([2, 3, 4], -1, z, BELLY);
     };
 
     sliceOuter(0); sliceOuter(5);
     sliceMid(1); sliceMid(4);
     sliceCenter(2); sliceCenter(3);
 
-    // Spikes protruding outward
+    // Spikes
     const spikePositions = [
-      [3, 6, 2], [3, 6, 3],               // top
-      [3, -2, 2], [3, -2, 3],             // bottom
-      [-1, 2, 2], [-1, 2, 3],             // left
-      [7, 2, 2], [7, 2, 3],               // right
-      [5, 5, 1], [1, 5, 4],               // top-side
-      [5, -1, 1], [1, -1, 4],             // bottom-side
-      [-1, 3, 1], [-1, 1, 4],             // left-side
-      [7, 3, 4], [7, 1, 1],               // right-side
-      [3, 5, -1], [3, 5, 6],              // front-back top
-      [3, -1, -1], [3, -1, 6],            // front-back bottom
+      [3, 6, 2], [3, 6, 3], [3, -2, 2], [3, -2, 3],
+      [-1, 2, 2], [-1, 2, 3], [7, 2, 2], [7, 2, 3],
+      [5, 5, 1], [1, 5, 4], [5, -1, 1], [1, -1, 4],
+      [-1, 3, 1], [-1, 1, 4], [7, 3, 4], [7, 1, 1],
+      [3, 5, -1], [3, 5, 6], [3, -1, -1], [3, -1, 6],
     ];
-    for (const [x, y, z] of spikePositions) group.add(addVoxel(x, y, z, SPIKE));
+    for (const [x, y, z] of spikePositions) vc.add(x, y, z, SPIKE);
 
-    // Eyes — big round eyes
-    group.add(addVoxel(5, 3, -0.3, EYE_WHITE));
-    group.add(addVoxel(5, 2, -0.3, EYE_WHITE));
-    group.add(addVoxel(5, 3, -0.6, EYE));
-    group.add(addVoxel(5, 3, 5.3, EYE_WHITE));
-    group.add(addVoxel(5, 2, 5.3, EYE_WHITE));
-    group.add(addVoxel(5, 3, 5.6, EYE));
+    // Eyes
+    vc.add(5, 3, -0.3, EYE_WHITE);
+    vc.add(5, 2, -0.3, EYE_WHITE);
+    vc.add(5, 3, -0.6, EYE);
+    vc.add(5, 3, 5.3, EYE_WHITE);
+    vc.add(5, 2, 5.3, EYE_WHITE);
+    vc.add(5, 3, 5.6, EYE);
 
     // Small tail fin
-    group.add(addVoxel(-1, 3, 2, BODY));
-    group.add(addVoxel(-1, 3, 3, BODY));
-    group.add(addVoxel(-1, 2, 2, BODY));
-    group.add(addVoxel(-1, 2, 3, BODY));
-    group.add(addVoxel(-2, 3, 2, BODY));
-    group.add(addVoxel(-2, 2, 3, BODY));
+    vc.add(-1, 3, 2, BODY); vc.add(-1, 3, 3, BODY);
+    vc.add(-1, 2, 2, BODY); vc.add(-1, 2, 3, BODY);
+    vc.add(-2, 3, 2, BODY); vc.add(-2, 2, 3, BODY);
 
+    const group = vc.build(THREE, { roughness: 0.9, metalness: 0.0 });
     group.position.set(-3 * V, -2 * V, -2.5 * V);
     group.scale.set(1.32, 1.32, 1.32);
 
@@ -1292,16 +1349,8 @@ export class VoxelRenderer {
   // ── Build crab enemy (walks on ground, pushes player) ──
   buildCrab() {
     const THREE = this.THREE;
-    const group = new THREE.Group();
     const V = 2;
-
-    const addVoxel = (x, y, z, color) => {
-      const geo = new THREE.BoxGeometry(V, V, V);
-      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0.05 });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(x * V, y * V, z * V);
-      return mesh;
-    };
+    const vc = new VoxelCollector(V);
 
     const SHELL = 0xcc3322;
     const SHELL_DARK = 0xaa2211;
@@ -1312,32 +1361,24 @@ export class VoxelRenderer {
     const EYE = 0x111111;
     const EYE_STALK = 0xcc4422;
 
-    const row = (xs, y, z, color) => {
-      for (const x of xs) group.add(addVoxel(x, y, z, color));
-    };
-
-    // Wide, flat body — crab shape
-    // Z=0, Z=5 (outer)
     const sliceOuter = (z) => {
-      row([2, 3, 4, 5], 2, z, SHELL);
-      row([2, 3, 4, 5], 1, z, SHELL_LIGHT);
-      row([3, 4], 0, z, BELLY);
+      vc.row([2, 3, 4, 5], 2, z, SHELL);
+      vc.row([2, 3, 4, 5], 1, z, SHELL_LIGHT);
+      vc.row([3, 4], 0, z, BELLY);
     };
 
-    // Z=1, Z=4 (mid)
     const sliceMid = (z) => {
-      row([1, 2, 3, 4, 5, 6], 3, z, SHELL);
-      row([1, 2, 3, 4, 5, 6], 2, z, SHELL);
-      row([1, 2, 3, 4, 5, 6], 1, z, SHELL_LIGHT);
-      row([2, 3, 4, 5], 0, z, BELLY);
+      vc.row([1, 2, 3, 4, 5, 6], 3, z, SHELL);
+      vc.row([1, 2, 3, 4, 5, 6], 2, z, SHELL);
+      vc.row([1, 2, 3, 4, 5, 6], 1, z, SHELL_LIGHT);
+      vc.row([2, 3, 4, 5], 0, z, BELLY);
     };
 
-    // Z=2, Z=3 (center)
     const sliceCenter = (z) => {
-      row([1, 2, 3, 4, 5, 6], 3, z, SHELL_DARK);
-      row([0, 1, 2, 3, 4, 5, 6, 7], 2, z, SHELL);
-      row([0, 1, 2, 3, 4, 5, 6, 7], 1, z, SHELL_LIGHT);
-      row([1, 2, 3, 4, 5, 6], 0, z, BELLY);
+      vc.row([1, 2, 3, 4, 5, 6], 3, z, SHELL_DARK);
+      vc.row([0, 1, 2, 3, 4, 5, 6, 7], 2, z, SHELL);
+      vc.row([0, 1, 2, 3, 4, 5, 6, 7], 1, z, SHELL_LIGHT);
+      vc.row([1, 2, 3, 4, 5, 6], 0, z, BELLY);
     };
 
     sliceOuter(0); sliceOuter(5);
@@ -1345,31 +1386,24 @@ export class VoxelRenderer {
     sliceCenter(2); sliceCenter(3);
 
     // Eye stalks
-    group.add(addVoxel(5, 4, 1, EYE_STALK));
-    group.add(addVoxel(5, 5, 1, EYE));
-    group.add(addVoxel(5, 4, 4, EYE_STALK));
-    group.add(addVoxel(5, 5, 4, EYE));
+    vc.add(5, 4, 1, EYE_STALK); vc.add(5, 5, 1, EYE);
+    vc.add(5, 4, 4, EYE_STALK); vc.add(5, 5, 4, EYE);
 
-    // Claws — left claw (Z < 0)
-    group.add(addVoxel(6, 2, -1, CLAW));
-    group.add(addVoxel(7, 2, -1, CLAW));
-    group.add(addVoxel(7, 3, -1, CLAW));
-    group.add(addVoxel(8, 2, -1, CLAW_TIP));
-    group.add(addVoxel(8, 3, -1, CLAW_TIP));
+    // Claws — left
+    vc.add(6, 2, -1, CLAW); vc.add(7, 2, -1, CLAW); vc.add(7, 3, -1, CLAW);
+    vc.add(8, 2, -1, CLAW_TIP); vc.add(8, 3, -1, CLAW_TIP);
 
-    // Claws — right claw (Z > 5)
-    group.add(addVoxel(6, 2, 6, CLAW));
-    group.add(addVoxel(7, 2, 6, CLAW));
-    group.add(addVoxel(7, 3, 6, CLAW));
-    group.add(addVoxel(8, 2, 6, CLAW_TIP));
-    group.add(addVoxel(8, 3, 6, CLAW_TIP));
+    // Claws — right
+    vc.add(6, 2, 6, CLAW); vc.add(7, 2, 6, CLAW); vc.add(7, 3, 6, CLAW);
+    vc.add(8, 2, 6, CLAW_TIP); vc.add(8, 3, 6, CLAW_TIP);
 
-    // Legs (tiny stubs)
+    // Legs
     for (const z of [1, 2, 3, 4]) {
-      group.add(addVoxel(0, -1, z, SHELL_DARK));
-      group.add(addVoxel(7, -1, z, SHELL_DARK));
+      vc.add(0, -1, z, SHELL_DARK);
+      vc.add(7, -1, z, SHELL_DARK);
     }
 
+    const group = vc.build(THREE, { roughness: 0.85, metalness: 0.05 });
     group.position.set(-3.5 * V, -1 * V, -2.5 * V);
     group.scale.set(1.1, 1.1, 1.1);
 
@@ -1383,16 +1417,8 @@ export class VoxelRenderer {
   // ── Build toxic fish enemy (ranged attacker — green/purple fish) ──
   buildToxicFish() {
     const THREE = this.THREE;
-    const group = new THREE.Group();
     const V = 2;
-
-    const addVoxel = (x, y, z, color) => {
-      const geo = new THREE.BoxGeometry(V, V, V);
-      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0.0 });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(x * V, y * V, z * V);
-      return mesh;
-    };
+    const vc = new VoxelCollector(V);
 
     const BODY = 0x336644;
     const BODY_DARK = 0x225533;
@@ -1404,38 +1430,33 @@ export class VoxelRenderer {
     const EYE = 0xcc33ff;
     const SPOT = 0x9944cc;
 
-    const row = (xs, y, z, color) => {
-      for (const x of xs) group.add(addVoxel(x, y, z, color));
-    };
-
-    // Similar shape to regular enemy fish
     const sliceOuter = (z) => {
-      row([3, 4, 5, 6], 3, z, BODY);
-      row([3, 4, 5, 6], 2, z, BODY_LIGHT);
-      row([4, 5], 1, z, BODY_LIGHT);
-      row([4, 5], 0, z, BELLY);
-      row([4, 5], -1, z, BELLY);
+      vc.row([3, 4, 5, 6], 3, z, BODY);
+      vc.row([3, 4, 5, 6], 2, z, BODY_LIGHT);
+      vc.row([4, 5], 1, z, BODY_LIGHT);
+      vc.row([4, 5], 0, z, BELLY);
+      vc.row([4, 5], -1, z, BELLY);
     };
 
     const sliceMid = (z) => {
-      row([2, 3, 4, 5, 6, 7], 4, z, BODY);
-      row([1, 2, 3, 4, 5, 6, 7, 8], 3, z, BODY);
-      row([1, 2, 3, 4, 5, 6, 7, 8], 2, z, BODY_LIGHT);
-      row([2, 3, 4, 5, 6, 7, 8], 1, z, BODY_LIGHT);
-      row([2, 3, 4, 5, 6, 7, 8], 0, z, BELLY);
-      row([3, 4, 5, 6, 7], -1, z, BELLY);
-      row([4, 5, 6], -2, z, BELLY_LIGHT);
+      vc.row([2, 3, 4, 5, 6, 7], 4, z, BODY);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8], 3, z, BODY);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8], 2, z, BODY_LIGHT);
+      vc.row([2, 3, 4, 5, 6, 7, 8], 1, z, BODY_LIGHT);
+      vc.row([2, 3, 4, 5, 6, 7, 8], 0, z, BELLY);
+      vc.row([3, 4, 5, 6, 7], -1, z, BELLY);
+      vc.row([4, 5, 6], -2, z, BELLY_LIGHT);
     };
 
     const sliceCenter = (z) => {
-      row([3, 4, 5, 6], 5, z, BODY_DARK);
-      row([1, 2, 3, 4, 5, 6, 7, 8], 4, z, BODY);
-      row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 3, z, BODY);
-      row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 2, z, BODY_LIGHT);
-      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 1, z, BODY_LIGHT);
-      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 0, z, BELLY);
-      row([2, 3, 4, 5, 6, 7, 8], -1, z, BELLY);
-      row([3, 4, 5, 6, 7], -2, z, BELLY_LIGHT);
+      vc.row([3, 4, 5, 6], 5, z, BODY_DARK);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8], 4, z, BODY);
+      vc.row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 3, z, BODY);
+      vc.row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 2, z, BODY_LIGHT);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8, 9], 1, z, BODY_LIGHT);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8, 9], 0, z, BELLY);
+      vc.row([2, 3, 4, 5, 6, 7, 8], -1, z, BELLY);
+      vc.row([3, 4, 5, 6, 7], -2, z, BELLY_LIGHT);
     };
 
     sliceOuter(0); sliceOuter(5);
@@ -1444,29 +1465,26 @@ export class VoxelRenderer {
 
     // Purple toxic spots
     for (const z of [1, 2, 3, 4]) {
-      row([3, 5, 7], 3, z, SPOT);
-      row([2, 6], 2, z, SPOT);
+      vc.row([3, 5, 7], 3, z, SPOT);
+      vc.row([2, 6], 2, z, SPOT);
     }
 
     // Glowing purple eyes
-    group.add(addVoxel(8, 3, -0.2, EYE));
-    group.add(addVoxel(8, 2, -0.2, EYE));
-    group.add(addVoxel(8, 3, 5.2, EYE));
-    group.add(addVoxel(8, 2, 5.2, EYE));
+    vc.add(8, 3, -0.2, EYE); vc.add(8, 2, -0.2, EYE);
+    vc.add(8, 3, 5.2, EYE); vc.add(8, 2, 5.2, EYE);
 
-    // Spiny dorsal fin (purple)
+    // Spiny dorsal fin
     for (const x of [2, 3, 4, 5, 6, 7]) {
-      for (const z of [2, 3]) {
-        group.add(addVoxel(x, 6, z, FIN));
-      }
+      for (const z of [2, 3]) vc.add(x, 6, z, FIN);
     }
     for (const x of [4, 5]) {
-      for (const z of [2, 3]) {
-        group.add(addVoxel(x, 7, z, FIN_DARK));
-      }
+      for (const z of [2, 3]) vc.add(x, 7, z, FIN_DARK);
     }
 
-    // Tail
+    const group = vc.build(THREE, { roughness: 0.85, metalness: 0.0 });
+
+    // Tail (merged)
+    const tailVc = new VoxelCollector(V);
     const tailPivot = new THREE.Group();
     tailPivot.position.set(0, V * 1.5, V * 2.5);
     const tailVoxels = [
@@ -1477,7 +1495,8 @@ export class VoxelRenderer {
       [-3, 3, 0], [-3, -2, 0], [-3, 4, 0], [-3, -3, 0],
       [-3, 3, 1], [-3, -2, 1], [-3, 4, 1], [-3, -3, 1],
     ];
-    for (const [x, y, z] of tailVoxels) tailPivot.add(addVoxel(x, y, z, FIN));
+    for (const [x, y, z] of tailVoxels) tailVc.add(x, y, z, FIN);
+    tailPivot.add(tailVc.build(THREE, { roughness: 0.85, metalness: 0.0 }));
     group.add(tailPivot);
 
     group.position.set(-4.5 * V, -1.5 * V, -2.5 * V);
@@ -1494,16 +1513,9 @@ export class VoxelRenderer {
   // ── Build armored fish enemy (dark metallic, thicker body, smaller fins) ──
   buildArmoredFish() {
     const THREE = this.THREE;
-    const group = new THREE.Group();
     const V = 2;
-
-    const addVoxel = (x, y, z, color) => {
-      const geo = new THREE.BoxGeometry(V, V, V);
-      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.5 });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(x * V, y * V, z * V);
-      return mesh;
-    };
+    const vc = new VoxelCollector(V);
+    const matProps = { roughness: 0.4, metalness: 0.5 };
 
     const ARMOR = 0x556677;
     const ARMOR_DARK = 0x3a4a5a;
@@ -1515,38 +1527,34 @@ export class VoxelRenderer {
     const EYE_WHITE = 0xccdddd;
     const EYE_DARK = 0x881111;
 
-    const row = (xs, y, z, color) => {
-      for (const x of xs) group.add(addVoxel(x, y, z, color));
-    };
-
     // Thicker body slices (wider than piranha)
     const sliceOuter = (z) => {
-      row([3, 4, 5, 6, 7], 3, z, ARMOR);
-      row([3, 4, 5, 6, 7], 2, z, ARMOR_LIGHT);
-      row([4, 5, 6], 1, z, ARMOR_LIGHT);
-      row([4, 5, 6], 0, z, BELLY);
-      row([4, 5], -1, z, BELLY);
+      vc.row([3, 4, 5, 6, 7], 3, z, ARMOR);
+      vc.row([3, 4, 5, 6, 7], 2, z, ARMOR_LIGHT);
+      vc.row([4, 5, 6], 1, z, ARMOR_LIGHT);
+      vc.row([4, 5, 6], 0, z, BELLY);
+      vc.row([4, 5], -1, z, BELLY);
     };
 
     const sliceMid = (z) => {
-      row([2, 3, 4, 5, 6, 7, 8], 4, z, ARMOR);
-      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 3, z, ARMOR);
-      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 2, z, ARMOR_LIGHT);
-      row([2, 3, 4, 5, 6, 7, 8, 9], 1, z, ARMOR_LIGHT);
-      row([2, 3, 4, 5, 6, 7, 8], 0, z, BELLY);
-      row([3, 4, 5, 6, 7], -1, z, BELLY);
-      row([4, 5, 6], -2, z, BELLY_LIGHT);
+      vc.row([2, 3, 4, 5, 6, 7, 8], 4, z, ARMOR);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8, 9], 3, z, ARMOR);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8, 9], 2, z, ARMOR_LIGHT);
+      vc.row([2, 3, 4, 5, 6, 7, 8, 9], 1, z, ARMOR_LIGHT);
+      vc.row([2, 3, 4, 5, 6, 7, 8], 0, z, BELLY);
+      vc.row([3, 4, 5, 6, 7], -1, z, BELLY);
+      vc.row([4, 5, 6], -2, z, BELLY_LIGHT);
     };
 
     const sliceCenter = (z) => {
-      row([3, 4, 5, 6, 7], 5, z, ARMOR_DARK);
-      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 4, z, ARMOR);
-      row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 3, z, ARMOR);
-      row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 2, z, ARMOR_LIGHT);
-      row([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 1, z, ARMOR_LIGHT);
-      row([1, 2, 3, 4, 5, 6, 7, 8, 9], 0, z, BELLY);
-      row([2, 3, 4, 5, 6, 7, 8], -1, z, BELLY);
-      row([3, 4, 5, 6, 7], -2, z, BELLY_LIGHT);
+      vc.row([3, 4, 5, 6, 7], 5, z, ARMOR_DARK);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8, 9], 4, z, ARMOR);
+      vc.row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 3, z, ARMOR);
+      vc.row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 2, z, ARMOR_LIGHT);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 1, z, ARMOR_LIGHT);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8, 9], 0, z, BELLY);
+      vc.row([2, 3, 4, 5, 6, 7, 8], -1, z, BELLY);
+      vc.row([3, 4, 5, 6, 7], -2, z, BELLY_LIGHT);
     };
 
     // Build body — 6 slices deep for thicker profile
@@ -1556,26 +1564,29 @@ export class VoxelRenderer {
 
     // Armored scale plates (darker patches on top)
     for (const z of [0, 1, 2, 3, 4, 5]) {
-      row([3, 5, 7, 9], 4, z, ARMOR_DARK);
-      row([2, 4, 6, 8], 3, z, ARMOR_DARK);
+      vc.row([3, 5, 7, 9], 4, z, ARMOR_DARK);
+      vc.row([2, 4, 6, 8], 3, z, ARMOR_DARK);
     }
 
     // Small eyes (menacing, set deeper)
-    group.add(addVoxel(9, 3, -0.5, EYE_WHITE));
-    group.add(addVoxel(9, 2, -0.5, EYE_DARK));
-    group.add(addVoxel(9, 3, 5.5, EYE_WHITE));
-    group.add(addVoxel(9, 2, 5.5, EYE_DARK));
+    vc.add(9, 3, -0.5, EYE_WHITE);
+    vc.add(9, 2, -0.5, EYE_DARK);
+    vc.add(9, 3, 5.5, EYE_WHITE);
+    vc.add(9, 2, 5.5, EYE_DARK);
 
     // Small dorsal fin (shorter than piranha — armored fish has compact build)
     for (const x of [4, 5, 6]) {
       for (const z of [2, 3]) {
-        group.add(addVoxel(x, 6, z, FIN));
+        vc.add(x, 6, z, FIN);
       }
     }
+
+    const group = vc.build(THREE, matProps);
 
     // Tail (compact)
     const tailPivot = new THREE.Group();
     tailPivot.position.set(0, V * 1.5, V * 2.5);
+    const tailVc = new VoxelCollector(V);
     const tailVoxels = [
       [-1, 2, 0], [-1, 1, 0], [-1, 0, 0], [-1, -1, 0],
       [-1, 2, 1], [-1, 1, 1], [-1, 0, 1], [-1, -1, 1],
@@ -1584,7 +1595,8 @@ export class VoxelRenderer {
       [-3, 3, 0], [-3, -2, 0],
       [-3, 3, 1], [-3, -2, 1],
     ];
-    for (const [x, y, z] of tailVoxels) tailPivot.add(addVoxel(x, y, z, FIN_DARK));
+    for (const [x, y, z] of tailVoxels) tailVc.add(x, y, z, FIN_DARK);
+    tailPivot.add(tailVc.build(THREE, matProps));
     group.add(tailPivot);
 
     group.position.set(-5 * V, -1.5 * V, -2.5 * V);
@@ -1601,16 +1613,9 @@ export class VoxelRenderer {
   // ── Build spitting coral (ground-fixed polyp enemy) ──
   buildSpittingCoral() {
     const THREE = this.THREE;
-    const group = new THREE.Group();
     const V = 2;
-
-    const addVoxel = (x, y, z, color) => {
-      const geo = new THREE.BoxGeometry(V, V, V);
-      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.7, metalness: 0.1 });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(x * V, y * V, z * V);
-      return mesh;
-    };
+    const vc = new VoxelCollector(V);
+    const matProps = { roughness: 0.7, metalness: 0.1 };
 
     const BASE = 0x554433;
     const BASE_DARK = 0x443322;
@@ -1621,61 +1626,58 @@ export class VoxelRenderer {
     const TIP_GLOW = 0xff99cc;
     const SPOT = 0x55aa66;
 
-    const row = (xs, y, z, color) => {
-      for (const x of xs) group.add(addVoxel(x, y, z, color));
-    };
-
     // Rocky base (wide, flat)
     for (const z of [0, 1, 2, 3, 4]) {
-      row([1, 2, 3, 4, 5, 6, 7, 8], 0, z, BASE);
-      row([2, 3, 4, 5, 6, 7], -1, z, BASE_DARK);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8], 0, z, BASE);
+      vc.row([2, 3, 4, 5, 6, 7], -1, z, BASE_DARK);
     }
 
     // Left tube (x=2-3, z=1-3)
     for (const z of [1, 2, 3]) {
-      row([2, 3], 1, z, TUBE);
-      row([2, 3], 2, z, TUBE);
-      row([2, 3], 3, z, TUBE_LIGHT);
-      row([2, 3], 4, z, TIP);
+      vc.row([2, 3], 1, z, TUBE);
+      vc.row([2, 3], 2, z, TUBE);
+      vc.row([2, 3], 3, z, TUBE_LIGHT);
+      vc.row([2, 3], 4, z, TIP);
     }
     // Left tube tip
     for (const z of [1, 2, 3]) {
-      row([2, 3], 5, z, TIP_GLOW);
+      vc.row([2, 3], 5, z, TIP_GLOW);
     }
 
     // Center tube (x=4-5, z=1-3) — tallest
     for (const z of [1, 2, 3]) {
-      row([4, 5], 1, z, TUBE);
-      row([4, 5], 2, z, TUBE);
-      row([4, 5], 3, z, TUBE_DARK);
-      row([4, 5], 4, z, TUBE);
-      row([4, 5], 5, z, TUBE_LIGHT);
-      row([4, 5], 6, z, TIP);
+      vc.row([4, 5], 1, z, TUBE);
+      vc.row([4, 5], 2, z, TUBE);
+      vc.row([4, 5], 3, z, TUBE_DARK);
+      vc.row([4, 5], 4, z, TUBE);
+      vc.row([4, 5], 5, z, TUBE_LIGHT);
+      vc.row([4, 5], 6, z, TIP);
     }
     // Center tube tip (the "mouth")
     for (const z of [1, 2, 3]) {
-      row([4, 5], 7, z, TIP_GLOW);
+      vc.row([4, 5], 7, z, TIP_GLOW);
     }
 
     // Right tube (x=6-7, z=1-3)
     for (const z of [1, 2, 3]) {
-      row([6, 7], 1, z, TUBE);
-      row([6, 7], 2, z, TUBE);
-      row([6, 7], 3, z, TUBE_LIGHT);
-      row([6, 7], 4, z, TIP);
+      vc.row([6, 7], 1, z, TUBE);
+      vc.row([6, 7], 2, z, TUBE);
+      vc.row([6, 7], 3, z, TUBE_LIGHT);
+      vc.row([6, 7], 4, z, TIP);
     }
     // Right tube tip
     for (const z of [1, 2, 3]) {
-      row([6, 7], 5, z, TIP_GLOW);
+      vc.row([6, 7], 5, z, TIP_GLOW);
     }
 
     // Green toxic spots on tubes
     for (const z of [2]) {
-      group.add(addVoxel(3, 2, z, SPOT));
-      group.add(addVoxel(5, 3, z, SPOT));
-      group.add(addVoxel(7, 2, z, SPOT));
+      vc.add(3, 2, z, SPOT);
+      vc.add(5, 3, z, SPOT);
+      vc.add(7, 2, z, SPOT);
     }
 
+    const group = vc.build(THREE, matProps);
     group.position.set(-4.5 * V, -1 * V, -2 * V);
 
     const wrapper = new this.THREE.Group();
@@ -1758,15 +1760,7 @@ export class VoxelRenderer {
     const V = 3; // voxel size
 
     for (const body of buoyBodies) {
-      const group = new THREE.Group();
-
-      const addVoxel = (x, y, z, color) => {
-        const geo = new THREE.BoxGeometry(V, V, V);
-        const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.7, metalness: 0.1 });
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(x * V, y * V, z * V);
-        group.add(mesh);
-      };
+      const vc = new VoxelCollector(V);
 
       // Buoy colors
       const RED = 0xcc2222;
@@ -1779,8 +1773,8 @@ export class VoxelRenderer {
       for (let z = -2; z <= 2; z++) {
         for (let x = -2; x <= 2; x++) {
           if (Math.abs(x) === 2 && Math.abs(z) === 2) continue; // round corners
-          addVoxel(x, -3, z, WHITE_DARK);
-          addVoxel(x, -2, z, WHITE);
+          vc.add(x, -3, z, WHITE_DARK);
+          vc.add(x, -2, z, WHITE);
         }
       }
       // Yellow ring at waterline
@@ -1788,26 +1782,27 @@ export class VoxelRenderer {
         for (let x = -3; x <= 3; x++) {
           if (Math.abs(x) === 3 && Math.abs(z) === 3) continue;
           if (Math.abs(x) <= 1 && Math.abs(z) <= 1) continue; // hollow center
-          addVoxel(x, -1, z, RING);
+          vc.add(x, -1, z, RING);
         }
       }
       // Top half (above water, red)
       for (let z = -2; z <= 2; z++) {
         for (let x = -2; x <= 2; x++) {
           if (Math.abs(x) === 2 && Math.abs(z) === 2) continue;
-          addVoxel(x, 0, z, RED);
-          addVoxel(x, 1, z, RED);
-          addVoxel(x, 2, z, RED_DARK);
+          vc.add(x, 0, z, RED);
+          vc.add(x, 1, z, RED);
+          vc.add(x, 2, z, RED_DARK);
         }
       }
       // Tip
       for (let z = -1; z <= 1; z++) {
         for (let x = -1; x <= 1; x++) {
-          addVoxel(x, 3, z, RED_DARK);
+          vc.add(x, 3, z, RED_DARK);
         }
       }
-      addVoxel(0, 4, 0, RED_DARK);
+      vc.add(0, 4, 0, RED_DARK);
 
+      const group = vc.build(THREE, { roughness: 0.7, metalness: 0.1 });
       group.position.set(body.position.x, -body.position.y, 0);
       this.scene.add(group);
       this.buoyMeshes.push({ mesh: group, body });
@@ -1837,15 +1832,7 @@ export class VoxelRenderer {
     const V = 2;
 
     for (const body of boulderBodies) {
-      const group = new THREE.Group();
-
-      const addVoxel = (x, y, z, color) => {
-        const geo = new THREE.BoxGeometry(V, V, V);
-        const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.95, metalness: 0.0 });
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(x * V, y * V, z * V);
-        group.add(mesh);
-      };
+      const vc = new VoxelCollector(V);
 
       // Rock colors — mossy gray
       const ROCK = 0x666677;
@@ -1870,11 +1857,12 @@ export class VoxelRenderer {
             if (dist > r + 0.5) continue;
             const rv = rng(idx++);
             let color = rv < 0.15 ? MOSS : rv < 0.4 ? ROCK_DARK : rv < 0.7 ? ROCK : ROCK_LIGHT;
-            addVoxel(x, y, z, color);
+            vc.add(x, y, z, color);
           }
         }
       }
 
+      const group = vc.build(THREE, { roughness: 0.95, metalness: 0.0 });
       group.position.set(body.position.x, -body.position.y, 0);
       this.scene.add(group);
       this.boulderMeshes.push({ mesh: group, body });
@@ -1890,15 +1878,7 @@ export class VoxelRenderer {
     const V = 3; // voxel size — larger for chunkier crate
 
     for (const body of crateBodies) {
-      const group = new THREE.Group();
-
-      const addVoxel = (x, y, z, color) => {
-        const geo = new THREE.BoxGeometry(V, V, V);
-        const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.8, metalness: 0.05 });
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(x * V, y * V, z * V);
-        group.add(mesh);
-      };
+      const vc = new VoxelCollector(V);
 
       const WOOD = 0x8B6914;
       const WOOD_DARK = 0x6B4914;
@@ -1933,11 +1913,12 @@ export class VoxelRenderer {
             } else {
               color = rv < 0.3 ? WOOD_DARK : rv < 0.7 ? WOOD : WOOD_LIGHT;
             }
-            addVoxel(x, y, z, color);
+            vc.add(x, y, z, color);
           }
         }
       }
 
+      const group = vc.build(THREE, { roughness: 0.8, metalness: 0.05 });
       group.position.set(body.position.x, -body.position.y, 0);
       this.scene.add(group);
       this.crateMeshes.push({ mesh: group, body });
@@ -1953,15 +1934,7 @@ export class VoxelRenderer {
     const V = 3; // voxel size
 
     for (const body of breakableWallBodies) {
-      const group = new THREE.Group();
-
-      const addVoxel = (x, y, z, color) => {
-        const geo = new THREE.BoxGeometry(V, V, V);
-        const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.95, metalness: 0.0 });
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(x * V, y * V, z * V);
-        group.add(mesh);
-      };
+      const vc = new VoxelCollector(V);
 
       const STONE_BASE = 0x8a8a9a;
       const STONE_DARK = 0x6a6a7a;
@@ -2000,11 +1973,12 @@ export class VoxelRenderer {
             } else {
               color = rv < 0.3 ? STONE_DARK : rv < 0.8 ? STONE_BASE : STONE_LIGHT;
             }
-            addVoxel(x, y, z, color);
+            vc.add(x, y, z, color);
           }
         }
       }
 
+      const group = vc.build(THREE, { roughness: 0.95, metalness: 0.0 });
       group.position.set(body.position.x, -body.position.y, 0);
       this.scene.add(group);
       this.breakableWallMeshes.push({ mesh: group, body });
@@ -2194,32 +2168,25 @@ export class VoxelRenderer {
     const V = 2.16;
 
     for (const { body, colorIndex } of keyBodies) {
-      const group = new THREE.Group();
+      const vc = new VoxelCollector(V);
       const baseColor = KEY_CHEST_COLORS[colorIndex].hex;
       const darkColor = this._darkenColor(baseColor, 0.6);
       const lightColor = this._lightenColor(baseColor, 1.4);
 
-      const addVoxel = (x, y, z, color) => {
-        const geo = new THREE.BoxGeometry(V, V, V);
-        const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.6 });
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(x * V, y * V, z * V);
-        group.add(mesh);
-      };
-
       // Key handle (ring) — top part
       for (const [x, y] of [[-1,4],[0,4],[1,4],[-2,3],[-2,2],[-1,1],[0,1],[1,1],[2,3],[2,2]]) {
-        addVoxel(x, y, 0, baseColor);
+        vc.add(x, y, 0, baseColor);
       }
       // Key shaft — vertical bar going down
       for (let y = 0; y >= -4; y--) {
-        addVoxel(0, y, 0, lightColor);
+        vc.add(0, y, 0, lightColor);
       }
       // Key teeth
-      addVoxel(1, -2, 0, darkColor);
-      addVoxel(1, -4, 0, darkColor);
-      addVoxel(2, -4, 0, darkColor);
+      vc.add(1, -2, 0, darkColor);
+      vc.add(1, -4, 0, darkColor);
+      vc.add(2, -4, 0, darkColor);
 
+      const group = vc.build(THREE, { roughness: 0.4, metalness: 0.6 });
       group.position.set(body.position.x, -body.position.y, 0);
       this.scene.add(group);
       this.keyMeshes.push({ mesh: group, body, colorIndex });
@@ -2235,49 +2202,42 @@ export class VoxelRenderer {
     const V = 4.5; // voxel size — 6 wide × 4.5 = 27px, 5 tall × 4.5 = 22.5px ≈ block
 
     for (const { body, colorIndex } of chestBodies) {
-      const group = new THREE.Group();
+      const vc = new VoxelCollector(V);
       const accentColor = KEY_CHEST_COLORS[colorIndex].hex;
       const WOOD = 0x8B5A2B;
       const WOOD_DARK = 0x6B3A1B;
       const WOOD_LIGHT = 0x9B6A3B;
       const METAL = 0xccccaa;
 
-      const addVoxel = (x, y, z, color) => {
-        const geo = new THREE.BoxGeometry(V, V, V);
-        const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.7, metalness: 0.2 });
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(x * V, y * V, z * V);
-        group.add(mesh);
-      };
-
       // Chest body — 6 wide (-3..2), 4 tall (-2..1), 3 deep (-1..1)
       for (let x = -3; x <= 2; x++) {
         for (let z = -1; z <= 1; z++) {
           // Bottom two rows (base)
-          addVoxel(x, -2, z, WOOD_DARK);
-          addVoxel(x, -1, z, WOOD);
+          vc.add(x, -2, z, WOOD_DARK);
+          vc.add(x, -1, z, WOOD);
         }
       }
       // Lid (top two rows)
       for (let x = -3; x <= 2; x++) {
         for (let z = -1; z <= 1; z++) {
-          addVoxel(x, 0, z, WOOD_LIGHT);
-          addVoxel(x, 1, z, WOOD);
+          vc.add(x, 0, z, WOOD_LIGHT);
+          vc.add(x, 1, z, WOOD);
         }
       }
       // Accent band (colored stripe across front, middle height)
       for (let x = -3; x <= 2; x++) {
-        addVoxel(x, -1, 1, accentColor);
+        vc.add(x, -1, 1, accentColor);
       }
       // Lock/clasp (front center)
-      addVoxel(0, 0, 1, accentColor);
-      addVoxel(-1, 0, 1, accentColor);
+      vc.add(0, 0, 1, accentColor);
+      vc.add(-1, 0, 1, accentColor);
       // Metal corners (front face)
-      addVoxel(-3, -2, 1, METAL);
-      addVoxel(2, -2, 1, METAL);
-      addVoxel(-3, 1, 1, METAL);
-      addVoxel(2, 1, 1, METAL);
+      vc.add(-3, -2, 1, METAL);
+      vc.add(2, -2, 1, METAL);
+      vc.add(-3, 1, 1, METAL);
+      vc.add(2, 1, 1, METAL);
 
+      const group = vc.build(THREE, { roughness: 0.7, metalness: 0.2 });
       group.position.set(body.position.x, -body.position.y, 0);
       this.scene.add(group);
       this.chestMeshes.push({ mesh: group, body, colorIndex, opened: false });
@@ -2305,15 +2265,7 @@ export class VoxelRenderer {
     const V = 3;
 
     for (const body of raftBodies) {
-      const group = new THREE.Group();
-
-      const addVoxel = (x, y, z, color) => {
-        const geo = new THREE.BoxGeometry(V, V, V);
-        const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0.0 });
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(x * V, y * V, z * V);
-        group.add(mesh);
-      };
+      const vc = new VoxelCollector(V);
 
       // Wood colors
       const PLANK = 0x8B6914;
@@ -2326,27 +2278,28 @@ export class VoxelRenderer {
         for (let z = -3; z <= 3; z++) {
           // Plank pattern — alternate colors per row
           const color = (x + 20) % 4 < 2 ? PLANK : PLANK_DARK;
-          addVoxel(x, 0, z, color);
+          vc.add(x, 0, z, color);
         }
         // Second layer for thickness
         for (let z = -2; z <= 2; z++) {
-          addVoxel(x, -1, z, PLANK_DARK);
+          vc.add(x, -1, z, PLANK_DARK);
         }
       }
 
       // Rope binding marks across the raft
       for (const rx of [-10, -3, 4, 11]) {
         for (let z = -3; z <= 3; z++) {
-          addVoxel(rx, 1, z, ROPE);
+          vc.add(rx, 1, z, ROPE);
         }
       }
 
       // Raised edges / rails
       for (let x = -15; x <= 15; x += 2) {
-        addVoxel(x, 1, -3, PLANK_LIGHT);
-        addVoxel(x, 1, 3, PLANK_LIGHT);
+        vc.add(x, 1, -3, PLANK_LIGHT);
+        vc.add(x, 1, 3, PLANK_LIGHT);
       }
 
+      const group = vc.build(THREE, { roughness: 0.85, metalness: 0.0 });
       group.position.set(body.position.x, -body.position.y, 0);
       this.scene.add(group);
       this.raftMeshes.push({ mesh: group, body });
@@ -2362,15 +2315,7 @@ export class VoxelRenderer {
     const V = 2.5; // voxel size
 
     for (const body of floatingLogBodies) {
-      const group = new THREE.Group();
-
-      const addVoxel = (x, y, z, color) => {
-        const geo = new THREE.BoxGeometry(V, V, V);
-        const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.9, metalness: 0.05 });
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(x * V, y * V, z * V);
-        group.add(mesh);
-      };
+      const vc = new VoxelCollector(V);
 
       // Natural log colors
       const BARK = 0x6B4A2A;
@@ -2407,15 +2352,16 @@ export class VoxelRenderer {
               // Bark surface, occasional moss
               color = rv < 0.1 ? MOSS : rv < 0.35 ? BARK_DARK : rv < 0.7 ? BARK : BARK_LIGHT;
             }
-            addVoxel(x, y, z, color);
+            vc.add(x, y, z, color);
           }
         }
       }
 
       // Stub branches (small bumps)
-      addVoxel(-3, 2, 0, BARK_DARK);
-      addVoxel(2, -2, 1, BARK_DARK);
+      vc.add(-3, 2, 0, BARK_DARK);
+      vc.add(2, -2, 1, BARK_DARK);
 
+      const group = vc.build(THREE, { roughness: 0.9, metalness: 0.05 });
       group.position.set(body.position.x, -body.position.y, 0);
       this.scene.add(group);
       this.floatingLogMeshes.push({ mesh: group, body });
@@ -2436,15 +2382,7 @@ export class VoxelRenderer {
       const pivotY = data.pivotY ?? body.position.y;
       const chainLength = data.chainLength ?? 96;
 
-      const group = new THREE.Group();
-
-      const addVoxel = (x, y, z, color) => {
-        const geo = new THREE.BoxGeometry(V, V, V);
-        const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.7, metalness: 0.5 });
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(x * V, y * V, z * V);
-        group.add(mesh);
-      };
+      const vc = new VoxelCollector(V);
 
       // Anchor colors
       const METAL = 0x5A5A6A;
@@ -2464,9 +2402,9 @@ export class VoxelRenderer {
       // Pivot marker at y=0, chain goes down, anchor at bottom
 
       // Pivot marker (bracket at top, at origin)
-      addVoxel(-1, 0, 0, METAL_DARK);
-      addVoxel(0, 0, 0, METAL_DARK);
-      addVoxel(1, 0, 0, METAL_DARK);
+      vc.add(-1, 0, 0, METAL_DARK);
+      vc.add(0, 0, 0, METAL_DARK);
+      vc.add(1, 0, 0, METAL_DARK);
 
       // Chain links (hanging down from pivot)
       let idx = 0;
@@ -2474,9 +2412,9 @@ export class VoxelRenderer {
         const cy = -(1 + i);
         const rv = rng(idx + i);
         const cc = rv < 0.3 ? METAL_DARK : CHAIN;
-        addVoxel(0, cy, 0, cc);
+        vc.add(0, cy, 0, cc);
         if (i + 1 < chainVoxelLen) {
-          addVoxel(0, cy - 1, 0, CHAIN);
+          vc.add(0, cy - 1, 0, CHAIN);
         }
       }
       idx += chainVoxelLen;
@@ -2484,18 +2422,18 @@ export class VoxelRenderer {
       // Anchor shape — classic nautical anchor (hanging below chain)
       const anchorBaseY = -(1 + chainVoxelLen);
       // Ring at top of anchor
-      addVoxel(0, anchorBaseY, 0, METAL);
+      vc.add(0, anchorBaseY, 0, METAL);
       for (let x = -1; x <= 1; x++) {
         for (let z = -1; z <= 1; z++) {
           if (x === 0 && z === 0) continue;
-          addVoxel(x, anchorBaseY - 1, z, METAL);
+          vc.add(x, anchorBaseY - 1, z, METAL);
         }
       }
       // Vertical shank (center post)
       for (let y = 0; y < 8; y++) {
         for (let z = -1; z <= 1; z++) {
           const rv = rng(idx++);
-          addVoxel(0, anchorBaseY - 2 - y, z, rv < 0.2 ? RUST : rv < 0.5 ? METAL_DARK : METAL);
+          vc.add(0, anchorBaseY - 2 - y, z, rv < 0.2 ? RUST : rv < 0.5 ? METAL_DARK : METAL);
         }
       }
       // Cross arm (fluke bar) at bottom of shank
@@ -2503,18 +2441,19 @@ export class VoxelRenderer {
       for (let x = -4; x <= 4; x++) {
         for (let z = -1; z <= 1; z++) {
           const rv = rng(idx++);
-          addVoxel(x, flukeY, z, rv < 0.3 ? RUST : rv < 0.6 ? METAL_DARK : METAL);
+          vc.add(x, flukeY, z, rv < 0.3 ? RUST : rv < 0.6 ? METAL_DARK : METAL);
         }
       }
       // Fluke tips (curved down at ends of cross arm)
       for (let z = -1; z <= 1; z++) {
-        addVoxel(-4, flukeY - 1, z, METAL_DARK);
-        addVoxel(-3, flukeY - 1, z, METAL_DARK);
-        addVoxel(4, flukeY - 1, z, METAL_DARK);
-        addVoxel(3, flukeY - 1, z, METAL_DARK);
+        vc.add(-4, flukeY - 1, z, METAL_DARK);
+        vc.add(-3, flukeY - 1, z, METAL_DARK);
+        vc.add(4, flukeY - 1, z, METAL_DARK);
+        vc.add(3, flukeY - 1, z, METAL_DARK);
       }
 
       // Position group at pivot point
+      const group = vc.build(THREE, { roughness: 0.7, metalness: 0.5 });
       group.position.set(pivotX, -pivotY, 0);
       this.scene.add(group);
       this.swingingAnchorMeshes.push({
@@ -2537,18 +2476,7 @@ export class VoxelRenderer {
 
     for (const data of bottleData) {
       const body = data.body || data;
-      const group = new THREE.Group();
-
-      const addVoxel = (x, y, z, color, emissive) => {
-        const geo = new THREE.BoxGeometry(V, V, V);
-        const mat = new THREE.MeshStandardMaterial({
-          color, roughness: 0.3, metalness: 0.2,
-          ...(emissive ? { emissive, emissiveIntensity: 0.4 } : {}),
-        });
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(x * V, y * V, z * V);
-        group.add(mesh);
-      };
+      const vc = new VoxelCollector(V);
 
       const GLASS = 0x88ccaa;
       const GLASS_DARK = 0x668a7a;
@@ -2562,21 +2490,22 @@ export class VoxelRenderer {
           for (let z = -1; z <= 1; z++) {
             if (Math.abs(x) === 1 && Math.abs(z) === 1) continue; // round corners
             const edge = Math.abs(x) === 1 || Math.abs(z) === 1;
-            addVoxel(x, y, z, edge ? GLASS_DARK : GLASS, GLOW);
+            vc.add(x, y, z, edge ? GLASS_DARK : GLASS, GLOW);
           }
         }
       }
       // Neck (narrower)
       for (let y = 3; y <= 4; y++) {
-        addVoxel(0, y, 0, GLASS, GLOW);
+        vc.add(0, y, 0, GLASS, GLOW);
       }
       // Cork
-      addVoxel(0, 5, 0, CORK);
-      addVoxel(0, 6, 0, CORK_DARK);
+      vc.add(0, 5, 0, CORK);
+      vc.add(0, 6, 0, CORK_DARK);
 
       // Tiny scroll inside (paper color)
-      addVoxel(0, 0, 0, 0xf0e8d0);
+      vc.add(0, 0, 0, 0xf0e8d0);
 
+      const group = vc.build(THREE, { roughness: 0.3, metalness: 0.2, emissiveIntensity: 0.4 });
       group.position.set(body.position.x, -body.position.y, 0);
       this.scene.add(group);
       this.bottleMeshes.push({ mesh: group, body });
@@ -2593,15 +2522,7 @@ export class VoxelRenderer {
 
     for (const data of hintData) {
       const body = data.body || data;
-      const group = new THREE.Group();
-
-      const addVoxel = (x, y, z, color) => {
-        const geo = new THREE.BoxGeometry(V, V, V);
-        const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.95, metalness: 0.0 });
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(x * V, y * V, z * V);
-        group.add(mesh);
-      };
+      const vc = new VoxelCollector(V);
 
       const STONE = 0x7a8a7a;
       const STONE_DARK = 0x5a6a5a;
@@ -2642,19 +2563,20 @@ export class VoxelRenderer {
             } else {
               color = rv < 0.12 ? MOSS : (rv < 0.35 ? STONE_DARK : (rv < 0.65 ? STONE : STONE_LIGHT));
             }
-            addVoxel(x, y, z, color);
+            vc.add(x, y, z, color);
           }
         }
       }
 
       // Moss / seaweed on top
-      addVoxel(-2, 5, 0, MOSS);
-      addVoxel(-1, 5, 1, 0x3a6a2a);
-      addVoxel(0, 5, 0, MOSS);
-      addVoxel(1, 5, 0, 0x3a6a2a);
-      addVoxel(2, 5, 1, MOSS);
-      addVoxel(-1, 6, 0, 0x3a6a2a);
+      vc.add(-2, 5, 0, MOSS);
+      vc.add(-1, 5, 1, 0x3a6a2a);
+      vc.add(0, 5, 0, MOSS);
+      vc.add(1, 5, 0, 0x3a6a2a);
+      vc.add(2, 5, 1, MOSS);
+      vc.add(-1, 6, 0, 0x3a6a2a);
 
+      const group = vc.build(THREE, { roughness: 0.95, metalness: 0.0 });
       group.position.set(body.position.x, -body.position.y, 0);
       this.scene.add(group);
       this.hintStoneMeshes.push({ mesh: group, body });
@@ -4239,6 +4161,53 @@ export class VoxelRenderer {
       if (enemyBodies[i] && !enemyBodies[i].space && this.enemyGroups[i].visible) {
         this.enemyGroups[i].visible = false;
       }
+    }
+
+    // ── Frustum culling: hide off-screen entities ──
+    const { camX: _cx, camY: _cy, camVisW: _cw, camVisH: _ch } = extras;
+    if (_cx !== undefined) {
+      const CULL_MARGIN = 120; // px margin to prevent pop-in
+      const cullLeft = _cx - CULL_MARGIN;
+      const cullRight = _cx + _cw + CULL_MARGIN;
+      const cullTop = _cy - CULL_MARGIN;
+      const cullBottom = _cy + _ch + CULL_MARGIN;
+
+      const cullBody = (meshEntry) => {
+        if (!meshEntry.body.space) return; // already hidden by death logic
+        const bx = meshEntry.body.position.x;
+        const by = meshEntry.body.position.y;
+        meshEntry.mesh.visible = bx >= cullLeft && bx <= cullRight && by >= cullTop && by <= cullBottom;
+      };
+
+      const cullGroup = (groups, bodies) => {
+        if (!bodies) return;
+        for (let i = 0; i < bodies.length && i < groups.length; i++) {
+          if (!bodies[i].space) continue; // already hidden
+          const bx = bodies[i].position.x;
+          const by = bodies[i].position.y;
+          groups[i].visible = bx >= cullLeft && bx <= cullRight && by >= cullTop && by <= cullBottom;
+        }
+      };
+
+      // Cull enemies
+      cullGroup(this.enemyGroups, enemyBodies);
+      cullGroup(this.sharkGroups, sharkBodies);
+      cullGroup(this.pufferfishGroups, pufferfishBodies);
+      cullGroup(this.crabGroups, crabBodies);
+      cullGroup(this.toxicFishGroups, toxicFishBodies);
+      cullGroup(this.armoredFishGroups, armoredFishBodies);
+      cullGroup(this.spittingCoralGroups, spittingCoralBodies);
+
+      // Cull items
+      for (const b of this.buoyMeshes) cullBody(b);
+      for (const b of this.boulderMeshes) cullBody(b);
+      for (const r of this.raftMeshes) cullBody(r);
+      for (const c of this.crateMeshes) cullBody(c);
+      for (const f of this.floatingLogMeshes) cullBody(f);
+      for (const k of this.keyMeshes) cullBody(k);
+      for (const b of this.bottleMeshes) cullBody(b);
+      for (const h of this.hintStoneMeshes) cullBody(h);
+      for (const w of this.breakableWallMeshes) cullBody(w);
     }
 
     // ── Update bubbles ──

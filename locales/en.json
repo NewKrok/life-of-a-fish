@@ -272,10 +272,12 @@
     "play": "PLAY",
     "coordinates": "Col:{col} Row:{row}",
     "moveMode": "MOVE",
-    "controls": "G=grid  Shift+click=link  M=move",
+    "controls": "G=grid  M=move  Click entity=config",
     "copiedToast": "Level data copied to clipboard!",
     "copyFailed": "Copy failed — check clipboard permissions",
     "groupToast": "Group → {group}",
+    "cfgGroup": "Group",
+    "cfgText": "Text",
     "restartTitle": "Restart",
     "exitTitle": "Back to Editor",
     "cat": {
