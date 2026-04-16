@@ -8,12 +8,16 @@ export class TouchControls {
     this.dirY = 0;
     this.dash = false;
     this.grab = false;
+    this.stunPulse = false;
+    this.speedSurge = false;
 
     this._container = document.querySelector('.touch-controls');
     this._joystickZone = document.getElementById('joystickZone');
     this._joystickInner = document.getElementById('joystickInner');
     this._dashBtn = document.getElementById('dashBtn');
     this._grabBtn = document.getElementById('grabBtn');
+    this._stunBtn = document.getElementById('stunBtn');
+    this._speedBtn = document.getElementById('speedBtn');
 
     this._joystickActive = false;
     this._joystickPointerId = null;
@@ -23,10 +27,14 @@ export class TouchControls {
 
     this._dashPointerId = null;
     this._grabPointerId = null;
+    this._stunPointerId = null;
+    this._speedPointerId = null;
 
     if (this._joystickZone) this._initJoystick();
     if (this._dashBtn) this._initDash();
     if (this._grabBtn) this._initGrab();
+    if (this._stunBtn) this._initStun();
+    if (this._speedBtn) this._initSpeed();
   }
 
   _initJoystick() {
@@ -134,6 +142,48 @@ export class TouchControls {
     btn.addEventListener('pointercancel', endGrab);
   }
 
+  _initStun() {
+    const btn = this._stunBtn;
+
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      btn.setPointerCapture(e.pointerId);
+      this._stunPointerId = e.pointerId;
+      this.stunPulse = true;
+      btn.classList.add('active');
+    });
+
+    const endStun = (e) => {
+      if (e.pointerId !== this._stunPointerId) return;
+      this._stunPointerId = null;
+      btn.classList.remove('active');
+    };
+
+    btn.addEventListener('pointerup', endStun);
+    btn.addEventListener('pointercancel', endStun);
+  }
+
+  _initSpeed() {
+    const btn = this._speedBtn;
+
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      btn.setPointerCapture(e.pointerId);
+      this._speedPointerId = e.pointerId;
+      this.speedSurge = true;
+      btn.classList.add('active');
+    });
+
+    const endSpeed = (e) => {
+      if (e.pointerId !== this._speedPointerId) return;
+      this._speedPointerId = null;
+      btn.classList.remove('active');
+    };
+
+    btn.addEventListener('pointerup', endSpeed);
+    btn.addEventListener('pointercancel', endSpeed);
+  }
+
   // ── Show / Hide (for menu vs game state) ──
   show() {
     if (this._container) this._container.classList.add('game-active');
@@ -149,10 +199,14 @@ export class TouchControls {
       dirY: this.dirY,
       dash: this.dash,
       grab: this.grab,
+      stunPulse: this.stunPulse,
+      speedSurge: this.speedSurge,
     };
-    // Dash and grab are consumed after one read (single-frame trigger)
+    // Single-frame triggers consumed after one read
     this.dash = false;
     this.grab = false;
+    this.stunPulse = false;
+    this.speedSurge = false;
     return result;
   }
 }

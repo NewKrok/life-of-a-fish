@@ -1,6 +1,6 @@
 # FishController — Player Movement System
 
-The player fish has two distinct movement modes (water vs air) and a dash ability. All values are tuned for game feel, not realism.
+The player fish has two distinct movement modes (water vs air), a dash ability, and two active skills ("Gifts of the Ocean"). All values are tuned for game feel, not realism.
 
 ## Movement Constants
 
@@ -18,6 +18,18 @@ The player fish has two distinct movement modes (water vs air) and a dash abilit
 | `ENTRY_DRAG_START`     | 0.998   | drag at moment of water entry             |
 | `ENTRY_SINK_FORCE`     | 350     | px/s² downward to counteract buoyancy     |
 | `ROTATION_LERP`        | 0.12    | per-frame                                 |
+
+## Skill Constants
+
+| Constant                    | Value   | Context                              |
+|-----------------------------|---------|--------------------------------------|
+| `STUN_PULSE_COOLDOWN_MS`   | 20000   | 20s cooldown between pulses          |
+| `STUN_PULSE_RADIUS`        | 80      | px AoE radius                        |
+| `STUN_DURATION_MS`         | 3000    | 3s enemy freeze duration             |
+| `SPEED_SURGE_COOLDOWN_MS`  | 25000   | 25s cooldown between surges          |
+| `SPEED_SURGE_DURATION_MS`  | 4000    | 4s sprint boost duration             |
+| `SPEED_SURGE_SPEED_MULT`   | 1.8     | max speed multiplier                 |
+| `SPEED_SURGE_THRUST_MULT`  | 1.6     | thrust multiplier                    |
 
 ## State Machine
 
@@ -64,4 +76,27 @@ This creates a natural arc: the fish leaps out, falls back in, sinks to a natura
 
 ### Respawn
 
-`respawn(x, y)` teleports the body to the given position with zero velocity. Called when touching hazards or enemies.
+`respawn(x, y)` teleports the body to the given position with zero velocity. All skill cooldowns and timers are also reset. Called when touching hazards or enemies.
+
+## Skills — "Gifts of the Ocean"
+
+Two active skills managed by FishController. Available from the start for testing; will be story-gated per world in the future.
+
+### Stun Pulse (Q / touch STUN)
+
+- Activated by `input.stunPulse` flag when `stunPulseCooldown <= 0`
+- Sets `stunPulseActive = true` for one frame (used by game.js for AoE check)
+- `stunPulseCooldown` starts at 20000ms, decrements each frame
+- **game.js** iterates all enemy bodies within `STUN_PULSE_RADIUS` (80px) of the player and sets `_stunTimer = STUN_DURATION_MS` (3000ms)
+- Enemies with `_stunTimer > 0` skip patrol/chase/shooting logic; velocity zeroed
+- VoxelRenderer shows: expanding purple ring on pulse, dizzy star particles above stunned enemies, wobble rotation
+- Static constants exposed via `FishController.STUN_PULSE_RADIUS` and `FishController.STUN_DURATION_MS`
+
+### Speed Surge (R / touch SPEED)
+
+- Activated by `input.speedSurge` flag when `speedSurgeCooldown <= 0`
+- Sets `speedSurgeActive = true`, `speedSurgeTimer = 4000ms`, `speedSurgeCooldown = 25000ms`
+- While active: `SWIM_THRUST` multiplied by 1.6×, `SWIM_MAX_SPEED` multiplied by 1.8×
+- Timer decrements each frame; when expired, `speedSurgeActive = false`
+- VoxelRenderer spawns green trail particles behind the fish during surge
+- HUD shows duration bar under the Speed Surge skill icon

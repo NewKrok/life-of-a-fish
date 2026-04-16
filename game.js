@@ -556,6 +556,9 @@ const CODEX_DATA = [
   { category: 'items', preview: 'bottle', i18nKey: 'bottle', tag: 'item' },
   { category: 'terrain', preview: 'hintStone', i18nKey: 'hintStone', tag: 'terrain' },
   { category: 'terrain', preview: 'water', i18nKey: 'water', tag: 'terrain' },
+  // ── Skills ──
+  { category: 'player', preview: 'stunPulse', i18nKey: 'stunPulse', tag: 'friendly' },
+  { category: 'player', preview: 'speedSurge', i18nKey: 'speedSurge', tag: 'friendly' },
 ];
 
 // Lazy-generated preview images (rendered on first Codex open)
@@ -2158,6 +2161,8 @@ function _updateGatesForGroup(group) {
 const keys = {};
 let prevSpace = false;
 let prevGrab = false;
+let prevStun = false;
+let prevSpeed = false;
 
 window.addEventListener('keydown', (e) => {
   keys[e.code] = true;
@@ -2176,7 +2181,13 @@ function getKeyboardInput() {
   const grabDown = keys['KeyE'] || false;
   const grab = grabDown && !prevGrab;
   prevGrab = grabDown;
-  return { dirX, dirY, dash, grab };
+  const stunDown = keys['KeyQ'] || false;
+  const stunPulse = stunDown && !prevStun;
+  prevStun = stunDown;
+  const speedDown = keys['KeyR'] || false;
+  const speedSurge = speedDown && !prevSpeed;
+  prevSpeed = speedDown;
+  return { dirX, dirY, dash, grab, stunPulse, speedSurge };
 }
 
 // ── Camera ──
@@ -2921,6 +2932,27 @@ function renderHUD() {
     hudCtx.fillRect(dbX, dbY, fillW, dbH);
   }
 
+  // ── Skill cooldown indicators (bottom-left corner) ──
+  {
+    const skillState = fishCtrl.getState();
+    const skillY = H - 70;
+    const skillSize = 36;
+    const skillGap = 8;
+
+    // Stun Pulse (Q)
+    const s1x = 22;
+    _drawSkillIcon(s1x, skillY, skillSize, 'Q',
+      'rgba(180, 100, 255, 0.8)', 'rgba(180, 100, 255, 0.3)',
+      skillState.stunPulseCooldownPct, skillState.stunPulseActive);
+
+    // Speed Surge (R)
+    const s2x = s1x + skillSize + skillGap;
+    _drawSkillIcon(s2x, skillY, skillSize, 'R',
+      'rgba(100, 255, 180, 0.8)', 'rgba(100, 255, 180, 0.3)',
+      skillState.speedSurgeCooldownPct, skillState.speedSurgeActive,
+      skillState.speedSurgeTimerPct);
+  }
+
   // ── Message bubble overlay (bottles + hint stones) ──
   const msgText = _activeHint !== null
     ? hintStoneBodies[_activeHint].text
@@ -3058,6 +3090,69 @@ function _drawClock(cx, cy, r) {
   hudCtx.restore();
 }
 
+// Draw a skill icon: square with key label, cooldown sweep, active glow
+function _drawSkillIcon(x, y, size, label, activeColor, cooldownColor, cooldownPct, active, durationPct) {
+  const r = size / 2;
+  const cx = x + r;
+  const cy = y + r;
+
+  hudCtx.save();
+
+  // Background
+  hudCtx.fillStyle = 'rgba(0, 20, 40, 0.6)';
+  hudCtx.beginPath();
+  hudCtx.roundRect(x, y, size, size, 6);
+  hudCtx.fill();
+
+  // Cooldown sweep (darken the icon as cooldown ticks down)
+  if (cooldownPct > 0.01) {
+    hudCtx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    hudCtx.beginPath();
+    hudCtx.moveTo(cx, cy);
+    hudCtx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + cooldownPct * Math.PI * 2);
+    hudCtx.closePath();
+    hudCtx.fill();
+  }
+
+  // Active glow border (when skill is in effect or just fired)
+  if (active || (durationPct !== undefined && durationPct > 0.01)) {
+    const pct = durationPct !== undefined ? durationPct : 1;
+    hudCtx.strokeStyle = activeColor;
+    hudCtx.lineWidth = 2.5;
+    hudCtx.globalAlpha = 0.5 + pct * 0.5;
+    hudCtx.beginPath();
+    hudCtx.roundRect(x, y, size, size, 6);
+    hudCtx.stroke();
+    hudCtx.globalAlpha = 1;
+  } else {
+    // Normal border
+    hudCtx.strokeStyle = cooldownPct > 0.01 ? 'rgba(80, 80, 100, 0.4)' : cooldownColor;
+    hudCtx.lineWidth = 1.5;
+    hudCtx.beginPath();
+    hudCtx.roundRect(x, y, size, size, 6);
+    hudCtx.stroke();
+  }
+
+  // Duration bar (for speed surge — shows remaining time)
+  if (durationPct !== undefined && durationPct > 0.01) {
+    const barH = 3;
+    const barW = size - 6;
+    const barX = x + 3;
+    const barY = y + size - 6;
+    hudCtx.fillStyle = activeColor;
+    hudCtx.fillRect(barX, barY, barW * durationPct, barH);
+  }
+
+  // Key label
+  hudCtx.fillStyle = cooldownPct > 0.01 ? 'rgba(150, 150, 170, 0.5)' : 'rgba(255, 255, 255, 0.8)';
+  hudCtx.font = "bold 14px 'Silkscreen', monospace";
+  hudCtx.textAlign = 'center';
+  hudCtx.fillText(label, cx, cy + 5);
+  hudCtx.textAlign = 'left';
+
+  hudCtx.restore();
+}
+
 // ── Game Loop ──
 function gameLoop() {
 
@@ -3174,6 +3269,8 @@ function gameLoop() {
     dirY: Math.abs(kbInput.dirY) > Math.abs(touchInput.dirY) ? kbInput.dirY : touchInput.dirY,
     dash: kbInput.dash || touchInput.dash,
     grab: kbInput.grab || touchInput.grab,
+    stunPulse: kbInput.stunPulse || touchInput.stunPulse,
+    speedSurge: kbInput.speedSurge || touchInput.speedSurge,
   };
 
   // ── Victory check ──
@@ -3193,6 +3290,7 @@ function gameLoop() {
   // ── Update piranha patrol (point-to-point, supports diagonal) ──
   for (const eb of enemyBodies) {
     if (!eb._patrol || !eb.space) continue;
+    if (eb._stunTimer > 0) { eb.velocity = new Vec2(0, 0); continue; }
     const p = eb._patrol;
     const pdx = p.x2 - p.x1;
     const pdy = p.y2 - p.y1;
@@ -3211,6 +3309,7 @@ function gameLoop() {
   // ── Update armored fish patrol (point-to-point, supports diagonal) ──
   for (const af of armoredFishBodies) {
     if (!af._patrol || !af.space) continue;
+    if (af._stunTimer > 0) { af.velocity = new Vec2(0, 0); continue; }
     const p = af._patrol;
     const pdx = p.x2 - p.x1;
     const pdy = p.y2 - p.y1;
@@ -3237,6 +3336,7 @@ function gameLoop() {
   // ── Update shark AI (patrol + chase) ──
   for (const sb of sharkBodies) {
     if (!sb._patrol || !sb.space) continue;
+    if (sb._stunTimer > 0) { sb.velocity = new Vec2(0, 0); sb._chase.chasing = false; continue; }
     const p = sb._patrol;
     const ch = sb._chase;
     const dx = player.position.x - sb.position.x;
@@ -3267,6 +3367,7 @@ function gameLoop() {
   // ── Update pufferfish AI (vertical patrol) ──
   for (const pf of pufferfishBodies) {
     if (!pf._patrol || !pf.space) continue;
+    if (pf._stunTimer > 0) { pf.velocity = new Vec2(0, 0); continue; }
     const p = pf._patrol;
     const py = pf.position.y;
     if (py >= p.maxY) p._dir = -1;
@@ -3277,6 +3378,7 @@ function gameLoop() {
   // ── Update crab AI (horizontal ground patrol) ──
   for (const cb of crabBodies) {
     if (!cb._patrol || !cb.space) continue;
+    if (cb._stunTimer > 0) { cb.velocity = new Vec2(0, 0); continue; }
     const p = cb._patrol;
     const px = cb.position.x;
     if (px >= p.maxX) p._dir = -1;
@@ -3287,6 +3389,7 @@ function gameLoop() {
   // ── Update toxic fish AI (patrol + shoot) ──
   for (const tf of toxicFishBodies) {
     if (!tf._patrol || !tf.space) continue;
+    if (tf._stunTimer > 0) { tf.velocity = new Vec2(0, 0); continue; }
     const p = tf._patrol;
     const px = tf.position.x;
     if (px >= p.maxX) p._dir = -1;
@@ -3537,6 +3640,44 @@ function gameLoop() {
 
   // ── Fish controller update ──
   fishCtrl.update(input, WATER_SURFACE_Y);
+
+  // ── Stun Pulse: on activation frame, stun all enemies within radius ──
+  const fishState0 = fishCtrl.getState();
+  if (fishState0.stunPulseActive) {
+    const stunR = FishController.STUN_PULSE_RADIUS;
+    const stunDur = FishController.STUN_DURATION_MS;
+    const allEnemies = [
+      ...enemyBodies, ...sharkBodies, ...pufferfishBodies,
+      ...crabBodies, ...toxicFishBodies, ...armoredFishBodies,
+    ];
+    for (const eb of allEnemies) {
+      if (!eb.space) continue;
+      const dx = eb.position.x - player.position.x;
+      const dy = eb.position.y - player.position.y;
+      if (Math.sqrt(dx * dx + dy * dy) < stunR) {
+        eb._stunTimer = stunDur;
+      }
+    }
+    sfx.stunPulse();
+    voxelRenderer.spawnStunPulse(player.position.x, player.position.y);
+  }
+
+  // ── Tick down stun timers on all enemies ──
+  const _allStunnableEnemies = [
+    ...enemyBodies, ...sharkBodies, ...pufferfishBodies,
+    ...crabBodies, ...toxicFishBodies, ...armoredFishBodies,
+  ];
+  for (const eb of _allStunnableEnemies) {
+    if (eb._stunTimer > 0) {
+      eb._stunTimer -= DT * 1000;
+      if (eb._stunTimer <= 0) eb._stunTimer = 0;
+    }
+  }
+
+  // ── Speed Surge: play SFX on activation frame ──
+  if (fishState0.speedSurgeActive && fishState0.speedSurgeTimerPct > 0.99) {
+    sfx.speedSurge();
+  }
 
   // ── Clamp player to world bounds ──
   const px = player.position.x;

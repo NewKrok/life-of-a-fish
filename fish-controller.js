@@ -11,6 +11,13 @@ const SWIM_DRAG = 0.92;          // per-frame velocity damping in water
 const DASH_SPEED = 450;          // burst speed on dash (px/s)
 const DASH_DURATION_MS = 180;    // dash lock time
 const DASH_COOLDOWN_MS = 1200;   // time before next dash
+const STUN_PULSE_COOLDOWN_MS = 20000; // 20s cooldown between stun pulses
+const STUN_PULSE_RADIUS = 80;   // px — AoE radius for stun pulse
+const STUN_DURATION_MS = 3000;   // 3s — how long enemies stay stunned
+const SPEED_SURGE_COOLDOWN_MS = 25000; // 25s cooldown between speed surges
+const SPEED_SURGE_DURATION_MS = 4000;  // 4s — sprint boost duration
+const SPEED_SURGE_SPEED_MULT = 1.8;    // max speed multiplier during surge
+const SPEED_SURGE_THRUST_MULT = 1.6;   // thrust multiplier during surge
 const SURFACE_JUMP_VY = -180;    // upward burst when jumping from surface (px/s)
 const AIR_GRAVITY_MULT = 1.2;    // fish falls slightly faster in air
 const AIR_HORIZONTAL_DRAG = 0.98;
@@ -53,6 +60,13 @@ export class FishController {
 
     // Knockback: external force that overrides swim control for a few frames
     this.knockbackTimer = 0;
+
+    // ── Skills ("Gifts of the Ocean") ──
+    this.stunPulseCooldown = 0;    // ms remaining until stun can be used again
+    this.stunPulseActive = false;  // true for one frame when pulse fires
+    this.speedSurgeTimer = 0;      // ms remaining of speed boost
+    this.speedSurgeCooldown = 0;   // ms remaining until speed surge can be used again
+    this.speedSurgeActive = false; // true while speed surge is in effect
   }
 
   update(input, waterSurfaceY) {
@@ -61,6 +75,31 @@ export class FishController {
     const body = this.body;
     const vx = body.velocity.x;
     const vy = body.velocity.y;
+
+    // ── Skills cooldown / timer ticks ──
+    this.stunPulseCooldown = Math.max(0, this.stunPulseCooldown - 1000 * DT);
+    this.stunPulseActive = false; // reset — set to true only on activation frame
+    this.speedSurgeCooldown = Math.max(0, this.speedSurgeCooldown - 1000 * DT);
+    if (this.speedSurgeTimer > 0) {
+      this.speedSurgeTimer -= 1000 * DT;
+      if (this.speedSurgeTimer <= 0) {
+        this.speedSurgeTimer = 0;
+        this.speedSurgeActive = false;
+      }
+    }
+
+    // ── Stun Pulse activation ──
+    if (input.stunPulse && this.stunPulseCooldown <= 0) {
+      this.stunPulseCooldown = STUN_PULSE_COOLDOWN_MS;
+      this.stunPulseActive = true;
+    }
+
+    // ── Speed Surge activation ──
+    if (input.speedSurge && this.speedSurgeCooldown <= 0) {
+      this.speedSurgeCooldown = SPEED_SURGE_COOLDOWN_MS;
+      this.speedSurgeTimer = SPEED_SURGE_DURATION_MS;
+      this.speedSurgeActive = true;
+    }
 
     // ── Detect water state ──
     this.wasInWater = this.inWater;
@@ -131,9 +170,10 @@ export class FishController {
       let cvx = body.velocity.x;
       let cvy = body.velocity.y;
 
-      // Apply thrust from input
-      cvx += input.dirX * SWIM_THRUST * DT;
-      cvy += input.dirY * SWIM_THRUST * DT;
+      // Apply thrust from input (boosted during speed surge)
+      const thrustMult = this.speedSurgeActive ? SPEED_SURGE_THRUST_MULT : 1;
+      cvx += input.dirX * SWIM_THRUST * thrustMult * DT;
+      cvy += input.dirY * SWIM_THRUST * thrustMult * DT;
 
       // Drag: reduced right after entering water so the fish carries momentum
       const t = this.entryMomentum > 0
@@ -156,10 +196,11 @@ export class FishController {
         }
       }
 
-      // Clamp to max speed — allow higher speed during entry momentum for natural sinking
+      // Clamp to max speed — allow higher speed during entry momentum or speed surge
+      const baseMaxSpd = this.speedSurgeActive ? SWIM_MAX_SPEED * SPEED_SURGE_SPEED_MULT : SWIM_MAX_SPEED;
       const maxSpd = this.entryMomentum > 0
-        ? SWIM_MAX_SPEED + (SWIM_MAX_SPEED * 0.6) * (this.entryMomentum / ENTRY_MOMENTUM_FRAMES)
-        : SWIM_MAX_SPEED;
+        ? baseMaxSpd + (baseMaxSpd * 0.6) * (this.entryMomentum / ENTRY_MOMENTUM_FRAMES)
+        : baseMaxSpd;
       const speed = Math.sqrt(cvx * cvx + cvy * cvy);
       if (speed > maxSpd) {
         const scale = maxSpd / speed;
@@ -270,6 +311,12 @@ export class FishController {
     this.alive = true;
     this.inWater = true;
     this.wasInWater = true;
+    // Reset skill timers on respawn
+    this.stunPulseCooldown = 0;
+    this.stunPulseActive = false;
+    this.speedSurgeTimer = 0;
+    this.speedSurgeCooldown = 0;
+    this.speedSurgeActive = false;
   }
 
   getState() {
@@ -284,6 +331,16 @@ export class FishController {
       alive: this.alive,
       justEnteredWater: this.justEnteredWater,
       justLeftWater: this.justLeftWater,
+      // Skills
+      stunPulseActive: this.stunPulseActive,
+      stunPulseCooldownPct: this.stunPulseCooldown / STUN_PULSE_COOLDOWN_MS, // 1→0
+      speedSurgeActive: this.speedSurgeActive,
+      speedSurgeTimerPct: this.speedSurgeTimer / SPEED_SURGE_DURATION_MS, // 1→0
+      speedSurgeCooldownPct: this.speedSurgeCooldown / SPEED_SURGE_COOLDOWN_MS, // 1→0
     };
   }
+
+  // Expose skill constants for external use (HUD, game logic)
+  static get STUN_PULSE_RADIUS() { return STUN_PULSE_RADIUS; }
+  static get STUN_DURATION_MS() { return STUN_DURATION_MS; }
 }

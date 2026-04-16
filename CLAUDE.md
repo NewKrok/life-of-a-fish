@@ -28,7 +28,7 @@ npx http-server
 ```
 index.html            — Entry point, two canvases (WebGL + HUD overlay)
 game.js               — Main game loop, physics setup, camera, collision listeners
-fish-controller.js    — Player movement: swim/dash/jump states, water detection
+fish-controller.js    — Player movement: swim/dash/jump states, skills (stun/speed), water detection
 voxel-renderer.js     — Three.js voxel rendering: terrain, fish models, bubbles, water
 level-data.js         — Tile map definition (125×25), entity parsing, body merging
 level-editor.js       — In-game level editor (F4): tile palette, entity placement, patrol editing
@@ -67,15 +67,16 @@ In-game editor activated with **F4**. Works in both menu and game states. Pauses
 
 ### Game Loop (game.js, 60 FPS)
 
-1. Aggregate input (keyboard + touch)
-2. Update enemy patrol AI
-3. `FishController.update()` — movement, dash, water transitions
-4. Clamp player to world bounds
-5. `nape.Space.step()` — physics (dt=1/60, 8 velocity / 3 position iterations)
-6. Camera smooth-follow player
-7. `VoxelRenderer.syncFrame()` — sync 3D meshes to physics bodies
-8. Three.js render
-9. HUD canvas draw (pearl count, state, depth, controls)
+1. Aggregate input (keyboard + touch, including skill keys Q/R)
+2. Update enemy patrol AI (skip stunned enemies)
+3. `FishController.update()` — movement, dash, skills (stun pulse, speed surge), water transitions
+4. Stun Pulse AoE check + Speed Surge SFX trigger
+5. Clamp player to world bounds
+6. `nape.Space.step()` — physics (dt=1/60, 8 velocity / 3 position iterations)
+7. Camera smooth-follow player
+8. `VoxelRenderer.syncFrame()` — sync 3D meshes to physics bodies, stun wobble, speed trail
+9. Three.js render
+10. HUD canvas draw (pearl count, skill cooldowns, dash bar, controls)
 
 ### Physics (nape-js)
 
@@ -94,6 +95,22 @@ In-game editor activated with **F4**. Works in both menu and game states. Pauses
 - Bottle messages: static sensor bodies, collectible (disappear on contact), show text overlay
 - Hint stones: static sensor bodies, permanent, show text when player is within proximity range (~48px)
 - Each entity class has its own `CbType` for collision filtering
+
+### Skills — "Gifts of the Ocean" (fish-controller.js + game.js)
+
+Two active skills, available from the start for testing (will be story-gated per world later):
+
+| Skill | Key | Duration | Cooldown | Effect |
+|-------|-----|----------|----------|--------|
+| Stun Pulse | Q / touch | instant | 20s | 80px AoE stun, enemies frozen 3s |
+| Speed Surge | R / touch | 4s | 25s | 1.8× max speed, 1.6× thrust |
+
+- **FishController** manages all skill state: cooldowns, timers, activation flags
+- **game.js** handles Stun Pulse AoE (finds enemies within radius, sets `_stunTimer` on bodies) and SFX triggers
+- Enemy patrol loops skip movement when `_stunTimer > 0` (velocity zeroed, no shooting, shark chase cancelled)
+- **VoxelRenderer** provides visual feedback: expanding purple ring on pulse, dizzy star particles on stunned enemies, green speed trail particles during surge
+- **HUD** shows two skill icons (bottom-left) with cooldown sweep overlay and active glow border
+- **Touch controls**: STUN and SPEED buttons above the joystick on mobile
 
 ### Rendering (Three.js)
 

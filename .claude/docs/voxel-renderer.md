@@ -273,6 +273,30 @@ Built via `buildHintStones(hintData)`:
 | Hemisphere  | `0x88ccff` / `0x886644` | 0.4 | Natural sky/ground coloring |
 | Fog         | `FogExp2`  | 0.0006    | Exponential depth fade (reduced) |
 
+## Skill Visual Effects
+
+### Stun Pulse Ring
+- Expanding purple ring (`0x8833cc`) triggered by `spawnStunPulseRing(x, y)`
+- `RingGeometry` that scales outward from 0 to `STUN_PULSE_RADIUS` (80px)
+- `AdditiveBlending`, fades opacity as it expands
+- Lifetime ~0.5s, auto-removed after animation completes
+
+### Stun Dizzy Stars
+- Small rotating star particles above stunned enemies
+- Spawned per enemy when stun is applied, orbit in a circle above the enemy's head
+- Yellow `0xffdd44` with emissive glow
+- Removed when enemy's `_stunTimer` expires
+
+### Stun Wobble
+- Stunned enemies get sinusoidal rotation wobble on Z axis
+- Applied in `syncFrame()` when enemy body has `_stunTimer > 0`
+
+### Speed Surge Trail
+- Green trail particles (`0x44ff88`) spawned behind the player during Speed Surge
+- Small cubes with `AdditiveBlending`, short lifetime (~0.5s)
+- Emitted every few frames while `fishController.speedSurgeActive` is true
+- Fade out and are removed on expiry
+
 ## Key Method: `syncFrame()`
 
 Called every frame after physics step. Updates:

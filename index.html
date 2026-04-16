@@ -133,6 +133,50 @@
       .grab-btn.active {
         background: rgba(100, 180, 255, 0.5);
       }
+      .stun-btn {
+        position: absolute;
+        left: 20px;
+        bottom: 180px;
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        background: rgba(180, 100, 255, 0.2);
+        border: 2px solid rgba(180, 100, 255, 0.5);
+        pointer-events: auto;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: rgba(255, 255, 255, 0.6);
+        font:
+          bold 9px "Silkscreen",
+          monospace;
+      }
+      .stun-btn:active,
+      .stun-btn.active {
+        background: rgba(180, 100, 255, 0.5);
+      }
+      .speed-btn {
+        position: absolute;
+        left: 90px;
+        bottom: 180px;
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        background: rgba(100, 255, 180, 0.2);
+        border: 2px solid rgba(100, 255, 180, 0.5);
+        pointer-events: auto;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: rgba(255, 255, 255, 0.6);
+        font:
+          bold 9px "Silkscreen",
+          monospace;
+      }
+      .speed-btn:active,
+      .speed-btn.active {
+        background: rgba(100, 255, 180, 0.5);
+      }
 
       /* ── Main Menu Overlay ── */
       #menuOverlay {
@@ -928,6 +972,8 @@
       </div>
       <div class="dash-btn" id="dashBtn" data-i18n="touch.dash">DASH</div>
       <div class="grab-btn" id="grabBtn" data-i18n="touch.grab">GRAB</div>
+      <div class="stun-btn" id="stunBtn" data-i18n="touch.stun">STUN</div>
+      <div class="speed-btn" id="speedBtn" data-i18n="touch.speed">SPEED</div>
     </div>
 
     <!-- Main Menu Overlay -->

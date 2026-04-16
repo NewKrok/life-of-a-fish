@@ -2668,6 +2668,115 @@ export class VoxelRenderer {
     }
   }
 
+  // ── Stun Pulse visual: expanding ring of particles ──
+  spawnStunPulse(x, y) {
+    const THREE = this.THREE;
+    const ringCount = 16;
+    for (let i = 0; i < ringCount; i++) {
+      const angle = (i / ringCount) * Math.PI * 2;
+      const speed = 120 + Math.random() * 40;
+      const size = 2 + Math.random() * 2;
+      const geo = new THREE.BoxGeometry(size, size, size);
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0xcc88ff,
+        emissive: 0xaa66ee,
+        emissiveIntensity: 0.8,
+        transparent: true,
+        opacity: 0.9,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(x, -y, 0);
+      this.scene.add(mesh);
+      this.bubbles.push({
+        mesh,
+        vx: Math.cos(angle) * speed,
+        vy: -(Math.sin(angle) * speed),
+        life: 0.5 + Math.random() * 0.2,
+        age: 0,
+        _isPearlSparkle: true, // reuses sparkle fade behavior
+      });
+    }
+    // Central flash — a larger particle that fades quickly
+    const flashGeo = new THREE.SphereGeometry(6, 8, 8);
+    const flashMat = new THREE.MeshStandardMaterial({
+      color: 0xddaaff,
+      emissive: 0xcc88ff,
+      emissiveIntensity: 1.2,
+      transparent: true,
+      opacity: 0.85,
+    });
+    const flashMesh = new THREE.Mesh(flashGeo, flashMat);
+    flashMesh.position.set(x, -y, 0);
+    this.scene.add(flashMesh);
+    this.bubbles.push({
+      mesh: flashMesh,
+      vx: 0,
+      vy: 0,
+      life: 0.35,
+      age: 0,
+      _isPearlSparkle: true,
+    });
+  }
+
+  // ── Small "dizzy star" particle above a stunned enemy ──
+  _spawnStunStar(x, y) {
+    const THREE = this.THREE;
+    const size = 1.5 + Math.random() * 1.5;
+    const geo = new THREE.BoxGeometry(size, size, size);
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xffdd44,
+      emissive: 0xffcc00,
+      emissiveIntensity: 0.7,
+      transparent: true,
+      opacity: 0.8,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(
+      x + (Math.random() - 0.5) * 16,
+      -(y - 10 - Math.random() * 8),
+      (Math.random() - 0.5) * 6
+    );
+    this.scene.add(mesh);
+    this.bubbles.push({
+      mesh,
+      vx: (Math.random() - 0.5) * 20,
+      vy: -(10 + Math.random() * 20),
+      life: 0.3 + Math.random() * 0.3,
+      age: 0,
+      _isPearlSparkle: true,
+    });
+  }
+
+  // ── Speed Surge trail particle ──
+  spawnSpeedTrail(x, y) {
+    const THREE = this.THREE;
+    const colors = [0x66ffaa, 0x44ddcc, 0x88ffdd, 0xaaffee];
+    const size = 1.5 + Math.random() * 2;
+    const geo = new THREE.BoxGeometry(size, size * 0.5, size * 0.5);
+    const mat = new THREE.MeshStandardMaterial({
+      color: colors[Math.floor(Math.random() * colors.length)],
+      emissive: 0x44cc88,
+      emissiveIntensity: 0.6,
+      transparent: true,
+      opacity: 0.7,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(
+      x + (Math.random() - 0.5) * 12,
+      -y + (Math.random() - 0.5) * 8,
+      (Math.random() - 0.5) * 6
+    );
+    this.scene.add(mesh);
+    this.bubbles.push({
+      mesh,
+      vx: (Math.random() - 0.5) * 10,
+      vy: -(Math.random() * 15 + 5),
+      life: 0.3 + Math.random() * 0.3,
+      age: 0,
+      _isPearlSparkle: true,
+    });
+  }
+
   // ── Generate a Minecraft-style ground texture for the back plane ──
   _generateGroundTexture() {
     const THREE = this.THREE;
@@ -3684,6 +3793,10 @@ export class VoxelRenderer {
       if (fishState && fishState.justLeftWater) {
         this.spawnSplash(fishBody.position.x, fishState.swimSpeed);
       }
+      // Speed Surge trail particles
+      if (fishState && fishState.speedSurgeActive && fishState.inWater && Math.random() < 0.6) {
+        this.spawnSpeedTrail(fishBody.position.x, fishBody.position.y);
+      }
     }
 
     // ── Sync piranhas ──
@@ -3693,6 +3806,11 @@ export class VoxelRenderer {
       if (!eb.space) continue; // dead enemy
       eg.position.set(eb.position.x, -eb.position.y, 0);
       eg.rotation.z = -eb.rotation;
+      // Stun wobble
+      if (eb._stunTimer > 0) {
+        eg.rotation.z += Math.sin(this._time * 15 + i) * 0.3;
+        if (Math.random() < 0.15) this._spawnStunStar(eb.position.x, eb.position.y);
+      }
       // 3D flip: lerp Y rotation for smooth turn-around
       if (this._enemyFlipAngles[i] === undefined) this._enemyFlipAngles[i] = 0;
       let targetFlip = this._enemyFlipAngles[i];
@@ -3830,6 +3948,11 @@ export class VoxelRenderer {
         if (!sb.space) { sg.visible = false; continue; }
         sg.position.set(sb.position.x, -sb.position.y, 0);
         sg.rotation.z = -sb.rotation;
+        // Stun wobble
+        if (sb._stunTimer > 0) {
+          sg.rotation.z += Math.sin(this._time * 15 + i) * 0.3;
+          if (Math.random() < 0.12) this._spawnStunStar(sb.position.x, sb.position.y);
+        }
         if (this._sharkFlipAngles[i] === undefined) this._sharkFlipAngles[i] = 0;
         let targetFlip = this._sharkFlipAngles[i];
         if (sb.velocity.x < -1) targetFlip = Math.PI;
@@ -3858,8 +3981,13 @@ export class VoxelRenderer {
         const pg = this.pufferfishGroups[i];
         if (!pf.space) { pg.visible = false; continue; }
         pg.position.set(pf.position.x, -pf.position.y, 0);
-        // Gentle wobble animation
-        pg.rotation.z = Math.sin(this._time * 2 + i * 3) * 0.1;
+        // Gentle wobble animation (enhanced when stunned)
+        if (pf._stunTimer > 0) {
+          pg.rotation.z = Math.sin(this._time * 15 + i) * 0.3;
+          if (Math.random() < 0.12) this._spawnStunStar(pf.position.x, pf.position.y);
+        } else {
+          pg.rotation.z = Math.sin(this._time * 2 + i * 3) * 0.1;
+        }
         // Puff inflate/deflate animation (subtle scale pulse)
         const pulse = 1 + Math.sin(this._time * 3 + i) * 0.05;
         pg.scale.set(pulse, pulse, pulse);
@@ -3873,6 +4001,11 @@ export class VoxelRenderer {
         const cg = this.crabGroups[i];
         if (!cb.space) { cg.visible = false; continue; }
         cg.position.set(cb.position.x, -cb.position.y, 0);
+        // Stun wobble
+        if (cb._stunTimer > 0) {
+          cg.rotation.z = Math.sin(this._time * 15 + i) * 0.3;
+          if (Math.random() < 0.12) this._spawnStunStar(cb.position.x, cb.position.y);
+        }
         // Flip based on direction
         if (this._crabFlipAngles[i] === undefined) this._crabFlipAngles[i] = 0;
         let targetFlip = this._crabFlipAngles[i];
@@ -3894,6 +4027,11 @@ export class VoxelRenderer {
         if (!tf.space) { tg.visible = false; continue; }
         tg.position.set(tf.position.x, -tf.position.y, 0);
         tg.rotation.z = -tf.rotation;
+        // Stun wobble
+        if (tf._stunTimer > 0) {
+          tg.rotation.z += Math.sin(this._time * 15 + i) * 0.3;
+          if (Math.random() < 0.12) this._spawnStunStar(tf.position.x, tf.position.y);
+        }
         if (this._toxicFlipAngles[i] === undefined) this._toxicFlipAngles[i] = 0;
         let targetFlip = this._toxicFlipAngles[i];
         if (tf.velocity.x < -1) targetFlip = Math.PI;
@@ -3918,6 +4056,11 @@ export class VoxelRenderer {
         if (!af.space) { ag.visible = false; continue; }
         ag.position.set(af.position.x, -af.position.y, 0);
         ag.rotation.z = -af.rotation;
+        // Stun wobble
+        if (af._stunTimer > 0) {
+          ag.rotation.z += Math.sin(this._time * 15 + i) * 0.3;
+          if (Math.random() < 0.12) this._spawnStunStar(af.position.x, af.position.y);
+        }
         if (this._armoredFlipAngles[i] === undefined) this._armoredFlipAngles[i] = 0;
         let targetFlip = this._armoredFlipAngles[i];
         const vx = af.velocity.x;

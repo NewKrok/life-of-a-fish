@@ -314,8 +314,8 @@ Plus ~25 hidden bottle messages and the Codex encyclopedia.
 | 7 | Bottle messages + Hint stones | Collectible bottles (text + disappear) + permanent hint stones (proximity text). Editor text editing. Codex tracking deferred | **Done** |
 | 8 | Dark level mode | Limited visibility, light circle around fish | Pending |
 | 9 | Skill: Light Pulse | Expanded light radius ~3s, ~15s cooldown | Pending |
-| 10 | Skill: Stun Pulse | Stun nearby enemies ~3s, ~20s cooldown | Pending |
-| 11 | Skill: Speed Surge | Sprint boost ~4s, ~25s cooldown | Pending |
+| 10 | Skill: Stun Pulse | Stun nearby enemies ~3s, ~20s cooldown | **Done** |
+| 11 | Skill: Speed Surge | Sprint boost ~4s, ~25s cooldown | **Done** |
 | 12 | Water currents | Flow zones that push the fish directionally | Pending |
 | 13 | Boss fight system | Boss arena structure + first boss (Giant Crab) | Pending |
 | 14 | Star system | 3-star rating per level, unlock logic, UI | Pending |

@@ -66,7 +66,9 @@
   },
   "touch": {
     "dash": "ROHAM",
-    "grab": "FOGÁS"
+    "grab": "FOGÁS",
+    "stun": "BÉNÍT",
+    "speed": "GYORS"
   },
   "codex": {
     "title": "Kódex",
@@ -250,6 +252,18 @@
       "tagLabel": "Útmutató",
       "desc": "Egy ősi kőtábla faragott szimbólumokkal. Ússz közel a felirat elolvasásához — halványan világít, ha a közelében vagy. A palackokkal ellentétben soha nem tűnik el.",
       "tip": "Tipp: Keress tippköveket az új mechanikák közelében. Gyakran elmagyarázzák, hogyan működnek a dolgok."
+    },
+    "stunPulse": {
+      "name": "Kábító Impulzus",
+      "tagLabel": "Képesség",
+      "desc": "A mélység ajándéka — egy mélytengeri kristály rezonált a közeledben, és ezt az erőt adta neked. Energiahullámot bocsátasz ki, amely 3 másodpercre megbénítja a közeli ellenségeket.",
+      "tip": "Tipp: Nyomd meg a Q-t a közeli ellenségek elkábításához. 20 másodperces visszatöltődés. Tökéletes páncélos halak melletti elcsúszáshoz vagy cápaüldözés leállításához."
+    },
+    "speedSurge": {
+      "name": "Sebességlöket",
+      "tagLabel": "Képesség",
+      "desc": "Az ősök ajándéka — egy ősi falfaragás felragyogott, ahogy elúsztál mellette. 4 másodperces hihetetlen sebességlöketet ad, növelve a tolóerőt és a maximális sebességet.",
+      "tip": "Tipp: Nyomd meg az R-t a sprinthez. 25 másodperces visszatöltődés. Használd áramlatok leküzdésére, veszély elől menekülésre, vagy időzített kapcsolók eléréséhez."
     }
   },
   "editor": {

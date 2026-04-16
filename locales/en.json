@@ -66,7 +66,9 @@
   },
   "touch": {
     "dash": "DASH",
-    "grab": "GRAB"
+    "grab": "GRAB",
+    "stun": "STUN",
+    "speed": "SPEED"
   },
   "codex": {
     "title": "Codex",
@@ -250,6 +252,18 @@
       "tagLabel": "Guide",
       "desc": "An ancient stone tablet with carved symbols. Swim close to read the inscription — it glows faintly when you're near. Unlike bottles, it never disappears.",
       "tip": "Tip: Look for hint stones near new mechanics. They often explain how things work."
+    },
+    "stunPulse": {
+      "name": "Stun Pulse",
+      "tagLabel": "Skill",
+      "desc": "A gift from the deep — a deep-sea crystal resonated near you and granted this power. Release a pulse of energy that stuns all nearby enemies for 3 seconds, freezing them in place.",
+      "tip": "Tip: Press Q to stun nearby enemies. 20-second cooldown. Perfect for slipping past armored fish or stopping a shark chase."
+    },
+    "speedSurge": {
+      "name": "Speed Surge",
+      "tagLabel": "Skill",
+      "desc": "A gift from the ancients — an ancient wall inscription glowed as you passed. Grants a 4-second burst of incredible speed, boosting thrust and max velocity.",
+      "tip": "Tip: Press R to sprint. 25-second cooldown. Use it to outrun currents, escape danger, or reach timed switches before they close."
     }
   },
   "editor": {
