@@ -238,6 +238,18 @@
       "tagLabel": "Akadály",
       "desc": "Egy nehéz vashorgony láncon lóg, és ingaként leng előre-hátra. A rozsda egy cseppet sem lassította le.",
       "tip": "Tipp: Időzítsd az úszásodat, hogy akkor haladj el, amikor a horgony elleng. Ne akadj az útjába!"
+    },
+    "bottle": {
+      "name": "Üzenet palackban",
+      "tagLabel": "Gyűjthető",
+      "desc": "Egy kis bedugaszolt palack felcsavart cetlivel belül. Valaki szétszórta őket az óceánban — vicces jegyzetek, rejtélyes tippek, és néha szívből jövő üzenetek.",
+      "tip": "Tipp: Ússz rá a palackra az üzenet elolvasásához. Begyűjtés után eltűnik, úgyhogy ízleld meg minden szavát."
+    },
+    "hintStone": {
+      "name": "Tippkő",
+      "tagLabel": "Útmutató",
+      "desc": "Egy ősi kőtábla faragott szimbólumokkal. Ússz közel a felirat elolvasásához — halványan világít, ha a közelében vagy. A palackokkal ellentétben soha nem tűnik el.",
+      "tip": "Tipp: Keress tippköveket az új mechanikák közelében. Gyakran elmagyarázzák, hogyan működnek a dolgok."
     }
   },
   "editor": {
@@ -297,7 +309,9 @@
       "chestYellow": "Sárga láda",
       "chestPurple": "Lila láda",
       "floatingLog": "Úszó farönk",
-      "swAnchor": "L. horgony"
+      "swAnchor": "L. horgony",
+      "bottle": "Palack",
+      "hintStone": "Tippkő"
     }
   }
 }

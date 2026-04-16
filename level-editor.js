@@ -28,6 +28,8 @@ const PALETTE = [
   { id: 26, char: 'W', labelKey: 'editor.pal.crate',                   color: '#8B6914', category: 'items',   previewKey: 'crate' },
   { id: 34, char: 'L', labelKey: 'editor.pal.floatingLog',             color: '#6B4A2A', category: 'items',   previewKey: 'floatingLog' },
   { id: 35, char: 'H', labelKey: 'editor.pal.swAnchor',                color: '#5A5A6A', category: 'items',   previewKey: 'swingingAnchor' },
+  { id: 36, char: 'I', labelKey: 'editor.pal.bottle',                  color: '#88ccaa', category: 'items',   previewKey: 'bottle' },
+  { id: 37, char: 'J', labelKey: 'editor.pal.hintStone',               color: '#7a8a7a', category: 'items',   previewKey: 'hintStone' },
   { id: 27, char: 'K', labelKey: 'editor.pal.breakableWall',           color: '#7a7a8a', category: 'terrain', previewKey: 'breakableWall' },
   { id: 6,  char: 'e', labelKey: 'editor.pal.piranha',                 color: '#ff6060', category: 'enemies', previewKey: 'piranha' },
   { id: 28, char: 'A', labelKey: 'editor.pal.armoredFish',             color: '#6a7a8a', category: 'enemies', previewKey: 'armoredFish' },
@@ -67,7 +69,7 @@ const ID_TO_CHAR = {};
 for (const p of PALETTE) ID_TO_CHAR[p.id] = p.char;
 
 // Entity tile IDs (non-terrain — stored as entity positions)
-const ENTITY_IDS = new Set([5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35]);
+const ENTITY_IDS = new Set([5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37]);
 
 // Enemies with patrol ranges
 const PATROL_DEFAULTS = {
@@ -628,6 +630,15 @@ export class LevelEditor {
         ctx.setLineDash([]);
       }
 
+      // ── Bottle/Hint text preview ──
+      if ((ent.tileId === 36 || ent.tileId === 37) && ent.text) {
+        const truncated = ent.text.length > 20 ? ent.text.substring(0, 20) + '...' : ent.text;
+        ctx.fillStyle = 'rgba(200, 240, 220, 0.85)';
+        ctx.font = `${Math.max(4, 5 / sx)}px 'Silkscreen', monospace`;
+        ctx.textAlign = 'center';
+        ctx.fillText(truncated, ent.x, ent.y + TILE_SIZE / 2 + 8 / sx);
+      }
+
       // ── Anchor chain length visualization ──
       if (ent.tileId === 35 && ent.chainLength) {
         const aColor = fullColor;
@@ -1110,6 +1121,10 @@ export class LevelEditor {
       if (tileId === 35) {
         entry.chainLength = 96; // default 3 tiles
       }
+      // Assign default text for bottles and hint stones
+      if (tileId === 36 || tileId === 37) {
+        entry.text = '...';
+      }
       if (tileId === 7) {
         this.entities = this.entities.filter(e => e.tileId !== 7);
       }
@@ -1319,6 +1334,32 @@ export class LevelEditor {
           output += `// ${name} at (${Math.round(p.x)}, ${Math.round(p.y)}): patrol range ±${range}px (vertical)\n`;
         }
       }
+    }
+
+    // Bottle message texts
+    const bottleEnts = this.entities.filter(e => e.tileId === 36 && e.text && e.text !== '...');
+    if (bottleEnts.length > 0) {
+      output += '\n// ── Bottle Messages ──\n';
+      output += 'bottleMessages: [\n';
+      for (const b of bottleEnts) {
+        const col = Math.round((b.x - TILE_SIZE / 2) / TILE_SIZE);
+        const row = Math.round((b.y - TILE_SIZE / 2) / TILE_SIZE);
+        output += `  { row: ${row}, col: ${col}, text: ${JSON.stringify(b.text)} },\n`;
+      }
+      output += '],\n';
+    }
+
+    // Hint stone texts
+    const hintEnts = this.entities.filter(e => e.tileId === 37 && e.text && e.text !== '...');
+    if (hintEnts.length > 0) {
+      output += '\n// ── Hint Stones ──\n';
+      output += 'hintStones: [\n';
+      for (const h of hintEnts) {
+        const col = Math.round((h.x - TILE_SIZE / 2) / TILE_SIZE);
+        const row = Math.round((h.y - TILE_SIZE / 2) / TILE_SIZE);
+        output += `  { row: ${row}, col: ${col}, text: ${JSON.stringify(h.text)} },\n`;
+      }
+      output += '],\n';
     }
 
     // Anchor chain length data
@@ -1724,7 +1765,7 @@ export class LevelEditor {
       this._pendingMovePickup = null;
     }
 
-    // Shift-click: cycle switch/gate group
+    // Shift-click: cycle switch/gate group OR edit bottle/hint text
     if (this._pendingGroupCycle) {
       const { visW, visH } = getVisibleSize();
       const viewW = this.hudCanvas.width - SIDEBAR_W;
@@ -1734,6 +1775,16 @@ export class LevelEditor {
       if (idx >= 0 && this._isSwitchOrGate(this.entities[idx].tileId)) {
         this._cycleSwitchGateGroup(idx);
         this._showToast(t('editor.groupToast', { group: this.entities[idx].group }));
+      } else if (idx >= 0 && (this.entities[idx].tileId === 36 || this.entities[idx].tileId === 37)) {
+        // Edit bottle/hint text via prompt
+        const ent = this.entities[idx];
+        const typeName = ent.tileId === 36 ? 'Bottle' : 'Hint Stone';
+        const newText = prompt(`${typeName} text:`, ent.text || '...');
+        if (newText !== null) {
+          ent.text = newText;
+          this.dirty = true;
+          this._showToast(`${typeName}: "${newText.substring(0, 30)}${newText.length > 30 ? '...' : ''}"`);
+        }
       }
       this._pendingGroupCycle = null;
     }
@@ -2006,6 +2057,20 @@ export class LevelEditor {
           if (entry) { tempScene.remove(entry.mesh); result = entry.mesh; }
           break;
         }
+        case 36: { // Bottle Message
+          const fakeBody = { position: { x: 0, y: 0 } };
+          vr.buildBottles([{ body: fakeBody, text: '...', collected: false }]);
+          const entry = vr.bottleMeshes.pop();
+          if (entry) { tempScene.remove(entry.mesh); result = entry.mesh; }
+          break;
+        }
+        case 37: { // Hint Stone
+          const fakeBody = { position: { x: 0, y: 0 } };
+          vr.buildHintStones([{ body: fakeBody, text: '...' }]);
+          const entry = vr.hintStoneMeshes.pop();
+          if (entry) { tempScene.remove(entry.mesh); result = entry.mesh; }
+          break;
+        }
       }
     } finally {
       vr.scene = origScene;
@@ -2155,6 +2220,30 @@ export function generateEditorPreviews(THREE, VoxelRendererClass, existingCodexP
       tempScene.remove(entry.mesh);
       entry.mesh.position.set(0, 0, 0);
       previews.swingingAnchor = _renderGroupPreview(THREE, offRenderer, entry.mesh, 80);
+    }
+  }
+
+  // Bottle preview
+  if (!previews.bottle) {
+    const fakeBody = { position: { x: 0, y: 0 } };
+    vr.buildBottles([{ body: fakeBody, text: '...', collected: false }]);
+    const entry = vr.bottleMeshes.pop();
+    if (entry) {
+      tempScene.remove(entry.mesh);
+      entry.mesh.position.set(0, 0, 0);
+      previews.bottle = _renderGroupPreview(THREE, offRenderer, entry.mesh, 30);
+    }
+  }
+
+  // Hint Stone preview
+  if (!previews.hintStone) {
+    const fakeBody = { position: { x: 0, y: 0 } };
+    vr.buildHintStones([{ body: fakeBody, text: '...' }]);
+    const entry = vr.hintStoneMeshes.pop();
+    if (entry) {
+      tempScene.remove(entry.mesh);
+      entry.mesh.position.set(0, 0, 0);
+      previews.hintStone = _renderGroupPreview(THREE, offRenderer, entry.mesh, 30);
     }
   }
 

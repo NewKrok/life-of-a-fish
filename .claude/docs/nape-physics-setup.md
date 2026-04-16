@@ -83,6 +83,19 @@ The game uses nape-js for all collision detection, rigid body dynamics, and flui
 - Collision shape (24×20 px) pushes player and objects in its path
 - Visual model includes chain links from anchor up to pivot point
 
+### Bottle Messages (static, sensor)
+- Static bodies with sensor circle (radius 20px)
+- `bottleTag` CbType — InteractionListener detects player overlap
+- On contact: body removed from space (collected), text shown in HUD overlay for 4s
+- Particle effect on collection (sparkle burst)
+- Reset on restart: body restored, collected flag cleared
+
+### Hint Stones (static, sensor)
+- Static bodies with sensor circle (radius 48px — proximity detection)
+- `hintStoneTag` CbType — but proximity is checked per-frame in game loop, not via listener
+- Text shown in HUD overlay while player is within range, hidden when player leaves
+- Permanent — never removed from space
+
 ## CbType System
 
 Each entity class has a named `CbType` for collision filtering:
@@ -93,6 +106,7 @@ Each entity class has a named `CbType` for collision filtering:
 - `keyTag`, `chestTag`, `crateTag`, `breakableWallTag`, `armoredFishTag`, `spittingCoralTag`
 - `switchTag`, `gateTag`
 - `floatingLogTag`, `swingingAnchorTag`
+- `bottleTag`, `hintStoneTag`
 
 `InteractionListener` callbacks handle:
 - Player ↔ Pearl → collect pearl, destroy body

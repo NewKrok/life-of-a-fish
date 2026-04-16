@@ -91,6 +91,8 @@ In-game editor activated with **F4**. Works in both menu and game states. Pauses
 - Gates: kinematic bodies (2 tiles tall, 1 tile wide), linked to switches by group ID, swing open sideways around left-edge hinge
 - Floating logs: dynamic bodies, float in water, pushable by player/objects, can activate pressure switches
 - Swinging anchors: kinematic bodies, pendulum physics from ceiling pivot point, configurable chain length via `anchorChainLengths` metadata
+- Bottle messages: static sensor bodies, collectible (disappear on contact), show text overlay
+- Hint stones: static sensor bodies, permanent, show text when player is within proximity range (~48px)
 - Each entity class has its own `CbType` for collision filtering
 
 ### Rendering (Three.js)
@@ -147,12 +149,16 @@ Tile map is a string grid (125 cols × 25 rows, 32px tiles):
 | `G`  | Gate         | 33     |
 | `L`  | Floating Log | 34     |
 | `H`  | Swinging Anchor | 35  |
+| `I`  | Bottle Message | 36   |
+| `J`  | Hint Stone     | 37   |
 
 Keys are carriable/throwable like boulders but deal no damage. Throwing a key at its matching-color chest opens the chest with a particle effect and spawns a pearl. Chest pearls are included in `TOTAL_PEARLS` from level start.
 
 Switches and gates are linked by group IDs stored in `switchGateGroups` metadata per level. Toggle switches flip on player contact. Pressure switches stay active while a boulder/key rests on them. Timed switches activate for 5s then auto-close. Gates are 2-tile-tall metal grates that swing open around a top hinge.
 
 Floating logs are dynamic bodies that float in water and can be pushed. Swinging anchors hang from ceiling pivot points on chains and swing as pendulums. Chain length is configurable via `anchorChainLengths` metadata per level (default: 96px = 3 tiles). The anchor tile position represents the pivot point; the anchor body swings below.
+
+Bottle messages are collectible — swim into them to read the text, then the bottle disappears. Hint stones are permanent — swim close to read, text disappears when you leave. Both store custom text via level metadata (`bottleMessages`, `hintStones` arrays with `{ row, col, text }`). In the editor, Shift+click on a placed bottle/hint stone opens a text prompt.
 
 Water surface is at row 4 (128px).
 

@@ -66,6 +66,8 @@ export class VoxelRenderer {
     this.crateMeshes = [];  // { mesh, body } pairs
     this.floatingLogMeshes = [];  // { mesh, body } pairs
     this.swingingAnchorMeshes = [];  // { mesh, body, pivotX, pivotY, chainLength } pairs
+    this.bottleMeshes = [];          // { mesh, body } pairs
+    this.hintStoneMeshes = [];       // { mesh, body } pairs
     this.breakableWallMeshes = [];  // { mesh, body } pairs
     this.waterMesh = null;
     this.bubbles = [];
@@ -161,6 +163,12 @@ export class VoxelRenderer {
     // Swinging Anchors
     for (const s of this.swingingAnchorMeshes) this.scene.remove(s.mesh);
     this.swingingAnchorMeshes.length = 0;
+    // Bottles
+    for (const b of this.bottleMeshes) this.scene.remove(b.mesh);
+    this.bottleMeshes.length = 0;
+    // Hint Stones
+    for (const h of this.hintStoneMeshes) this.scene.remove(h.mesh);
+    this.hintStoneMeshes.length = 0;
     // Breakable walls
     for (const w of this.breakableWallMeshes) this.scene.remove(w.mesh);
     this.breakableWallMeshes.length = 0;
@@ -2512,6 +2520,154 @@ export class VoxelRenderer {
     }
   }
 
+  // ── Build bottle message meshes (small corked bottle) ──
+  buildBottles(bottleData) {
+    for (const b of this.bottleMeshes) this.scene.remove(b.mesh);
+    this.bottleMeshes.length = 0;
+
+    const THREE = this.THREE;
+    const V = 2;
+
+    for (const data of bottleData) {
+      const body = data.body || data;
+      const group = new THREE.Group();
+
+      const addVoxel = (x, y, z, color, emissive) => {
+        const geo = new THREE.BoxGeometry(V, V, V);
+        const mat = new THREE.MeshStandardMaterial({
+          color, roughness: 0.3, metalness: 0.2,
+          ...(emissive ? { emissive, emissiveIntensity: 0.4 } : {}),
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(x * V, y * V, z * V);
+        group.add(mesh);
+      };
+
+      const GLASS = 0x88ccaa;
+      const GLASS_DARK = 0x668a7a;
+      const CORK = 0xb08040;
+      const CORK_DARK = 0x8a6030;
+      const GLOW = 0xaaeedd;
+
+      // Bottle body (rounded rectangle, 3 wide x 5 tall x 2 deep)
+      for (let y = -2; y <= 2; y++) {
+        for (let x = -1; x <= 1; x++) {
+          for (let z = -1; z <= 1; z++) {
+            if (Math.abs(x) === 1 && Math.abs(z) === 1) continue; // round corners
+            const edge = Math.abs(x) === 1 || Math.abs(z) === 1;
+            addVoxel(x, y, z, edge ? GLASS_DARK : GLASS, GLOW);
+          }
+        }
+      }
+      // Neck (narrower)
+      for (let y = 3; y <= 4; y++) {
+        addVoxel(0, y, 0, GLASS, GLOW);
+      }
+      // Cork
+      addVoxel(0, 5, 0, CORK);
+      addVoxel(0, 6, 0, CORK_DARK);
+
+      // Tiny scroll inside (paper color)
+      addVoxel(0, 0, 0, 0xf0e8d0);
+
+      group.position.set(body.position.x, -body.position.y, 0);
+      this.scene.add(group);
+      this.bottleMeshes.push({ mesh: group, body });
+    }
+  }
+
+  // ── Build hint stone meshes (small stone tablet with seaweed) ──
+  buildHintStones(hintData) {
+    for (const h of this.hintStoneMeshes) this.scene.remove(h.mesh);
+    this.hintStoneMeshes.length = 0;
+
+    const THREE = this.THREE;
+    const V = 2.5;
+
+    for (const data of hintData) {
+      const body = data.body || data;
+      const group = new THREE.Group();
+
+      const addVoxel = (x, y, z, color) => {
+        const geo = new THREE.BoxGeometry(V, V, V);
+        const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.95, metalness: 0.0 });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(x * V, y * V, z * V);
+        group.add(mesh);
+      };
+
+      const STONE = 0x7a8a7a;
+      const STONE_DARK = 0x5a6a5a;
+      const STONE_LIGHT = 0x8a9a8a;
+      const MOSS = 0x4a7a3a;
+      const SYMBOL = 0xaaccbb;
+
+      const seed = body.position.x * 7 + body.position.y * 13;
+      const rng = (i) => {
+        const x = Math.sin(seed + i * 9871) * 43758.5453;
+        return x - Math.floor(x);
+      };
+
+      // Stone tablet: 5 wide x 5 tall x 2 deep
+      let idx = 0;
+      for (let y = -2; y <= 2; y++) {
+        for (let x = -2; x <= 2; x++) {
+          for (let z = -1; z <= 1; z++) {
+            // Rounded top
+            if (y === 2 && (Math.abs(x) === 2)) continue;
+            const rv = rng(idx++);
+            let color;
+            // Carved symbol on front face
+            if (z === 1 && Math.abs(x) <= 1 && Math.abs(y) <= 1) {
+              color = rv < 0.3 ? SYMBOL : (rv < 0.6 ? STONE_LIGHT : STONE);
+            } else {
+              color = rv < 0.15 ? MOSS : (rv < 0.4 ? STONE_DARK : (rv < 0.7 ? STONE : STONE_LIGHT));
+            }
+            addVoxel(x, y, z, color);
+          }
+        }
+      }
+
+      // Small seaweed tufts on top
+      addVoxel(-1, 3, 0, MOSS);
+      addVoxel(1, 3, 0, 0x3a6a2a);
+      addVoxel(0, 3, 1, MOSS);
+
+      group.position.set(body.position.x, -body.position.y, 0);
+      this.scene.add(group);
+      this.hintStoneMeshes.push({ mesh: group, body });
+    }
+  }
+
+  // ── Bottle collect particle effect ──
+  spawnBottleCollect(x, y) {
+    const THREE = this.THREE;
+    const colors = [0xaaeedd, 0x88ccaa, 0xf0e8d0, 0xffffff, 0x66aacc];
+    for (let i = 0; i < 12; i++) {
+      const size = 1.5 + Math.random() * 2.5;
+      const geo = new THREE.BoxGeometry(size, size, size);
+      const mat = new THREE.MeshStandardMaterial({
+        color: colors[Math.floor(Math.random() * colors.length)],
+        emissive: 0xaaeedd,
+        emissiveIntensity: 0.5,
+        transparent: true,
+        opacity: 0.9,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 30 + Math.random() * 60;
+      mesh.position.set(x, -y, 0);
+      this.scene.add(mesh);
+      this.bubbles.push({
+        mesh,
+        vx: Math.cos(angle) * speed,
+        vy: -(Math.sin(angle) * speed + 20),
+        life: 0.6 + Math.random() * 0.6,
+        age: 0,
+      });
+    }
+  }
+
   // ── Generate a Minecraft-style ground texture for the back plane ──
   _generateGroundTexture() {
     const THREE = this.THREE;
@@ -3633,6 +3789,18 @@ export class VoxelRenderer {
     for (const r of this.raftMeshes) {
       r.mesh.position.set(r.body.position.x, -r.body.position.y, 0);
       r.mesh.rotation.z = -r.body.rotation;
+    }
+
+    // ── Sync bottles (remove collected) ──
+    for (let i = this.bottleMeshes.length - 1; i >= 0; i--) {
+      const b = this.bottleMeshes[i];
+      if (!b.body.space) {
+        this.scene.remove(b.mesh);
+        this.bottleMeshes.splice(i, 1);
+        continue;
+      }
+      // Gentle bob animation
+      b.mesh.position.y = -b.body.position.y + Math.sin(this._time * 2 + b.body.position.x) * 1.5;
     }
 
     // ── Sync floating logs (position + rotation from physics) ──

@@ -283,6 +283,30 @@ export function generateCodexPreviews(THREE) {
     vr.swingingAnchorMeshes.length = 0;
   }
 
+  // Bottle
+  {
+    vr.buildBottles([{ body: fakeBody, text: '...', collected: false }]);
+    const g = vr.bottleMeshes[0]?.mesh;
+    if (g) {
+      tempScene.remove(g);
+      g.position.set(0, 0, 0);
+      previews.bottle = _renderPreview(THREE, offRenderer, g, { camDist: 30 });
+    }
+    vr.bottleMeshes.length = 0;
+  }
+
+  // Hint Stone
+  {
+    vr.buildHintStones([{ body: fakeBody, text: '...' }]);
+    const g = vr.hintStoneMeshes[0]?.mesh;
+    if (g) {
+      tempScene.remove(g);
+      g.position.set(0, 0, 0);
+      previews.hintStone = _renderPreview(THREE, offRenderer, g, { camDist: 35 });
+    }
+    vr.hintStoneMeshes.length = 0;
+  }
+
   // Terrain blocks
   {
     const stoneGroup = _buildTerrainBlock(THREE, vr, 1);

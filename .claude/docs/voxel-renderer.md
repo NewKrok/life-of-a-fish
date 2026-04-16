@@ -198,6 +198,21 @@ Built via `buildSwingingAnchors(anchorData)`:
 - Pivot marker (bracket) at top of chain
 - Position synced from pendulum physics each frame (kinematic body)
 
+### Bottles
+Built via `buildBottles(bottleData)`:
+- Small corked bottle shape (~3 wide × 7 tall voxels)
+- Glass body with emissive glow (`GLASS` 0x88ccaa, `GLOW` 0xaaeedd)
+- Cork at top, tiny scroll (paper) visible inside
+- Gentle bob animation in syncFrame
+- `spawnBottleCollect(x, y)` spawns sparkle particle burst on collection
+
+### Hint Stones
+Built via `buildHintStones(hintData)`:
+- Small stone tablet (~5×5×3 voxels) with carved symbols on front face
+- Colors: `STONE` grays (0x5a6a5a–0x8a9a8a), `MOSS` accents (0x4a7a3a), `SYMBOL` highlights (0xaaccbb)
+- Seaweed tufts on top for natural look
+- Static position — no animation needed
+
 ## Bubbles
 
 ### Player/Piranha Bubbles

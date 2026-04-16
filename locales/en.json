@@ -238,6 +238,18 @@
       "tagLabel": "Obstacle",
       "desc": "A heavy iron anchor hanging from a chain, swinging back and forth like a pendulum. The rust hasn't slowed it down one bit.",
       "tip": "Tip: Time your swim to pass when the anchor swings away. Don't get caught in its path!"
+    },
+    "bottle": {
+      "name": "Bottle Message",
+      "tagLabel": "Collectible",
+      "desc": "A small corked bottle with a rolled-up note inside. Someone left these scattered across the ocean — funny notes, cryptic hints, and the occasional heartfelt message.",
+      "tip": "Tip: Swim into a bottle to read its message. It disappears after collection, so savor every word."
+    },
+    "hintStone": {
+      "name": "Hint Stone",
+      "tagLabel": "Guide",
+      "desc": "An ancient stone tablet with carved symbols. Swim close to read the inscription — it glows faintly when you're near. Unlike bottles, it never disappears.",
+      "tip": "Tip: Look for hint stones near new mechanics. They often explain how things work."
     }
   },
   "editor": {
@@ -297,7 +309,9 @@
       "chestYellow": "Chest Yellow",
       "chestPurple": "Chest Purple",
       "floatingLog": "Floating Log",
-      "swAnchor": "Sw. Anchor"
+      "swAnchor": "Sw. Anchor",
+      "bottle": "Bottle",
+      "hintStone": "Hint Stone"
     }
   }
 }

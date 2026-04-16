@@ -553,6 +553,8 @@ const CODEX_DATA = [
   { category: 'terrain', preview: 'raft', i18nKey: 'raft', tag: 'terrain' },
   { category: 'items', preview: 'floatingLog', i18nKey: 'floatingLog', tag: 'item' },
   { category: 'items', preview: 'swingingAnchor', i18nKey: 'swingingAnchor', tag: 'terrain' },
+  { category: 'items', preview: 'bottle', i18nKey: 'bottle', tag: 'item' },
+  { category: 'terrain', preview: 'hintStone', i18nKey: 'hintStone', tag: 'terrain' },
   { category: 'terrain', preview: 'water', i18nKey: 'water', tag: 'terrain' },
 ];
 
@@ -829,6 +831,7 @@ function _buildEditorEntities(vr, entities) {
   // Collect entities by type for batch building
   const pearls = [], buoys = [], boulders = [], rafts = [], keys = [], chests = [];
   const crates = [], switches = [], gates = [];
+  const bottles = [], hints = [], logs = [], anchors = [];
 
   // Ground-based entities — visual position shifted to tile bottom
   const GROUND_IDS = new Set([14, 29, 30, 31, 32, 33]);
@@ -854,6 +857,10 @@ function _buildEditorEntities(vr, entities) {
       case 31: switches.push({ body: fakeBody, type: 'pressure', group: ent.group || 0, active: false, timer: 0 }); break;
       case 32: switches.push({ body: fakeBody, type: 'timed', group: ent.group || 0, active: false, timer: 0 }); break;
       case 33: gates.push({ body: fakeBody, group: ent.group || 0, open: false, angle: 0 }); break;
+      case 34: logs.push(fakeBody); break;
+      case 35: anchors.push({ body: fakeBody, pivotX: ent.x, pivotY: ent.y, chainLength: ent.chainLength || 96 }); break;
+      case 36: bottles.push({ body: fakeBody, text: ent.text || '...', collected: false }); break;
+      case 37: hints.push({ body: fakeBody, text: ent.text || '...' }); break;
       default:
         if (ent.tileId >= 16 && ent.tileId <= 20) {
           keys.push({ body: fakeBody, colorIndex: ent.tileId - 16 });
@@ -872,6 +879,10 @@ function _buildEditorEntities(vr, entities) {
   if (crates.length) vr.buildCrates(crates);
   if (switches.length) vr.buildSwitches(switches);
   if (gates.length) vr.buildGates(gates);
+  if (logs.length) vr.buildFloatingLogs(logs);
+  if (anchors.length) vr.buildSwingingAnchors(anchors);
+  if (bottles.length) vr.buildBottles(bottles);
+  if (hints.length) vr.buildHintStones(hints);
 }
 
 // Position editor entity visuals at their world positions
@@ -1125,6 +1136,8 @@ const switchTag = new CbType();
 const gateTag = new CbType();
 const floatingLogTag = new CbType();
 const swingingAnchorTag = new CbType();
+const bottleTag = new CbType();
+const hintStoneTag = new CbType();
 
 // ── Build terrain bodies from merged tiles ──
 const mergedBodies = getMergedSolidBodies();
@@ -1171,6 +1184,8 @@ _capturedEntities = {
   gates: entities.gates.map(e => ({ ...e })),
   floatingLogs: entities.floatingLogs.map(e => ({ ...e })),
   swingingAnchors: entities.swingingAnchors.map(e => ({ ...e })),
+  bottleMessages: entities.bottleMessages.map(e => ({ ...e })),
+  hintStones: entities.hintStones.map(e => ({ ...e })),
 };
 
 // ── Hazard bodies (seaweed/spiky plants) ──
@@ -1461,6 +1476,37 @@ for (const sa of entities.swingingAnchors) {
   });
 }
 
+// ── Bottle Messages (collectible, sensor) ──
+const BOTTLE_COLLECT_RANGE = 20;    // px — sensor radius
+const BOTTLE_DISPLAY_TIME = 4000;   // ms — how long text stays visible
+const bottleBodies = [];            // { body, text, collected }
+for (const bm of entities.bottleMessages) {
+  const b = new Body(BodyType.STATIC, new Vec2(bm.x, bm.y));
+  const shape = new Circle(BOTTLE_COLLECT_RANGE);
+  shape.sensorEnabled = true;
+  shape.cbTypes.add(bottleTag);
+  b.shapes.add(shape);
+  b.space = space;
+  bottleBodies.push({ body: b, text: bm.text, collected: false });
+}
+
+// ── Hint Stones (permanent, proximity-based) ──
+const HINT_PROXIMITY = 48;         // px — detection radius (~1.5 tiles)
+const hintStoneBodies = [];        // { body, text }
+for (const hs of entities.hintStones) {
+  const b = new Body(BodyType.STATIC, new Vec2(hs.x, hs.y));
+  const shape = new Circle(HINT_PROXIMITY);
+  shape.sensorEnabled = true;
+  shape.cbTypes.add(hintStoneTag);
+  b.shapes.add(shape);
+  b.space = space;
+  hintStoneBodies.push({ body: b, text: hs.text });
+}
+
+// ── Message overlay state (shared by bottles and hints) ──
+let _messageOverlay = null;  // { text, timer, fadeOut, x, y } or null
+let _activeHint = null;      // index into hintStoneBodies or null
+
 // ── Breakable walls (cracked stone, destroyed by dashing) ──
 const breakableWallBodies = [];
 for (const bw of entities.breakableWalls) {
@@ -1524,6 +1570,8 @@ voxelRenderer.buildSwitches(switchBodies);
 voxelRenderer.buildGates(gateBodies);
 voxelRenderer.buildFloatingLogs(floatingLogBodies);
 voxelRenderer.buildSwingingAnchors(swingingAnchorBodies);
+voxelRenderer.buildBottles(bottleBodies);
+voxelRenderer.buildHintStones(hintStoneBodies);
 
 // ── Player fish ──
 const player = new Body(BodyType.DYNAMIC, new Vec2(entities.playerSpawn.x, entities.playerSpawn.y));
@@ -1559,6 +1607,32 @@ const pearlListener = new InteractionListener(
   },
 );
 pearlListener.space = space;
+
+// Bottle message collection -> show text, remove bottle
+const bottleListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, playerTag, bottleTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const bottleEntry = bottleBodies.find(bb => bb.body === b1 || bb.body === b2);
+    if (bottleEntry && !bottleEntry.collected && bottleEntry.body.space) {
+      bottleEntry.collected = true;
+      const cx = bottleEntry.body.position.x;
+      const cy = bottleEntry.body.position.y;
+      bottleEntry.body.space = null;
+      voxelRenderer.spawnBottleCollect(cx, cy);
+      sfx.pearlPickup(); // reuse pearl sound for now
+      _messageOverlay = {
+        text: bottleEntry.text,
+        timer: BOTTLE_DISPLAY_TIME,
+        fadeOut: false,
+        x: cx,
+        y: cy,
+      };
+    }
+  },
+);
+bottleListener.space = space;
 
 // Piranha collision -> kill if dashing, else death
 const piranhaListener = new InteractionListener(
@@ -2598,6 +2672,22 @@ function _resetEntities() {
     gate.angle = 0;
   }
 
+  // ── Bottles — reset to uncollected ──
+  for (let i = 0; i < bottleBodies.length; i++) {
+    const bb = bottleBodies[i];
+    const bm = entities.bottleMessages[i];
+    bb.collected = false;
+    bb.body.position = new Vec2(bm.x, bm.y);
+    if (!bb.body.space) bb.body.space = space;
+  }
+  voxelRenderer.buildBottles(bottleBodies);
+
+  // ── Hint stones — no reset needed (static, permanent) ──
+
+  // ── Clear message overlay ──
+  _messageOverlay = null;
+  _activeHint = null;
+
   // ── Restore visibility for all enemy meshes ──
   voxelRenderer.resetEnemyVisibility();
 }
@@ -2829,6 +2919,83 @@ function renderHUD() {
     const fillW = dbW * dashState.dashCooldownPct;
     hudCtx.fillStyle = 'rgba(100, 220, 255, 0.7)';
     hudCtx.fillRect(dbX, dbY, fillW, dbH);
+  }
+
+  // ── Message bubble overlay (bottles + hint stones) ──
+  const msgText = _activeHint !== null
+    ? hintStoneBodies[_activeHint].text
+    : (_messageOverlay ? _messageOverlay.text : null);
+
+  if (msgText) {
+    const { visW, visH } = getVisibleSize();
+    let alpha = 1.0;
+    if (_messageOverlay && _messageOverlay.fadeOut) {
+      alpha = Math.max(0, _messageOverlay.timer / 800);
+    }
+
+    // Position: above the fish
+    const fishSx = (player.position.x - camX) / visW * W;
+    const fishSy = (player.position.y - camY) / visH * H;
+
+    hudCtx.save();
+    hudCtx.globalAlpha = alpha;
+
+    // Measure text
+    hudCtx.font = "13px 'Silkscreen', monospace";
+    const lines = msgText.length > 40
+      ? [msgText.substring(0, Math.ceil(msgText.length / 2)), msgText.substring(Math.ceil(msgText.length / 2))]
+      : [msgText];
+    const lineH = 18;
+    let maxW = 0;
+    for (const line of lines) {
+      const m = hudCtx.measureText(line);
+      if (m.width > maxW) maxW = m.width;
+    }
+
+    const padX = 14;
+    const padY = 10;
+    const bubW = maxW + padX * 2;
+    const bubH = lines.length * lineH + padY * 2;
+    const bubX = Math.max(10, Math.min(W - bubW - 10, fishSx - bubW / 2));
+    const bubY = Math.max(10, fishSy - 65 - bubH);
+
+    // Bubble background
+    hudCtx.fillStyle = 'rgba(10, 30, 50, 0.82)';
+    hudCtx.beginPath();
+    hudCtx.roundRect(bubX, bubY, bubW, bubH, 8);
+    hudCtx.fill();
+
+    // Bubble border
+    hudCtx.strokeStyle = _activeHint !== null ? 'rgba(160, 200, 180, 0.6)' : 'rgba(200, 220, 255, 0.5)';
+    hudCtx.lineWidth = 1.5;
+    hudCtx.beginPath();
+    hudCtx.roundRect(bubX, bubY, bubW, bubH, 8);
+    hudCtx.stroke();
+
+    // Small triangle pointer toward fish
+    const triX = Math.max(bubX + 12, Math.min(bubX + bubW - 12, fishSx));
+    hudCtx.fillStyle = 'rgba(10, 30, 50, 0.82)';
+    hudCtx.beginPath();
+    hudCtx.moveTo(triX - 6, bubY + bubH);
+    hudCtx.lineTo(triX + 6, bubY + bubH);
+    hudCtx.lineTo(triX, bubY + bubH + 8);
+    hudCtx.closePath();
+    hudCtx.fill();
+
+    // Icon
+    const icon = _activeHint !== null ? '🪨' : '🍾';
+    hudCtx.font = "12px sans-serif";
+    hudCtx.fillText(icon, bubX + 4, bubY + padY + lineH - 4);
+
+    // Text
+    hudCtx.fillStyle = '#ddeeff';
+    hudCtx.font = "13px 'Silkscreen', monospace";
+    hudCtx.textAlign = 'left';
+    for (let i = 0; i < lines.length; i++) {
+      hudCtx.fillText(lines[i], bubX + padX, bubY + padY + lineH * (i + 1) - 3);
+    }
+
+    hudCtx.restore();
   }
 }
 
@@ -3248,6 +3415,25 @@ function gameLoop() {
     const ax = sa.pivotX + sa.chainLength * Math.sin(sa.angle);
     const ay = sa.pivotY + sa.chainLength * Math.cos(sa.angle);
     sa.body.position = new Vec2(ax, ay);
+  }
+
+  // ── Hint stone proximity detection ──
+  _activeHint = null;
+  for (let i = 0; i < hintStoneBodies.length; i++) {
+    const hs = hintStoneBodies[i];
+    const dx = player.position.x - hs.body.position.x;
+    const dy = player.position.y - hs.body.position.y;
+    if (Math.sqrt(dx * dx + dy * dy) < HINT_PROXIMITY) {
+      _activeHint = i;
+      break;
+    }
+  }
+
+  // ── Message overlay timer (bottles) ──
+  if (_messageOverlay && _messageOverlay.timer > 0) {
+    _messageOverlay.timer -= DT * 1000;
+    if (_messageOverlay.timer <= 800) _messageOverlay.fadeOut = true;
+    if (_messageOverlay.timer <= 0) _messageOverlay = null;
   }
 
   // ── Boulder / Key grab / carry / throw mechanic (E key) ──

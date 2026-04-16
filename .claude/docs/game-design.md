@@ -311,7 +311,7 @@ Plus ~25 hidden bottle messages and the Codex encyclopedia.
 | 4 | Spitting Coral | New enemy: fixed on ground, 3 projectiles upward in fan pattern | **Done** |
 | 5 | Switches & gates | Toggle / pressure / timed types, boulder activation | **Done** |
 | 6 | Moving physical elements | Floating logs, swinging anchors (debris deferred to #12) | **Done** |
-| 7 | Bottle messages | Hidden collectible messages, bubble UI, Codex "Explorer's Notes" | Pending |
+| 7 | Bottle messages + Hint stones | Collectible bottles (text + disappear) + permanent hint stones (proximity text). Editor text editing. Codex tracking deferred | **Done** |
 | 8 | Dark level mode | Limited visibility, light circle around fish | Pending |
 | 9 | Skill: Light Pulse | Expanded light radius ~3s, ~15s cooldown | Pending |
 | 10 | Skill: Stun Pulse | Stun nearby enemies ~3s, ~20s cooldown | Pending |
