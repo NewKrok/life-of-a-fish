@@ -170,6 +170,8 @@ Deep-dive docs live in `.claude/docs/`. Refer to these when working on the relev
 
 **After completing a task**, check whether the changes affect any of these docs and update them to stay in sync with the code.
 
+**Codex is mandatory for every new entity/mechanic.** Three integration points: `CODEX_DATA` in `game.js`, i18n entries in `locales/en.json` + `locales/hu.json` (`codex.<key>.*`), and preview in `codex-renderer.js`. See [workflow.md](.claude/docs/workflow.md) step 2b.
+
 ## Conventions
 
 - **Constants**: `SCREAMING_SNAKE_CASE` with units in comments (`px/s`, `px/s²`, `ms`)
