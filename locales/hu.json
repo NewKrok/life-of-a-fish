@@ -23,6 +23,10 @@
       "name": "Mély barlangok",
       "desc": "Sötét üregek szűk alagutakkal"
     },
+    "bossGiantCrab": {
+      "name": "Boss: Óriásrák",
+      "desc": "A zátony kijáratának őre. Öt szikladobás lefekteti."
+    },
     "sunkenRuins": {
       "name": "Elsüllyedt romok",
       "desc": "Ősi építmények a hullámok alatt"
@@ -62,7 +66,8 @@
   },
   "hud": {
     "pearlCount": "{current} / {total}",
-    "physicsDebug": "FIZIKA DEBUG (F3)"
+    "physicsDebug": "FIZIKA DEBUG (F3)",
+    "boss": "BOSS"
   },
   "touch": {
     "dash": "ROHAM",
@@ -126,6 +131,12 @@
       "tagLabel": "Távolsági",
       "desc": "Egy kérges polip, ami mérget köp hármas legyezőben. Minden. Pár. Másodpercben. Állj oldalra és várj — vagy hallgattasd el egy sziklával.",
       "tip": "Tipp: A lövedékek mindig felfelé mennek legyező mintában. Maradj alul és oldalt, vagy dobj rá sziklát."
+    },
+    "giantCrabBoss": {
+      "name": "Óriásrák",
+      "tagLabel": "Főellenség",
+      "desc": "A zátony kijáratának ősi őre. Köveket hajít magas ívben és rémisztő erővel ront előre. Ollói közvetlenül nem ölnek — de könnyen belelöknek a tenger fogai közé.",
+      "tip": "Tipp: Kerüld a rohamokat, és ragadj meg egy sziklát, amikor megáll. Öt telitalálat — és tiéd a zátony."
     },
     "pearl": {
       "name": "Gyöngy",
@@ -310,6 +321,7 @@
       "crab": "Rák",
       "toxicFish": "Mérgező hal",
       "spitCoral": "Köpködő korall",
+      "giantCrabBoss": "Óriásrák (Főell.)",
       "swToggle": "Váltókapcs.",
       "swPressure": "Nyomókapcs.",
       "swTimed": "Időzített k.",

@@ -38,6 +38,7 @@ const PALETTE = [
   { id: 14, char: 'C', labelKey: 'editor.pal.crab',                    color: '#d04020', category: 'enemies', previewKey: 'crab' },
   { id: 15, char: 'F', labelKey: 'editor.pal.toxicFish',               color: '#50c050', category: 'enemies', previewKey: 'toxicFish' },
   { id: 29, char: 'P', labelKey: 'editor.pal.spitCoral',               color: '#cc6688', category: 'enemies', previewKey: 'spittingCoral' },
+  { id: 38, char: 'M', labelKey: 'editor.pal.giantCrabBoss',           color: '#8a1e1e', category: 'enemies', previewKey: 'giantCrabBoss' },
   { id: 30, char: 'V', labelKey: 'editor.pal.swToggle',                color: '#22aa44', category: 'items',   previewKey: 'switchToggle' },
   { id: 31, char: 'N', labelKey: 'editor.pal.swPressure',              color: '#3366cc', category: 'items',   previewKey: 'switchPressure' },
   { id: 32, char: 'O', labelKey: 'editor.pal.swTimed',                 color: '#cc8822', category: 'items',   previewKey: 'switchTimed' },
@@ -78,7 +79,7 @@ for (const cat of CATEGORIES) {
 }
 
 // Entity tile IDs (non-terrain — stored as entity positions)
-const ENTITY_IDS = new Set([5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37]);
+const ENTITY_IDS = new Set([5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38]);
 
 // Enemies with patrol ranges
 const PATROL_DEFAULTS = {
@@ -91,7 +92,7 @@ const PATROL_DEFAULTS = {
 };
 
 // Ground-based entities — visually aligned to tile bottom instead of center
-const GROUND_ENTITY_IDS = new Set([14, 29, 30, 31, 32, 33]); // crab, spit coral, switches, gate
+const GROUND_ENTITY_IDS = new Set([14, 29, 30, 31, 32, 33, 38]); // crab, spit coral, switches, gate, giant crab boss
 
 // ── Camera scroll speed ──
 const CAM_SPEED = 400;          // px/s
@@ -338,6 +339,7 @@ export class LevelEditor {
       if (knownEntities.toxicFish) addGroup(knownEntities.toxicFish, 15);
       if (knownEntities.armoredFish) addGroup(knownEntities.armoredFish, 28);
       if (knownEntities.spittingCoral) addGroup(knownEntities.spittingCoral, 29);
+      if (knownEntities.giantCrabBosses) addGroup(knownEntities.giantCrabBosses, 38);
       if (knownEntities.toggleSwitches) addGroup(knownEntities.toggleSwitches, 30);
       if (knownEntities.pressureSwitches) addGroup(knownEntities.pressureSwitches, 31);
       if (knownEntities.timedSwitches) addGroup(knownEntities.timedSwitches, 32);

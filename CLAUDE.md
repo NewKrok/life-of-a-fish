@@ -94,6 +94,7 @@ In-game editor activated with **F4**. Works in both menu and game states. Pauses
 - Swinging anchors: kinematic bodies, pendulum physics from ceiling pivot point, configurable chain length via `anchorChainLengths` metadata
 - Bottle messages: static sensor bodies, collectible (disappear on contact), show text overlay
 - Hint stones: static sensor bodies, permanent, show text when player is within proximity range (~48px)
+- Giant Crab Boss: kinematic body with HP counter + state machine (patrol → windup → charge), tagged `bossCrabTag`. Spawns airborne rock projectiles tagged `bossRockTag` that arc with gravity and kill the player on contact. Thrown boulders decrement boss HP; invulnerability window between hits
 - Each entity class has its own `CbType` for collision filtering
 
 ### Skills — "Gifts of the Ocean" (fish-controller.js + game.js)
@@ -168,6 +169,7 @@ Tile map is a string grid (125 cols × 25 rows, 32px tiles):
 | `H`  | Swinging Anchor | 35  |
 | `I`  | Bottle Message | 36   |
 | `J`  | Hint Stone     | 37   |
+| `M`  | Giant Crab Boss | 38  |
 
 Keys are carriable/throwable like boulders but deal no damage. Throwing a key at its matching-color chest opens the chest with a particle effect and spawns a pearl. Chest pearls are included in `TOTAL_PEARLS` from level start.
 
@@ -176,6 +178,8 @@ Switches and gates are linked by group IDs stored in `switchGateGroups` metadata
 Floating logs are dynamic bodies that float in water and can be pushed. Swinging anchors hang from ceiling pivot points on chains and swing as pendulums. Chain length is configurable via `anchorChainLengths` metadata per level (default: 96px = 3 tiles). The anchor tile position represents the pivot point; the anchor body swings below.
 
 Bottle messages are collectible — swim into them to read the text, then the bottle disappears. Hint stones are permanent — swim close to read, text disappears when you leave. Both store custom text via level metadata (`bottleMessages`, `hintStones` arrays with `{ row, col, text }`). In the editor, Shift+click on a placed bottle/hint stone opens a text prompt.
+
+Giant Crab bosses are the world 1 boss. A level flagged `bossLevel: true` (with `levelGoal: 'boss'`) wins when every boss on it is defeated — the pearl-based victory check is bypassed. Each boss has 5 HP, patrols slowly, periodically winds up and charges (strong knockback on contact — no direct damage), and lobs rocks in parabolic arcs (rocks kill on hit). Boulders thrown at the boss decrement HP; there's a short invulnerability window between hits. HP bar replaces the pearl progress bar on boss levels.
 
 Water surface is at row 4 (128px).
 

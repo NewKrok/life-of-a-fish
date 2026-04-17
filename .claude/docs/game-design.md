@@ -317,7 +317,7 @@ Plus ~25 hidden bottle messages and the Codex encyclopedia.
 | 10 | Skill: Stun Pulse | Stun nearby enemies ~3s, ~20s cooldown | **Done** |
 | 11 | Skill: Speed Surge | Sprint boost ~4s, ~25s cooldown | **Done** |
 | 12 | Water currents | Flow zones that push the fish directionally | Pending |
-| 13 | Boss fight system | Boss arena structure + first boss (Giant Crab) | Pending |
+| 13 | Boss fight system | Boss arena structure + first boss (Giant Crab) | **Done** |
 | 14 | Star system | 3-star rating per level, unlock logic, UI | Pending |
 | 15 | Story elements | Opening screens, world intros, ending scene | Pending |
 

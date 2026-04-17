@@ -107,6 +107,7 @@ Each entity class has a named `CbType` for collision filtering:
 - `switchTag`, `gateTag`
 - `floatingLogTag`, `swingingAnchorTag`
 - `bottleTag`, `hintStoneTag`
+- `bossCrabTag`, `bossRockTag` (Giant Crab Boss + airborne rock projectiles)
 
 `InteractionListener` callbacks handle:
 - Player ↔ Pearl → collect pearl, destroy body
@@ -115,6 +116,9 @@ Each entity class has a named `CbType` for collision filtering:
 - Player ↔ Shark → respawn player
 - Player ↔ Pufferfish → respawn player
 - Player ↔ Crab → push player away (no kill)
+- Player ↔ Boss Crab → strong knockback (no direct kill; extra oomph while charging)
+- Player ↔ Boss Rock → respawn player, destroy rock
+- Boulder ↔ Boss Crab → −1 HP (gated by 1.2s invuln window), destroy boulder; boss despawns at 0 HP
 - Player ↔ Projectile → respawn player, destroy projectile
 - Boulder ↔ Piranha (sensor) → kill piranha, remove from space
 - Boulder ↔ Shark (sensor) → kill shark, remove from space

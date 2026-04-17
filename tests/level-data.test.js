@@ -11,6 +11,7 @@ import {
   getLevels,
   setCurrentLevel,
   getCurrentLevelIndex,
+  getCurrentLevelMeta,
   resetTiles,
   getLevelEntities,
   getMergedSolidBodies,
@@ -99,12 +100,12 @@ describe('tile parsing', () => {
     }
   });
 
-  it('all tile values are valid (0-37)', () => {
+  it('all tile values are valid (0-38)', () => {
     for (let r = 0; r < LEVEL_ROWS; r++) {
       for (let c = 0; c < LEVEL_COLS; c++) {
         const t = TILES[r][c];
         expect(t).toBeGreaterThanOrEqual(0);
-        expect(t).toBeLessThanOrEqual(37);
+        expect(t).toBeLessThanOrEqual(38);
       }
     }
   });
@@ -182,6 +183,7 @@ describe('getLevelEntities', () => {
       ...ent.swingingAnchors,
       ...ent.bottleMessages,
       ...ent.hintStones,
+      ...ent.giantCrabBosses,
     ];
     for (const pos of allPositions) {
       expect(pos.x).toBeGreaterThanOrEqual(0);
@@ -345,6 +347,15 @@ describe('getLevelEntities', () => {
     expect(dashHint).toBeDefined();
   });
 
+  it('extracts giant crab boss from level 1 sandbox placement', () => {
+    const ent = getLevelEntities();
+    expect(ent.giantCrabBosses.length).toBeGreaterThanOrEqual(1);
+    for (const bc of ent.giantCrabBosses) {
+      expect(bc.x).toBeGreaterThan(0);
+      expect(bc.y).toBeGreaterThan(0);
+    }
+  });
+
   it('floating logs are not included in merged solid bodies', () => {
     const ent = getLevelEntities();
     const bodies = getMergedSolidBodies();
@@ -443,6 +454,66 @@ describe('getWaterZones', () => {
   it('water zone covers full width', () => {
     const zones = getWaterZones();
     expect(zones[0].w).toBe(WORLD_W);
+  });
+});
+
+// ── Giant Crab Boss arena (roadmap #13) ──
+
+describe('giant crab boss arena', () => {
+  let bossIndex;
+  beforeEach(() => {
+    const levels = getLevels();
+    bossIndex = levels.findIndex(l => l.id === 'bossGiantCrab');
+    expect(bossIndex).toBeGreaterThanOrEqual(0);
+    setCurrentLevel(bossIndex);
+    resetTiles();
+  });
+
+  it('is flagged as a boss level with boss goal', () => {
+    const meta = getCurrentLevelMeta();
+    expect(meta.bossLevel).toBe(true);
+    expect(meta.levelGoal).toBe('boss');
+  });
+
+  it('contains exactly one giant crab boss', () => {
+    const ent = getLevelEntities();
+    expect(ent.giantCrabBosses.length).toBe(1);
+    expect(ent.giantCrabBosses[0].x).toBeGreaterThan(0);
+    expect(ent.giantCrabBosses[0].y).toBeGreaterThan(0);
+  });
+
+  it('provides boulders for the player to use as ammo', () => {
+    const ent = getLevelEntities();
+    // At least 4 boulders so a fresh player can defeat the 5-HP boss
+    // (boulders break after one hit, so we need multiple)
+    expect(ent.boulders.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('has a player spawn and at least one pearl (for code that assumes pearls exist)', () => {
+    const ent = getLevelEntities();
+    expect(ent.playerSpawn).toBeDefined();
+    expect(ent.pearls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('boss tile is cleared from TILES after extraction', () => {
+    getLevelEntities();
+    for (let r = 0; r < LEVEL_ROWS; r++) {
+      for (let c = 0; c < LEVEL_COLS; c++) {
+        expect(TILES[r][c]).not.toBe(38);
+      }
+    }
+  });
+});
+
+// ── Level meta ──
+
+describe('getCurrentLevelMeta', () => {
+  it('returns bossLevel: false for non-boss levels', () => {
+    setCurrentLevel(0); // coralReef
+    const meta = getCurrentLevelMeta();
+    expect(meta.bossLevel).toBe(false);
+    expect(meta.levelGoal).toBe('pearls');
+    expect(meta.id).toBe('coralReef');
   });
 });
 

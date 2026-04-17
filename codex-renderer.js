@@ -140,6 +140,7 @@ export function generateCodexPreviews(THREE) {
   previews.toxicFish = capture(() => vr.buildToxicFish());
   previews.armoredFish = capture(() => vr.buildArmoredFish());
   previews.spittingCoral = capture(() => vr.buildSpittingCoral(), { camAngle: 0.5 });
+  previews.giantCrabBoss = capture(() => vr.buildGiantCrabBoss(), { camAngle: 0.35 });
 
   // Items — fake body for build methods that expect physics bodies
   const fakeBody = { position: { x: 0, y: 0 } };

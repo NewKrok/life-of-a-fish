@@ -187,6 +187,10 @@ export class VoxelRenderer {
     this.projectileMeshes = [];    // { mesh, body } pairs for poison projectiles
     this.switchMeshes = [];        // { mesh, body, type, padMesh } pairs
     this.gateMeshes = [];          // { mesh, body, pivotGroup } pairs
+    // Boss (roadmap #13)
+    this.bossCrabGroups = [];      // wrapper groups, one per boss spawn
+    this._bossCrabFlipAngles = []; // y-rotation per boss
+    this.bossRockMeshes = [];      // { mesh, body } for airborne rocks
 
     // New visual elements
     this.godRays = [];
@@ -225,6 +229,15 @@ export class VoxelRenderer {
     this.armoredFishTailPivots.length = 0;
     this._armoredFlipAngles.length = 0;
     remove(this.spittingCoralGroups);
+    remove(this.bossCrabGroups);
+    this._bossCrabFlipAngles.length = 0;
+    // Boss rocks
+    for (const r of this.bossRockMeshes) {
+      this.scene.remove(r.mesh);
+      if (r.mesh.geometry) r.mesh.geometry.dispose();
+      if (r.mesh.material) r.mesh.material.dispose();
+    }
+    this.bossRockMeshes.length = 0;
     // Pearls
     for (const p of this.pearlMeshes) {
       this.scene.remove(p.mesh);
@@ -1414,6 +1427,99 @@ export class VoxelRenderer {
     return wrapper;
   }
 
+  // ── Build giant crab boss (roadmap #13) — larger, darker, mean-looking ──
+  buildGiantCrabBoss() {
+    const THREE = this.THREE;
+    const V = 3.2;  // ~60% larger voxel than regular crab (V=2)
+    const vc = new VoxelCollector(V);
+
+    // Darker, more menacing palette than the regular crab
+    const SHELL = 0x8a1e1e;
+    const SHELL_DARK = 0x5c1010;
+    const SHELL_LIGHT = 0xa52a2a;
+    const BELLY = 0xc88060;
+    const CLAW = 0xaa2a2a;
+    const CLAW_TIP = 0xffe0b0;
+    const EYE = 0xffcc00;         // glowing amber eyes — boss intimidation
+    const EYE_STALK = 0x8a1e1e;
+    const BARNACLE = 0x554433;
+
+    const sliceOuter = (z) => {
+      vc.row([2, 3, 4, 5], 2, z, SHELL);
+      vc.row([2, 3, 4, 5], 1, z, SHELL_LIGHT);
+      vc.row([3, 4], 0, z, BELLY);
+    };
+    const sliceMid = (z) => {
+      vc.row([1, 2, 3, 4, 5, 6], 3, z, SHELL);
+      vc.row([1, 2, 3, 4, 5, 6], 2, z, SHELL);
+      vc.row([1, 2, 3, 4, 5, 6], 1, z, SHELL_LIGHT);
+      vc.row([2, 3, 4, 5], 0, z, BELLY);
+    };
+    const sliceCenter = (z) => {
+      vc.row([1, 2, 3, 4, 5, 6], 3, z, SHELL_DARK);
+      vc.row([0, 1, 2, 3, 4, 5, 6, 7], 2, z, SHELL);
+      vc.row([0, 1, 2, 3, 4, 5, 6, 7], 1, z, SHELL_LIGHT);
+      vc.row([1, 2, 3, 4, 5, 6], 0, z, BELLY);
+    };
+
+    sliceOuter(0); sliceOuter(7);
+    sliceMid(1); sliceMid(2); sliceMid(5); sliceMid(6);
+    sliceCenter(3); sliceCenter(4);
+
+    // Barnacles on the shell for that "old guardian" look
+    vc.add(3, 4, 3, BARNACLE); vc.add(4, 4, 4, BARNACLE);
+    vc.add(2, 4, 2, BARNACLE); vc.add(5, 4, 5, BARNACLE);
+
+    // Bigger, angry eyes
+    vc.add(5, 4, 1, EYE_STALK); vc.add(5, 5, 1, EYE);
+    vc.add(5, 4, 6, EYE_STALK); vc.add(5, 5, 6, EYE);
+    vc.add(6, 5, 1, EYE); vc.add(6, 5, 6, EYE);
+
+    // Huge asymmetric claws — left big, right medium
+    // Left (big)
+    vc.add(6, 2, -1, CLAW); vc.add(7, 2, -1, CLAW); vc.add(7, 3, -1, CLAW);
+    vc.add(8, 2, -1, CLAW); vc.add(8, 3, -1, CLAW); vc.add(9, 2, -1, CLAW_TIP); vc.add(9, 3, -1, CLAW_TIP);
+    vc.add(6, 2, -2, CLAW); vc.add(7, 2, -2, CLAW_TIP);
+    // Right
+    vc.add(6, 2, 8, CLAW); vc.add(7, 2, 8, CLAW); vc.add(7, 3, 8, CLAW);
+    vc.add(8, 2, 8, CLAW_TIP); vc.add(8, 3, 8, CLAW_TIP);
+
+    // Thick legs
+    for (const z of [1, 2, 3, 4, 5, 6]) {
+      vc.add(0, -1, z, SHELL_DARK);
+      vc.add(0, -2, z, SHELL_DARK);
+      vc.add(7, -1, z, SHELL_DARK);
+      vc.add(7, -2, z, SHELL_DARK);
+    }
+
+    const group = vc.build(THREE, { roughness: 0.85, metalness: 0.05 });
+    group.position.set(-3.5 * V, -1 * V, -3.5 * V);
+    group.scale.set(1.25, 1.25, 1.25);
+
+    const wrapper = new this.THREE.Group();
+    wrapper.add(group);
+    this.scene.add(wrapper);
+    this.bossCrabGroups.push(wrapper);
+    return wrapper;
+  }
+
+  // ── Build an airborne rock projectile thrown by a boss ──
+  buildBossRock(body) {
+    const THREE = this.THREE;
+    const geo = new THREE.BoxGeometry(14, 14, 14);
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x7a6658,
+      roughness: 0.9,
+      metalness: 0.05,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(body.position.x, -body.position.y, 0);
+    mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
+    this.scene.add(mesh);
+    this.bossRockMeshes.push({ mesh, body });
+    return mesh;
+  }
+
   // ── Build toxic fish enemy (ranged attacker — green/purple fish) ──
   buildToxicFish() {
     const THREE = this.THREE;
@@ -1818,6 +1924,7 @@ export class VoxelRenderer {
     for (const g of this.toxicFishGroups) g.visible = true;
     for (const g of this.armoredFishGroups) g.visible = true;
     for (const g of this.spittingCoralGroups) g.visible = true;
+    for (const g of this.bossCrabGroups) g.visible = true;
   }
 
   // ── Build boulder meshes ──
@@ -4101,6 +4208,62 @@ export class VoxelRenderer {
       }
     }
 
+    // ── Sync giant crab bosses (charge wobble + hit flash + scuttle) ──
+    const bossCrabBodies = extras.bossCrabBodies;
+    if (bossCrabBodies) {
+      for (let i = 0; i < bossCrabBodies.length && i < this.bossCrabGroups.length; i++) {
+        const bc = bossCrabBodies[i];
+        const bg = this.bossCrabGroups[i];
+        if (!bc.space) { bg.visible = false; continue; }
+        bg.position.set(bc.position.x, -bc.position.y, 0);
+
+        // Flip to face the direction it's moving
+        if (this._bossCrabFlipAngles[i] === undefined) this._bossCrabFlipAngles[i] = 0;
+        const boss = bc._boss;
+        let targetFlip = this._bossCrabFlipAngles[i];
+        if (boss && boss.dir === -1) targetFlip = Math.PI;
+        else if (boss && boss.dir === 1) targetFlip = 0;
+        this._bossCrabFlipAngles[i] += (targetFlip - this._bossCrabFlipAngles[i]) * 0.08;
+        bg.rotation.y = this._bossCrabFlipAngles[i];
+
+        // Hit flash: quick red/white pulse by scaling + rotation quiver
+        let quiver = 0;
+        if (boss && boss.flashTimer > 0) {
+          quiver = Math.sin(this._time * 40) * 0.15;
+        }
+        // Windup telegraph: slight crouch/shake
+        if (boss && boss.state === 'windup') {
+          quiver += Math.sin(this._time * 25) * 0.08;
+        }
+        bg.rotation.z = quiver;
+
+        // Scuttle bob during patrol/charge
+        if (boss && boss.state !== 'windup') {
+          const freq = boss.state === 'charge' ? 18 : 10;
+          const scuttle = Math.abs(Math.sin(this._time * freq + i * 3)) * 2.2;
+          bg.position.y += scuttle;
+        }
+      }
+    }
+
+    // ── Sync boss rocks (airborne, spinning) ──
+    const bossRockBodies = extras.bossRockBodies;
+    if (bossRockBodies) {
+      for (let i = this.bossRockMeshes.length - 1; i >= 0; i--) {
+        const r = this.bossRockMeshes[i];
+        if (!r.body.space) {
+          this.scene.remove(r.mesh);
+          if (r.mesh.geometry) r.mesh.geometry.dispose();
+          if (r.mesh.material) r.mesh.material.dispose();
+          this.bossRockMeshes.splice(i, 1);
+          continue;
+        }
+        r.mesh.position.set(r.body.position.x, -r.body.position.y, 0);
+        r.mesh.rotation.x += dt * 4;
+        r.mesh.rotation.z += dt * 5;
+      }
+    }
+
     // ── Sync switches (type-specific animation) ──
     if (_swB) {
       for (const sm of this.switchMeshes) {
@@ -4197,6 +4360,7 @@ export class VoxelRenderer {
       cullGroup(this.toxicFishGroups, toxicFishBodies);
       cullGroup(this.armoredFishGroups, armoredFishBodies);
       cullGroup(this.spittingCoralGroups, spittingCoralBodies);
+      cullGroup(this.bossCrabGroups, bossCrabBodies);
 
       // Cull items
       for (const b of this.buoyMeshes) cullBody(b);

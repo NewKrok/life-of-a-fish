@@ -34,6 +34,7 @@
 //  35 = swinging anchor (kinematic pendulum, hangs from ceiling on chain)
 //  36 = bottle message (collectible, shows text once, then disappears)
 //  37 = hint stone (permanent, shows text when player is nearby)
+//  38 = giant crab boss (world 1 boss — 5 HP, charge + rock throw)
 
 export const TILE_SIZE = 32;
 
@@ -86,6 +87,7 @@ const KEY = {
   H: 35, // swinging anchor (horgony)
   I: 36, // bottle message (collectible)
   J: 37, // hint stone (permanent hint)
+  M: 38, // giant crab boss
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -124,7 +126,7 @@ const LEVELS = [
       "####...............A......##.....###....###p.##dxdd#####..p..####....####.....###..pd####..A..####...pd#############pp...####", // 19
       "####........dd.....W......##.....###....Gp#..#########.......####....####.....###..e.####..e..####..##################...####", // 20
       "####......dddd.....W......##..p..###.....p#..#########.......####....####..p..###....####.....####..##################...####", // 21
-      "####..Cpddddddd..d.W.dp.d.##..d..###.d..###d.#########..d..d.####d...####..C..###d...####..d..####..##################..d####", // 22
+      "####..Cpddddddd..d.W.dp.d.##..d..###.d..###d.#########..d..d.####d...####..M..###d...####..d..####..##################..d####", // 22
       "#sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss#", // 23
       "#############################################################################################################################", // 24
     ],
@@ -185,6 +187,54 @@ const LEVELS = [
       "#....##########################.dC.##########################.d..##########################.d..##########################...#", // 22
       "#sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss#", // 23
       "#############################################################################################################################", // 24
+    ],
+  },
+
+  // ── Boss Level 1: Giant Crab ──
+  // World 1 boss arena — wider floor, scattered boulders for ammo, hazardous plants
+  // on the edges so the boss's knockback feels dangerous. No pearls required to win
+  // (victory condition = boss defeat, see bossLevel flag + levelGoal: 'boss').
+  {
+    id: "bossGiantCrab",
+    name: "Boss: Giant Crab",
+    description: "Guardian of the reef's exit",
+    cols: 60,
+    rows: 25,
+    waterRow: 3, // water surface at row 3
+    bossLevel: true,
+    levelGoal: 'boss', // victory triggered when all boss bodies are defeated
+    strings: [
+      "############################################################", // 0
+      "#..........................................................#", // 1
+      "#..........................................................#", // 2
+      "#..........................................................#", // 3
+      "#..........................................................#", // 4
+      "#..........................................................#", // 5
+      "#..........................................................#", // 6
+      "#..........................................................#", // 7
+      "#......J...................................................#", // 8
+      "#...........................I..............................#", // 9
+      "#..........................................................#", // 10
+      "#..........................................................#", // 11
+      "#..........................................................#", // 12
+      "#..........................................................#", // 13
+      "#..........................................................#", // 14
+      "#..........................................................#", // 15
+      "#..........................................................#", // 16
+      "#..........................................................#", // 17
+      "#..........................................................#", // 18
+      "#............R....R.........................R....R.........#", // 19
+      "#..........................................................#", // 20
+      "#.........................p................................#", // 21
+      "#..@.....R.......R................M................R.....p.#", // 22
+      "#xxsssssssssssssssssssssssssssssssssssssssssssssssssssssxxs#", // 23
+      "############################################################", // 24
+    ],
+    bottleMessages: [
+      { row: 9, col: 28, text: "The big one guards the reef's edge. It hits hard — let the floor do the work." },
+    ],
+    hintStones: [
+      { row: 8, col: 7, text: "Throw {key:E|GRAB} <color='#c8a050'>boulders</color> at the <color='#ff6666'>giant crab</color>. It takes 5 hits." },
     ],
   },
 
@@ -272,6 +322,17 @@ export function getCurrentLevelIndex() {
   return _currentLevelIndex;
 }
 
+/** Get metadata for the active level (flags like bossLevel, levelGoal, name, id). */
+export function getCurrentLevelMeta() {
+  const l = LEVELS[_currentLevelIndex];
+  return {
+    id: l.id,
+    name: l.name,
+    bossLevel: !!l.bossLevel,
+    levelGoal: l.levelGoal || 'pearls', // 'pearls' | 'boss'
+  };
+}
+
 /** Switch to a different level. Updates all exported dimensions and re-parses tiles. */
 export function setCurrentLevel(index) {
   if (index < 0 || index >= LEVELS.length) return;
@@ -324,6 +385,7 @@ export function getLevelEntities() {
     swingingAnchors: [], // { x, y, chainLength }
     bottleMessages: [], // { x, y, text }
     hintStones: [], // { x, y, text }
+    giantCrabBosses: [], // { x, y }
   };
   for (let row = 0; row < LEVEL_ROWS; row++) {
     for (let col = 0; col < LEVEL_COLS; col++) {
@@ -404,6 +466,9 @@ export function getLevelEntities() {
         TILES[row][col] = 0;
       } else if (t === 37) {
         entities.hintStones.push({ x: cx, y: cy, text: '...' });
+        TILES[row][col] = 0;
+      } else if (t === 38) {
+        entities.giantCrabBosses.push({ x: cx, y: cy });
         TILES[row][col] = 0;
       }
     }
