@@ -26,6 +26,6 @@
   },
   "dependencies": {
     "@newkrok/nape-js": "^3.26.0",
-    "three": "^0.170.0"
+    "three": "^0.184.0"
   }
 }
