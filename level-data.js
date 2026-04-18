@@ -199,10 +199,11 @@ const LEVELS = [
     name: "Boss: Giant Crab",
     description: "Guardian of the reef's exit",
     cols: 60,
-    rows: 25,
+    rows: 30,
     waterRow: 3, // water surface at row 3
     bossLevel: true,
     levelGoal: 'boss', // victory triggered when all boss bodies are defeated
+    noCaveBg: true,    // open arena — no dark cave background
     strings: [
       "############################################################", // 0
       "#..........................................................#", // 1
@@ -211,30 +212,35 @@ const LEVELS = [
       "#..........................................................#", // 4
       "#..........................................................#", // 5
       "#..........................................................#", // 6
-      "#..........................................................#", // 7
-      "#......J...................................................#", // 8
-      "#...........................I..............................#", // 9
-      "#..........................................................#", // 10
+      "#......J...................................................#", // 7
+      "#...........................I..............................#", // 8
+      "#..........................................................#", // 9
+      "#..........e.......................................e.......#", // 10
       "#..........................................................#", // 11
-      "#..........................................................#", // 12
+      "#.....e............................................e.......#", // 12
       "#..........................................................#", // 13
       "#..........................................................#", // 14
-      "#..........................................................#", // 15
+      "#............R....R.........................R....R.........#", // 15
       "#..........................................................#", // 16
-      "#..........................................................#", // 17
-      "#..........................................................#", // 18
-      "#............R....R.........................R....R.........#", // 19
-      "#..........................................................#", // 20
-      "#.........................p................................#", // 21
-      "#..@.....R.......R................M................R.....p.#", // 22
-      "#xxsssssssssssssssssssssssssssssssssssssssssssssssssssssxxs#", // 23
-      "############################################################", // 24
+      "#.........................p................................#", // 17
+      "#..@.....R.......R..C.........M..........C.....R.....p..C.#", // 18
+      "#xxsssssssssssssssssssssssssssssssssssssssssssssssssssssxxs#", // 19
+      "#sssssssssssssssssssssssssssssssssssssssssssssssssssssssssss#", // 20
+      "#sssssssssssssssssssssssssssssssssssssssssssssssssssssssssss#", // 21
+      "#sssssssssssssssssssssssssssssssssssssssssssssssssssssssssss#", // 22
+      "#sssssssssssssssssssssssssssssssssssssssssssssssssssssssssss#", // 23
+      "#sssssssssssssssssssssssssssssssssssssssssssssssssssssssssss#", // 24
+      "#sssssssssssssssssssssssssssssssssssssssssssssssssssssssssss#", // 25
+      "#sssssssssssssssssssssssssssssssssssssssssssssssssssssssssss#", // 26
+      "#sssssssssssssssssssssssssssssssssssssssssssssssssssssssssss#", // 27
+      "#sssssssssssssssssssssssssssssssssssssssssssssssssssssssssss#", // 28
+      "############################################################", // 29
     ],
     bottleMessages: [
-      { row: 9, col: 28, text: "The big one guards the reef's edge. It hits hard — let the floor do the work." },
+      { row: 8, col: 28, text: "The big one guards the reef's edge. It hits hard — let the floor do the work." },
     ],
     hintStones: [
-      { row: 8, col: 7, text: "Throw {key:E|GRAB} <color='#c8a050'>boulders</color> at the <color='#ff6666'>giant crab</color>. It takes 5 hits." },
+      { row: 7, col: 7, text: "Throw {key:E|GRAB} <color='#c8a050'>boulders</color> at the <color='#ff6666'>giant crab</color>. It takes 5 hits." },
     ],
   },
 
@@ -288,6 +294,7 @@ export let LEVEL_ROWS = LEVELS[0].rows;
 export let WORLD_W = LEVEL_COLS * TILE_SIZE;
 export let WORLD_H = LEVEL_ROWS * TILE_SIZE;
 export let WATER_SURFACE_Y = LEVELS[0].waterRow * TILE_SIZE;
+export let NO_CAVE_BG = !!LEVELS[0].noCaveBg;
 
 // Parse the string map into a 2D number array
 export const TILES = [];
@@ -345,6 +352,7 @@ export function setCurrentLevel(index) {
   WORLD_W = LEVEL_COLS * TILE_SIZE;
   WORLD_H = LEVEL_ROWS * TILE_SIZE;
   WATER_SURFACE_Y = level.waterRow * TILE_SIZE;
+  NO_CAVE_BG = !!level.noCaveBg;
 
   _parseTiles();
 }

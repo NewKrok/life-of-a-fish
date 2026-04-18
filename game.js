@@ -77,17 +77,31 @@ const CRAB_PUSH_FORCE = 600;          // px/s — push velocity applied to playe
 const BOSS_CRAB_HP = 5;               // hits to defeat
 const BOSS_CRAB_PATROL_SPEED = 30;    // px/s — slow wandering
 const BOSS_CRAB_CHARGE_SPEED = 200;   // px/s — charge lunge speed
-const BOSS_CRAB_CHARGE_INTERVAL = 4500;  // ms — cooldown between charges
-const BOSS_CRAB_CHARGE_WINDUP = 700;  // ms — telegraph time before dash
-const BOSS_CRAB_CHARGE_DURATION = 900; // ms — max charge duration
-const BOSS_CRAB_PUSH_FORCE = 950;     // px/s — stronger than regular crab push
-const BOSS_CRAB_THROW_INTERVAL = 3500; // ms — time between rock throws
-const BOSS_CRAB_THROW_SPEED = 280;    // px/s — initial rock velocity
-const BOSS_CRAB_THROW_GRAVITY = 420;  // px/s² — gravity applied to thrown rocks
-const BOSS_CRAB_THROW_LIFE = 3500;    // ms — rock auto-despawns after this
+const BOSS_CRAB_CHARGE_INTERVAL = 7000;  // ms — cooldown between charges
+const BOSS_CRAB_CHARGE_WINDUP = 1000; // ms — telegraph time before dash
+const BOSS_CRAB_CHARGE_DURATION = 3500; // ms — max charge duration (+40% longer rush)
+const BOSS_CRAB_PUSH_FORCE = 1200;    // px/s — stronger than regular crab push (bigger boss)
+const BOSS_CRAB_THROW_INTERVAL = 5500; // ms — time between rock throws
+const BOSS_CRAB_THROW_SPEED = 52;     // px/s — initial rock velocity (+15%)
+const BOSS_CRAB_THROW_GRAVITY = 85;   // px/s² — gravity applied to thrown rocks (+15%)
+const BOSS_CRAB_THROW_LIFE = 6000;    // ms — rock auto-despawns after this (longer for slower arc)
 const BOSS_CRAB_HIT_INVULN = 1200;    // ms — invulnerability window after hit
-const BOSS_CRAB_WIDTH = 88;           // px — physics body width
-const BOSS_CRAB_HEIGHT = 56;          // px — physics body height
+const BOSS_CRAB_JUMP_SPEED_X = 180;   // px/s — horizontal speed during jump
+const BOSS_CRAB_JUMP_SPEED_Y = -525;  // px/s — upward launch velocity (50% higher jump)
+const BOSS_CRAB_JUMP_GRAVITY = 400;   // px/s² — gravity during jump arc (20% slower fall)
+const BOSS_CRAB_JUMP_INTERVAL = 9000; // ms — cooldown between jumps
+const BOSS_CRAB_JUMP_DAMAGE = true;   // landing deals damage (death)
+const BOSS_CRAB_JUMP_WINDUP = 800;    // ms — crouch telegraph before jump
+const BOSS_CRAB_THROW_WINDUP = 600;   // ms — arm-raise telegraph before throw
+const BOSS_CRAB_SLAM_INTERVAL = 12000; // ms — cooldown between ground slams
+const BOSS_CRAB_SLAM_WINDUP = 900;    // ms — telegraph before slam
+const BOSS_CRAB_SLAM_ROCKS = 8;       // number of rocks falling from above
+const BOSS_CRAB_SLAM_ROCK_SPREAD = 450; // px — horizontal spread of falling rocks (~one screen width)
+const BOSS_CRAB_RETREAT_INTERVAL = 12000; // ms — cooldown between retreats
+const BOSS_CRAB_RETREAT_SPEED = 60;    // px/s — backing-off speed
+const BOSS_CRAB_RETREAT_DURATION = 2000; // ms — how long the retreat lasts
+const BOSS_CRAB_WIDTH = 112;          // px — physics body width (matches visual ~14 voxels × V=8.4)
+const BOSS_CRAB_HEIGHT = 77;          // px — physics body height (matches visual ~9 voxels × V=8.4)
 const TOXIC_SHOOT_RANGE = 180;        // px — range to detect and shoot
 const TOXIC_SHOOT_INTERVAL = 2000;    // ms — cooldown between shots
 const TOXIC_PROJECTILE_SPEED = 150;   // px/s — projectile velocity
@@ -1323,27 +1337,35 @@ for (const cr of entities.crabs) {
 const bossCrabBodies = [];     // array of boss bodies (usually 0 or 1 per level)
 const bossRockBodies = [];     // active thrown rocks
 for (const bc of entities.giantCrabBosses) {
-  const b = new Body(BodyType.KINEMATIC, new Vec2(bc.x, bc.y));
+  // Position body so its bottom edge sits on the floor (one tile below spawn)
+  const spawnY = bc.y - BOSS_CRAB_HEIGHT / 2 + TILE_SIZE / 2;
+  const b = new Body(BodyType.KINEMATIC, new Vec2(bc.x, spawnY));
   const shape = new Polygon(Polygon.box(BOSS_CRAB_WIDTH, BOSS_CRAB_HEIGHT));
   shape.sensorEnabled = true;
   shape.cbTypes.add(bossCrabTag);
   b.shapes.add(shape);
   b.space = space;
-  // Arena bounds: half-width patrol across the available floor width
-  const arenaMinX = Math.max(TILE_SIZE * 2, bc.x - 240);
-  const arenaMaxX = Math.min(WORLD_W - TILE_SIZE * 2, bc.x + 240);
+  // Arena bounds: patrol within 80% of the level width (10% margin each side)
+  const levelMargin = WORLD_W * 0.10;
+  const arenaMinX = Math.max(levelMargin, bc.x - 600);
+  const arenaMaxX = Math.min(WORLD_W - levelMargin, bc.x + 600);
   b._boss = {
     hp: BOSS_CRAB_HP,
     maxHp: BOSS_CRAB_HP,
     spawnX: bc.x,
-    spawnY: bc.y,
+    spawnY: spawnY,
     minX: arenaMinX,
     maxX: arenaMaxX,
     dir: 1,
-    state: 'patrol',        // 'patrol' | 'windup' | 'charge'
+    state: 'patrol',        // 'patrol' | 'windup' | 'charge' | 'jumpWindup' | 'jump' | 'throwWindup' | 'slamWindup' | 'slam' | 'retreat'
     stateTimer: 0,
     throwTimer: BOSS_CRAB_THROW_INTERVAL * 0.6,  // stagger first throw
+    throwing: false,                              // true while throw sequence is active
     chargeTimer: BOSS_CRAB_CHARGE_INTERVAL,
+    jumpTimer: BOSS_CRAB_JUMP_INTERVAL * 0.8,   // stagger first jump
+    jumpVy: 0,                                    // current vertical velocity during jump
+    slamTimer: BOSS_CRAB_SLAM_INTERVAL,
+    retreatTimer: BOSS_CRAB_RETREAT_INTERVAL * 0.7, // stagger first retreat
     invulnTimer: 0,
     flashTimer: 0,
   };
@@ -1829,14 +1851,20 @@ const bossCrabListener = new InteractionListener(
     const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
     const boss = bossCrabBodies.find(b => b === b1 || b === b2);
     if (!boss || !boss.space) return;
+    const st = boss._boss;
+    // Dying boss doesn't deal damage
+    if (st && st.state === 'dying') return;
+    // Jump and charge attacks kill the player on contact
+    if (st && (st.state === 'jump' || st.state === 'charge')) {
+      triggerDeath();
+      sfx.crabPush();
+      return;
+    }
     const dx = player.position.x - boss.position.x;
     const dy = player.position.y - boss.position.y;
     const len = Math.sqrt(dx * dx + dy * dy) || 1;
     const pushDirX = dx >= 0 ? 1 : -1;
-    // Charge state adds extra oomph so the arena edges become the real danger
-    const charging = boss._boss && boss._boss.state === 'charge';
-    const force = charging ? BOSS_CRAB_PUSH_FORCE * 1.3 : BOSS_CRAB_PUSH_FORCE;
-    fishCtrl.knockback(pushDirX * force, (dy / len) * force * 0.3 - force * 0.4);
+    fishCtrl.knockback(pushDirX * BOSS_CRAB_PUSH_FORCE, (dy / len) * BOSS_CRAB_PUSH_FORCE * 0.3 - BOSS_CRAB_PUSH_FORCE * 0.4);
     sfx.crabPush();
   },
 );
@@ -1849,8 +1877,11 @@ const boulderBossListener = new InteractionListener(
     const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
     const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
     const boulderBody = boulderBodies.find(br => br === b1 || br === b2);
-    // Only count thrown boulders, not carried ones
+    // Only count thrown boulders with real velocity, not carried or resting ones
     if (!boulderBody || boulderBody === grabbedBoulder) return;
+    const bvx = boulderBody.velocity.x, bvy = boulderBody.velocity.y;
+    const boulderSpeed = Math.sqrt(bvx * bvx + bvy * bvy);
+    if (boulderSpeed < 80) return; // ignore slow/resting boulders
     const boss = bossCrabBodies.find(b => b === b1 || b === b2);
     if (!boss || !boss.space || !boss._boss) return;
     const st = boss._boss;
@@ -1866,34 +1897,44 @@ const boulderBossListener = new InteractionListener(
       voxelRenderer.spawnBoulderBreak(boss.position.x, boss.position.y);
     }
     sfx.crabPush();
-    if (st.hp <= 0) {
-      // Defeated — despawn with dramatic burst
-      const cx = boss.position.x;
-      const cy = boss.position.y;
-      boss.space = null;
+    // Flee from player after getting hit (unless dying)
+    if (st.hp > 0) {
+      st.state = 'flee';
+      st.throwing = false; // cancel any throw sequence
+      st.stateTimer = BOSS_CRAB_HIT_INVULN + 1000; // flash duration + 1s flee
+    }
+    if (st.hp <= 0 && st.state !== 'dying') {
+      // Enter dying state — boss collapses, then explodes into pearls
+      st.state = 'dying';
+      st.stateTimer = 3000; // 3s collapse animation
+      st.throwing = false;
+      st.dir = 0;
+      boss.velocity = new Vec2(0, 0);
       sfx.enemyDeath();
-      voxelRenderer.spawnEnemyDeath(cx, cy, [0xcc3322, 0xdd4433, 0xbb2211, 0xee5544, 0xff8866]);
-      voxelRenderer.spawnBoulderBreak(cx, cy);
     }
   },
 );
 boulderBossListener.space = space;
 
-// ── Spawn a rock projectile from a boss with a parabolic arc toward player ──
-function _spawnBossRock(boss) {
-  const originX = boss.position.x;
-  const originY = boss.position.y - BOSS_CRAB_HEIGHT / 2 - 6;
+// ── Spawn a single rock from a specific claw side ──
+function _spawnSingleRock(boss, side) {
+  const dir = boss._boss ? boss._boss.dir : 1;
+  // Left claw is on the "left" side of the crab (negative Z → screen-forward)
+  // Right claw is on the "right" side (positive Z → screen-back)
+  // The claw tip extends forward (in boss facing direction) ~60px from center
+  const clawForward = dir * 60;
+  const clawUp = -BOSS_CRAB_HEIGHT * 0.3;
+  const originX = boss.position.x + clawForward;
+  const originY = boss.position.y + clawUp;
   const targetX = player.position.x;
   const targetY = player.position.y;
-  // Solve for initial velocity that lands on target with fixed speed + gravity
   const dx = targetX - originX;
   const dy = targetY - originY;
-  const flightT = Math.max(0.3, Math.min(1.4, Math.abs(dx) / BOSS_CRAB_THROW_SPEED + 0.2));
+  const flightT = Math.max(0.6, Math.min(2.2, Math.abs(dx) / BOSS_CRAB_THROW_SPEED + 0.4));
   const vx = dx / flightT;
-  // y = dy/T + 0.5*g*T solved for initial vy (downscreen is +y in game space)
   const vy = dy / flightT - 0.5 * BOSS_CRAB_THROW_GRAVITY * flightT;
   const b = new Body(BodyType.KINEMATIC, new Vec2(originX, originY));
-  const shape = new Circle(8);
+  const shape = new Circle(14);
   shape.sensorEnabled = true;
   shape.cbTypes.add(bossRockTag);
   b.shapes.add(shape);
@@ -1903,6 +1944,55 @@ function _spawnBossRock(boss) {
   bossRockBodies.push(b);
   voxelRenderer.buildBossRock(b);
   sfx.stoneThrow();
+}
+
+// ── Spawn rocks from boss — 6 throws alternating left/right claws ──
+function _spawnBossRock(boss) {
+  const bossIdx = bossCrabBodies.indexOf(boss);
+  const throwCount = 6;
+  const stagger = 500; // ms between each throw
+  const st = boss._boss;
+  if (st) st.throwing = true;
+
+  for (let i = 0; i < throwCount; i++) {
+    const side = i % 2 === 0 ? 'left' : 'right';
+    const isLast = i === throwCount - 1;
+    const throwDelay = i * stagger;
+    setTimeout(() => {
+      if (!boss.space || !st || st.state === 'dying') { st.throwing = false; return; }
+      if (bossIdx >= 0) voxelRenderer.startBossCrabThrow(bossIdx, side);
+      setTimeout(() => {
+        if (!boss.space || !st || st.state === 'dying') { st.throwing = false; return; }
+        _spawnSingleRock(boss, side);
+        if (isLast) st.throwing = false; // sequence complete
+      }, 450); // sync with arm swing peak
+    }, throwDelay);
+  }
+}
+
+// ── Spawn falling rocks from above during ground slam ──
+function _spawnFallingRocks(boss) {
+  const cx = boss.position.x;
+  const topY = 32; // near the top of the level (row 1)
+  for (let i = 0; i < BOSS_CRAB_SLAM_ROCKS; i++) {
+    const offsetX = (Math.random() - 0.5) * 2 * BOSS_CRAB_SLAM_ROCK_SPREAD;
+    const delay = i * 120; // stagger rocks slightly
+    setTimeout(() => {
+      if (!boss.space) return;
+      const rx = cx + offsetX;
+      const b = new Body(BodyType.KINEMATIC, new Vec2(rx, topY));
+      const shape = new Circle(14);
+      shape.sensorEnabled = true;
+      shape.cbTypes.add(bossRockTag);
+      b.shapes.add(shape);
+      b.space = space;
+      b.velocity = new Vec2((Math.random() - 0.5) * 15, 30);
+      b._life = BOSS_CRAB_THROW_LIFE;
+      b._fallingRock = true; // flag for heavier gravity
+      bossRockBodies.push(b);
+      voxelRenderer.buildBossRock(b);
+    }, delay);
+  }
 }
 
 // ── Boss rock projectile hits player -> death ──
@@ -1976,6 +2066,11 @@ const boulderCrabListener = new InteractionListener(
     const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
     const boulderBody = boulderBodies.find(br => br === b1 || br === b2);
     if (boulderBody === grabbedBoulder) return;
+    // Only moving boulders kill crabs (not resting ones on the floor)
+    if (boulderBody) {
+      const bvx = boulderBody.velocity.x, bvy = boulderBody.velocity.y;
+      if (Math.sqrt(bvx * bvx + bvy * bvy) < 80) return;
+    }
     const crabBody = crabBodies.find(c => c === b1 || c === b2);
     if (crabBody && crabBody.space) {
       const cx = crabBody.position.x;
@@ -2878,14 +2973,19 @@ function _resetEntities() {
     const b = bossCrabBodies[i];
     const bc = entities.giantCrabBosses[i];
     if (!bc) continue;
-    b.position = new Vec2(bc.x, bc.y);
+    b.position = new Vec2(b._boss.spawnX, b._boss.spawnY);
     b.velocity = new Vec2(0, 0);
     if (b._boss) {
       b._boss.hp = b._boss.maxHp;
       b._boss.state = 'patrol';
       b._boss.stateTimer = 0;
       b._boss.throwTimer = BOSS_CRAB_THROW_INTERVAL * 0.6;
+      b._boss.throwing = false;
       b._boss.chargeTimer = BOSS_CRAB_CHARGE_INTERVAL;
+      b._boss.jumpTimer = BOSS_CRAB_JUMP_INTERVAL * 0.8;
+      b._boss.jumpVy = 0;
+      b._boss.slamTimer = BOSS_CRAB_SLAM_INTERVAL;
+      b._boss.retreatTimer = BOSS_CRAB_RETREAT_INTERVAL * 0.7;
       b._boss.invulnTimer = 0;
       b._boss.flashTimer = 0;
       b._boss.dir = 1;
@@ -3618,8 +3718,11 @@ function gameLoop() {
   // ── Victory check ──
   if (!victoryActive && !deathActive) {
     if (IS_BOSS_LEVEL) {
-      const anyBossAlive = bossCrabBodies.some(b => b.space);
-      if (bossCrabBodies.length > 0 && !anyBossAlive) showVictory();
+      // Victory is triggered by the dying state's victoryTimer, not by space check
+      // (gives player time to collect pearls after boss death)
+      const anyBossDying = bossCrabBodies.some(b => b._boss && b._boss.state === 'dying');
+      const anyBossAlive = bossCrabBodies.some(b => b.space && (!b._boss || b._boss.state !== 'dying'));
+      if (bossCrabBodies.length > 0 && !anyBossAlive && !anyBossDying) showVictory();
     } else if (pearlCount >= TOTAL_PEARLS) {
       showVictory();
     }
@@ -3735,13 +3838,24 @@ function gameLoop() {
 
   // ── Update boss crab AI (patrol → windup → charge; periodic rock throw) ──
   for (const bc of bossCrabBodies) {
-    if (!bc.space || !bc._boss) continue;
+    if (!bc._boss) continue;
     const st = bc._boss;
+    // Dead boss: only tick victory timer
+    if (!bc.space) {
+      if (st.dead && st.victoryTimer !== undefined) {
+        st.victoryTimer = Math.max(0, st.victoryTimer - DT * 1000);
+        if (st.victoryTimer <= 0) showVictory();
+      }
+      continue;
+    }
 
     // Tick per-boss timers
     st.stateTimer = Math.max(0, st.stateTimer - DT * 1000);
     st.throwTimer = Math.max(0, st.throwTimer - DT * 1000);
     st.chargeTimer = Math.max(0, st.chargeTimer - DT * 1000);
+    st.jumpTimer = Math.max(0, st.jumpTimer - DT * 1000);
+    st.slamTimer = Math.max(0, st.slamTimer - DT * 1000);
+    st.retreatTimer = Math.max(0, st.retreatTimer - DT * 1000);
     if (st.invulnTimer > 0) st.invulnTimer = Math.max(0, st.invulnTimer - DT * 1000);
     if (st.flashTimer > 0) st.flashTimer = Math.max(0, st.flashTimer - DT * 1000);
 
@@ -3750,10 +3864,77 @@ function gameLoop() {
     const playerDy = player.position.y - bc.position.y;
 
     // State machine
+    if (st.state === 'dying') {
+      // Boss is collapsing — stop movement, flash/shake
+      bc.velocity = new Vec2(0, 0);
+      if (st.stateTimer <= 0 && !st.dead) {
+        // Begin pearl eruption phase — boss stays visible while pearls fly out
+        st.dead = true;
+        st.despawnTimer = 2000; // boss visible for 2s while pearls erupt
+        const cx = bc.position.x, cy = bc.position.y;
+        sfx.enemyDeath();
+        bc.velocity = new Vec2(0, 0);
+
+        // Pearl explosion — staggered outward burst
+        const pearlNum = 8;
+        const pearlRestY = st.spawnY - BOSS_CRAB_HEIGHT * 0.5;
+        for (let p = 0; p < pearlNum; p++) {
+          const delay = p * 200; // slightly more spread over time
+          setTimeout(() => {
+            if (!space) return;
+            const angle = (p / pearlNum) * Math.PI * 2 + (Math.random() - 0.5) * 0.5;
+            const startX = cx + (Math.random() - 0.5) * 60;
+            const startY = cy - 20;
+            const pb = new Body(BodyType.KINEMATIC, new Vec2(startX, startY));
+            const ps = new Circle(6);
+            ps.sensorEnabled = true;
+            ps.cbTypes.add(pearlTag);
+            pb.shapes.add(ps);
+            pb.space = space;
+            pb.velocity = new Vec2(
+              Math.cos(angle) * 120 + (Math.random() - 0.5) * 40,
+              -180 - Math.random() * 60,
+            );
+            pb._bossLoot = true;
+            pb._lootFloorY = pearlRestY;
+            pearlBodies.push(pb);
+            voxelRenderer.buildPearlAt(pb);
+            // Small burst particle at each pearl spawn
+            voxelRenderer.spawnBoulderBreak(startX, startY);
+          }, delay);
+        }
+
+        // Kill all other enemies
+        for (const e of [...enemyBodies, ...crabBodies, ...toxicFishBodies, ...armoredFishBodies]) {
+          if (e.space) {
+            voxelRenderer.spawnEnemyDeath(e.position.x, e.position.y, [0xcc3322, 0xdd4433, 0xbb2211]);
+            e.space = null;
+          }
+        }
+        // Despawn all active boss rocks
+        for (const r of bossRockBodies) { if (r.space) r.space = null; }
+        bossRockBodies.length = 0;
+        // Victory after 10s pearl collection time
+        st.victoryTimer = 10000;
+      }
+      // Despawn boss after pearls have erupted
+      if (st.dead && st.despawnTimer !== undefined) {
+        st.despawnTimer = Math.max(0, st.despawnTimer - DT * 1000);
+        if (st.despawnTimer <= 0 && bc.space) {
+          const cx = bc.position.x, cy = bc.position.y;
+          bc.space = null;
+          voxelRenderer.spawnBoulderBreak(cx, cy);
+          voxelRenderer.spawnEnemyDeath(cx, cy, [0xcc3322, 0xdd4433, 0xbb2211, 0xee5544, 0xff8866]);
+        }
+      }
+      continue; // skip all other logic for dying boss
+    }
     if (st.state === 'charge') {
-      // Lunge in locked direction until timer ends or we hit the arena edge
+      // Lunge in locked direction, reverse at arena edges
       bc.velocity = new Vec2(st.dir * BOSS_CRAB_CHARGE_SPEED, 0);
-      if (st.stateTimer <= 0 || bx <= st.minX || bx >= st.maxX) {
+      if (bx <= st.minX) st.dir = 1;
+      if (bx >= st.maxX) st.dir = -1;
+      if (st.stateTimer <= 0) {
         st.state = 'patrol';
         st.stateTimer = 0;
         st.chargeTimer = BOSS_CRAB_CHARGE_INTERVAL;
@@ -3767,25 +3948,129 @@ function gameLoop() {
         st.state = 'charge';
         st.stateTimer = BOSS_CRAB_CHARGE_DURATION;
       }
+    } else if (st.state === 'jumpWindup') {
+      // Telegraph: crouch before jumping
+      bc.velocity = new Vec2(0, 0);
+      if (playerDx < -4) st.dir = -1;
+      else if (playerDx > 4) st.dir = 1;
+      if (st.stateTimer <= 0) {
+        st.state = 'jump';
+        st.jumpVy = BOSS_CRAB_JUMP_SPEED_Y;
+      }
+    } else if (st.state === 'jump') {
+      // Jump attack — parabolic arc toward player, deals damage on landing
+      st.jumpVy += BOSS_CRAB_JUMP_GRAVITY * DT;
+      bc.velocity = new Vec2(st.dir * BOSS_CRAB_JUMP_SPEED_X, st.jumpVy);
+      // Land when reaching or exceeding spawn Y (ground level)
+      if (bc.position.y >= st.spawnY && st.jumpVy > 0) {
+        bc.position.y = st.spawnY;
+        bc.velocity = new Vec2(0, 0);
+        st.state = 'patrol';
+        st.jumpTimer = BOSS_CRAB_JUMP_INTERVAL;
+        sfx.crabPush();
+      }
+    } else if (st.state === 'throwWindup') {
+      // Telegraph: stop and raise arms before throwing
+      bc.velocity = new Vec2(0, 0);
+      if (playerDx < -4) st.dir = -1;
+      else if (playerDx > 4) st.dir = 1;
+      if (st.stateTimer <= 0) {
+        st.state = 'patrol';
+        _spawnBossRock(bc);
+      }
+    } else if (st.state === 'slamWindup') {
+      // Telegraph before ground slam — crouch and shake
+      bc.velocity = new Vec2(0, 0);
+      if (st.stateTimer <= 0) {
+        st.state = 'slam';
+        st.stateTimer = 200; // brief slam animation
+        // Spawn falling rocks from above across the arena
+        _spawnFallingRocks(bc);
+        sfx.stoneThrow();
+      }
+    } else if (st.state === 'slam') {
+      // Ground slam recovery
+      bc.velocity = new Vec2(0, 0);
+      if (st.stateTimer <= 0) {
+        st.state = 'patrol';
+        st.slamTimer = BOSS_CRAB_SLAM_INTERVAL;
+      }
+    } else if (st.state === 'flee') {
+      // Flee from player after getting hit — run away fast
+      const awayDir = playerDx >= 0 ? -1 : 1;
+      st.dir = awayDir;
+      bc.velocity = new Vec2(awayDir * BOSS_CRAB_RETREAT_SPEED * 2, 0);
+      // Reverse at arena edge
+      if (bx <= st.minX) { st.dir = 1; bc.velocity = new Vec2(BOSS_CRAB_RETREAT_SPEED * 2, 0); }
+      if (bx >= st.maxX) { st.dir = -1; bc.velocity = new Vec2(-BOSS_CRAB_RETREAT_SPEED * 2, 0); }
+      if (st.stateTimer <= 0) {
+        st.state = 'patrol';
+      }
+    } else if (st.state === 'retreat') {
+      // Back away from the player — gives breathing room
+      const awayDir = playerDx >= 0 ? -1 : 1;
+      st.dir = awayDir;
+      bc.velocity = new Vec2(awayDir * BOSS_CRAB_RETREAT_SPEED, 0);
+      // Clamp to arena
+      if (bx <= st.minX || bx >= st.maxX) bc.velocity = new Vec2(0, 0);
+      if (st.stateTimer <= 0) {
+        st.state = 'patrol';
+        st.retreatTimer = BOSS_CRAB_RETREAT_INTERVAL;
+      }
     } else {
       // patrol — slow back-and-forth
       if (bx >= st.maxX) st.dir = -1;
       if (bx <= st.minX) st.dir = 1;
       bc.velocity = new Vec2(st.dir * BOSS_CRAB_PATROL_SPEED, 0);
 
-      // Start a charge when player is roughly on the same floor level and in range
-      const playerInFront = (st.dir === 1 ? playerDx > 0 : playerDx < 0);
-      const inRange = Math.abs(playerDx) < 380 && Math.abs(playerDy) < 90;
-      if (st.chargeTimer <= 0 && playerInFront && inRange) {
-        st.state = 'windup';
-        st.stateTimer = BOSS_CRAB_CHARGE_WINDUP;
+      // Don't start new attacks while a throw sequence is still active
+      if (!st.throwing) {
+        // Start a charge when player is roughly on the same floor level and in range
+        const playerInFront = (st.dir === 1 ? playerDx > 0 : playerDx < 0);
+        const inRange = Math.abs(playerDx) < 380 && Math.abs(playerDy) < 90;
+        if (st.chargeTimer <= 0 && playerInFront && inRange) {
+          st.state = 'windup';
+          st.stateTimer = BOSS_CRAB_CHARGE_WINDUP;
+        }
+        // Jump attack — crouch then leap toward the player
+        else if (st.jumpTimer <= 0 && Math.abs(playerDx) < 500) {
+          st.state = 'jumpWindup';
+          st.stateTimer = BOSS_CRAB_JUMP_WINDUP;
+          st.dir = playerDx >= 0 ? 1 : -1;
+        }
+        // Ground slam — face-slam that rains rocks from above
+        else if (st.slamTimer <= 0) {
+          st.state = 'slamWindup';
+          st.stateTimer = BOSS_CRAB_SLAM_WINDUP;
+        }
+        // Retreat — back off to give the player breathing room
+        else if (st.retreatTimer <= 0 && Math.abs(playerDx) < 300) {
+          st.state = 'retreat';
+          st.stateTimer = BOSS_CRAB_RETREAT_DURATION;
+        }
       }
     }
 
-    // Rock throw (independent of charge state, but skip while winding up to avoid overlap)
-    if (st.throwTimer <= 0 && st.state !== 'windup' && bc.space) {
+    // Rock throw — only during patrol, triggers a windup first
+    const distToPlayer = Math.abs(playerDx) + Math.abs(playerDy);
+    const inVisualRange = distToPlayer < 600;
+    if (st.throwTimer <= 0 && st.state === 'patrol' && inVisualRange && bc.space) {
       st.throwTimer = BOSS_CRAB_THROW_INTERVAL;
-      _spawnBossRock(bc);
+      st.state = 'throwWindup';
+      st.stateTimer = BOSS_CRAB_THROW_WINDUP;
+    }
+  }
+
+  // ── Tick boss loot pearls (custom gravity, stop at floor) ──
+  for (const pb of pearlBodies) {
+    if (!pb._bossLoot || !pb.space) continue;
+    // Apply gravity
+    pb.velocity = new Vec2(pb.velocity.x * 0.99, pb.velocity.y + 400 * DT);
+    // Stop at floor level
+    if (pb.position.y >= pb._lootFloorY) {
+      pb.position.y = pb._lootFloorY;
+      pb.velocity = new Vec2(0, 0);
+      pb._bossLoot = false; // stop ticking, pearl rests on floor
     }
   }
 
@@ -3800,7 +4085,9 @@ function gameLoop() {
       continue;
     }
     // Apply gravity manually (KINEMATIC ignores the space gravity)
-    r.velocity = new Vec2(r.velocity.x, r.velocity.y + BOSS_CRAB_THROW_GRAVITY * DT);
+    // Falling rocks (from slam) use heavier gravity for faster descent
+    const rockGrav = r._fallingRock ? BOSS_CRAB_THROW_GRAVITY * 1.2 : BOSS_CRAB_THROW_GRAVITY;
+    r.velocity = new Vec2(r.velocity.x, r.velocity.y + rockGrav * DT);
   }
 
   // ── Update toxic fish AI (patrol + shoot) ──
