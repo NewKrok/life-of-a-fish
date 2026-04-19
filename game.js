@@ -28,6 +28,7 @@ import { MenuScene } from './menu-scene.js';
 import { MusicSystem } from './music-system.js';
 import { SfxSystem } from './sfx-system.js';
 import { LevelEditor, generateEditorPreviews } from './level-editor.js';
+import { GameStateMachine, STATE } from './game-state.js';
 import { generateCodexPreviews } from './codex-renderer.js';
 import { initI18n, t, translateDOM, setLocale, getLocale, onLocaleChange } from './i18n.js';
 
@@ -147,6 +148,9 @@ let appState = 'menu';  // 'menu' | 'game' | 'aquarium' | 'settings' | 'about' |
 let gameInitialized = false;
 let gameAnimId = null;
 
+// ── State Machine (central source of truth for transitions) ──
+const gsm = new GameStateMachine();
+
 // Menu scene (created immediately — runs as menu background)
 const menuScene = new MenuScene(THREE, renderer);
 
@@ -161,6 +165,8 @@ let _editorPlayTest = false;   // true when play-testing from editor
 let _editorPlayTestTiles = null;  // saved tile state (terrain only) for returning to editor
 let _editorPlayTestTilesWithEntities = null;  // saved tile state (with entities) for restart
 let _editorPlayTestEntities = null;  // saved entity state for editor play test
+let _editorPlayTestUndoStack = null; // saved undo/redo stacks for editor play test
+let _editorPlayTestRedoStack = null;
 
 // ── Music & SFX ──
 const music = new MusicSystem();
@@ -215,7 +221,7 @@ const editorTestExit = document.getElementById('editorTestExit');
 const touchControls = new TouchControls();
 
 function showMenu() {
-  appState = 'menu';
+  gsm.forceState(STATE.MENU);
   menuOverlay.classList.remove('hidden');
   // Ensure main menu buttons are visible, level select is hidden
   document.getElementById('menuMain').classList.remove('hidden');
@@ -409,9 +415,8 @@ function _irisStandaloneLoop() {
     _irisAnimId = null;
     // Init game — its game loop will drive the remaining open phases
     menuScene.stop();
-    appState = 'game';
+    gsm.forceState(STATE.GAME_PLAYING);
     music.play('game');
-    if (!_editorPlayTest) pauseBtn.classList.add('visible');
     _startWithExpand = true;
     startGame();
     return;
@@ -516,7 +521,7 @@ let _startWithExpand = true; // true on first load too
 
 document.getElementById('btnAquarium').addEventListener('click', () => {
   sfx.buttonClick();
-  appState = 'aquarium';
+  gsm.transition(STATE.AQUARIUM);
   hideMenuUI();
   aquariumCloseBtn.classList.add('visible');
   menuScene.setAquariumMode(true);
@@ -529,7 +534,7 @@ aquariumCloseBtn.addEventListener('click', () => {
 
 document.getElementById('btnSettings').addEventListener('click', () => {
   sfx.buttonClick();
-  appState = 'settings';
+  gsm.transition(STATE.SETTINGS);
   menuOverlay.classList.add('hidden');
   settingsPanel.classList.add('visible');
 });
@@ -541,7 +546,7 @@ document.getElementById('settingsBack').addEventListener('click', () => {
 
 document.getElementById('btnAbout').addEventListener('click', () => {
   sfx.buttonClick();
-  appState = 'about';
+  gsm.transition(STATE.ABOUT);
   menuOverlay.classList.add('hidden');
   aboutPanel.classList.add('visible');
 });
@@ -654,7 +659,7 @@ document.getElementById('codexTabs').addEventListener('click', (e) => {
 
 document.getElementById('btnCodex').addEventListener('click', () => {
   sfx.buttonClick();
-  appState = 'codex';
+  gsm.transition(STATE.CODEX);
   menuOverlay.classList.add('hidden');
   codexPanel.classList.add('visible');
   // Reset to "All" tab
@@ -765,10 +770,17 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'F4') {
     e.preventDefault();
     if (editorActive) {
-      // Deactivate editor
       _deactivateEditor();
+      // Transition back: GAME_EDITOR→GAME_PLAYING or MENU_EDITOR→MENU
+      if (gsm.is(STATE.GAME_EDITOR)) gsm.transition(STATE.GAME_PLAYING);
+      else if (gsm.is(STATE.MENU_EDITOR)) gsm.transition(STATE.MENU);
     } else {
-      // Activate editor for current context
+      // Transition to editor: GAME_PLAYING→GAME_EDITOR or MENU→MENU_EDITOR
+      if (gsm.is(STATE.GAME_PLAYING) || (gsm.is(STATE.MENU) && appState === 'game' && gameInitialized)) {
+        gsm.transition(STATE.GAME_EDITOR);
+      } else if (gsm.is(STATE.MENU)) {
+        gsm.transition(STATE.MENU_EDITOR);
+      }
       _activateEditor();
     }
   }
@@ -782,6 +794,10 @@ function _activateEditor() {
     if (!_codexPreviews) _codexPreviews = generateCodexPreviews(THREE);
     _editorPreviews = generateEditorPreviews(THREE, VoxelRenderer, _codexPreviews);
   }
+
+  // Hide game UI elements while in editor
+  pauseBtn.classList.remove('visible');
+  touchControls.hide();
 
   if (appState === 'game' && gameInitialized) {
     // Game level editor
@@ -977,6 +993,11 @@ function _deactivateEditor() {
   if (appState === 'menu') {
     menuOverlay.classList.remove('hidden');
   }
+  // Restore game UI if we were in game state
+  if (appState === 'game' && gameInitialized) {
+    pauseBtn.classList.add('visible');
+    touchControls.show();
+  }
 }
 
 function _getActiveEditor() {
@@ -992,6 +1013,8 @@ function _startEditorPlayTest() {
   // Save editor state for returning (terrain-only tiles, before writing entities)
   _editorPlayTestTiles = gameEditor.tiles.map(row => [...row]);
   _editorPlayTestEntities = JSON.parse(JSON.stringify(gameEditor.entities));
+  _editorPlayTestUndoStack = gameEditor._undoStack;
+  _editorPlayTestRedoStack = gameEditor._redoStack;
 
   // Write editor entities into TILES so getLevelEntities() can find them
   for (const ent of gameEditor.entities) {
@@ -1007,29 +1030,29 @@ function _startEditorPlayTest() {
   // Deactivate editor
   _deactivateEditor();
 
+  // Transition state machine: GAME_EDITOR → EDITOR_PLAYTEST
+  gsm.transition(STATE.EDITOR_PLAYTEST);
+
   // Reset game initialization so startGame rebuilds everything from current TILES
   gameInitialized = false;
   gameEditor = null; // force re-creation when editor is re-opened
-
-  // Start the game — tiles are already modified in place by the editor
-  _editorPlayTest = true;
-  appState = 'game';
 
   // Stop menu scene
   menuScene.stop();
   menuOverlay.classList.add('hidden');
 
-  // Show editor test controls instead of pause button
-  pauseBtn.classList.remove('visible');
-  editorTestControls.classList.add('visible');
+  // Cancel existing game loop before starting a new one to prevent double-speed
+  if (gameAnimId) {
+    cancelAnimationFrame(gameAnimId);
+    gameAnimId = null;
+  }
 
   startGame();
 }
 
 function _exitEditorPlayTest() {
-  _editorPlayTest = false;
-  editorTestControls.classList.remove('visible');
-  pauseBtn.classList.remove('visible');
+  // Transition state machine: EDITOR_PLAYTEST → GAME_EDITOR
+  gsm.transition(STATE.GAME_EDITOR);
 
   // Restore tile state with entities (so getLevelEntities works on re-init)
   if (_editorPlayTestTilesWithEntities) {
@@ -1049,7 +1072,6 @@ function _exitEditorPlayTest() {
   gameEditor = null;
 
   // Re-start game with editor's tile state (skip resetTiles)
-  appState = 'game';
   _editorPlayTest = true; // temporarily to skip resetTiles
   startGame();
   _editorPlayTest = false;
@@ -1058,6 +1080,9 @@ function _exitEditorPlayTest() {
   _activateEditor();
   if (gameEditor && _editorPlayTestEntities) {
     gameEditor.entities = _editorPlayTestEntities;
+    // Restore undo/redo stacks from before play test
+    if (_editorPlayTestUndoStack) gameEditor._undoStack = _editorPlayTestUndoStack;
+    if (_editorPlayTestRedoStack) gameEditor._redoStack = _editorPlayTestRedoStack;
     // Restore terrain-only tiles for editor (entities tracked separately)
     if (_editorPlayTestTiles) {
       for (let r = 0; r < _editorPlayTestTiles.length; r++) {
@@ -1072,6 +1097,9 @@ function _exitEditorPlayTest() {
 }
 
 function _restartEditorPlayTest() {
+  // Self-transition: EDITOR_PLAYTEST → EDITOR_PLAYTEST
+  gsm.transition(STATE.EDITOR_PLAYTEST);
+
   // Restore tile state with entities for a fresh start
   if (_editorPlayTestTilesWithEntities) {
     for (let r = 0; r < _editorPlayTestTilesWithEntities.length; r++) {
@@ -1100,6 +1128,139 @@ function _restartEditorPlayTest() {
 editorTestExit.addEventListener('click', () => _exitEditorPlayTest());
 editorTestRestart.addEventListener('click', () => _restartEditorPlayTest());
 
+// ── State Machine Hook Registration ──
+// Hooks sync legacy flags and manage UI visibility for each state.
+
+gsm.registerHooks(STATE.MENU, {
+  onEnter() {
+    appState = 'menu';
+    editorActive = false;
+    _editorPlayTest = false;
+    menuOverlay.classList.remove('hidden');
+    pauseBtn.classList.remove('visible');
+    editorTestControls.classList.remove('visible');
+    touchControls.hide();
+  },
+  onExit() {
+    menuOverlay.classList.add('hidden');
+  },
+});
+
+gsm.registerHooks(STATE.MENU_EDITOR, {
+  onEnter() {
+    appState = 'menu';
+    editorActive = true;
+    menuOverlay.classList.add('hidden');
+    aquariumCloseBtn.classList.remove('visible');
+    settingsPanel.classList.remove('visible');
+    aboutPanel.classList.remove('visible');
+    codexPanel.classList.remove('visible');
+    pauseBtn.classList.remove('visible');
+    touchControls.hide();
+  },
+  onExit() {
+    editorActive = false;
+  },
+});
+
+gsm.registerHooks(STATE.GAME_PLAYING, {
+  onEnter() {
+    appState = 'game';
+    editorActive = false;
+    _editorPlayTest = false;
+    pauseBtn.classList.add('visible');
+    touchControls.show();
+    editorTestControls.classList.remove('visible');
+  },
+});
+
+gsm.registerHooks(STATE.GAME_PAUSED, {
+  onEnter() {
+    appState = 'game';
+    touchControls.hide();
+  },
+  onExit() {
+    touchControls.show();
+  },
+});
+
+gsm.registerHooks(STATE.GAME_EDITOR, {
+  onEnter() {
+    appState = 'game';
+    editorActive = true;
+    pauseBtn.classList.remove('visible');
+    touchControls.hide();
+    editorTestControls.classList.remove('visible');
+  },
+  onExit() {
+    editorActive = false;
+  },
+});
+
+gsm.registerHooks(STATE.EDITOR_PLAYTEST, {
+  onEnter() {
+    appState = 'game';
+    editorActive = false;
+    _editorPlayTest = true;
+    pauseBtn.classList.remove('visible');
+    editorTestControls.classList.add('visible');
+    touchControls.hide();
+  },
+  onExit() {
+    _editorPlayTest = false;
+    editorTestControls.classList.remove('visible');
+  },
+});
+
+gsm.registerHooks(STATE.GAME_OVER, {
+  onEnter() {
+    touchControls.hide();
+  },
+});
+
+gsm.registerHooks(STATE.VICTORY, {
+  onEnter() {
+    touchControls.hide();
+  },
+});
+
+gsm.registerHooks(STATE.AQUARIUM, {
+  onEnter() {
+    appState = 'aquarium';
+    menuOverlay.classList.add('hidden');
+  },
+  onExit() {
+    appState = 'menu';
+  },
+});
+
+gsm.registerHooks(STATE.SETTINGS, {
+  onEnter() {
+    appState = 'settings';
+  },
+  onExit() {
+    appState = 'menu';
+  },
+});
+
+gsm.registerHooks(STATE.ABOUT, {
+  onEnter() {
+    appState = 'about';
+  },
+  onExit() {
+    appState = 'menu';
+  },
+});
+
+gsm.registerHooks(STATE.CODEX, {
+  onEnter() {
+    appState = 'codex';
+  },
+  onExit() {
+    appState = 'menu';
+  },
+});
+
 // Start the menu scene immediately
 menuScene.start();
 
@@ -1126,6 +1287,16 @@ function startGame() {
     return;
   }
   gameInitialized = true;
+
+  // Clean up previous game resources to prevent memory leaks on re-init
+  if (voxelRenderer) {
+    voxelRenderer.dispose();
+    voxelRenderer = null;
+  }
+  if (scene) {
+    scene = null;
+  }
+  camera = null;
 
   // Reset tile data so entities are re-extracted cleanly on re-start
   // Skip if play-testing from editor — tiles are already in the desired state

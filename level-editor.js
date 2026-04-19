@@ -200,6 +200,12 @@ export class LevelEditor {
     // Dirty flag for export
     this.dirty = false;
 
+    // Undo/Redo stacks (snapshot-based)
+    this._undoStack = [];     // Array of { tiles, entities } snapshots
+    this._redoStack = [];
+    this._activeAction = null; // Snapshot taken at mousedown, pushed on mouseup
+    this._MAX_UNDO = 100;
+
     // Sidebar rendering cache (offscreen canvas + dirty flag)
     this._sidebarDirty = true;
     this._sidebarCanvas = null;  // created on first render
@@ -401,6 +407,7 @@ export class LevelEditor {
 
     // Move mode: drag entity
     if (this.moveMode && this._movingEntity && this._mouseDown) {
+      this._beginAction(); // snapshot before first move frame
       const ent = this.entities[this._movingEntity.entityIdx];
       if (ent) {
         const { visW: vw, visH: vh } = getVisibleSize();
@@ -446,17 +453,13 @@ export class LevelEditor {
     }
 
     // Continuous painting while mouse held (skip if dragging patrol or in move mode)
-    // Delay first paint briefly to allow double-click detection
     if (this._mouseDown && !this._draggingPatrol && !this.moveMode) {
-      if (this._paintDelay > 0) {
-        this._paintDelay -= dt;
-      } else {
-        this._placeTileAtMouse(getVisibleSize);
-      }
+      this._placeTileAtMouse(getVisibleSize);
     }
 
     // Drag patrol handle or chain handle (snapped to tile centers)
     if (this._draggingPatrol && this._mouseDown) {
+      this._beginAction(); // snapshot before first drag frame
       const ent = this.entities[this._draggingPatrol.entityIdx];
       const { visW: vw, visH: vh } = getVisibleSize();
       const rawX = this.camX + ((this._mouseScreen.x - SIDEBAR_W) / (this.hudCanvas.width - SIDEBAR_W)) * vw;
@@ -1253,6 +1256,9 @@ export class LevelEditor {
     if (this._lastPlacedCell && this._lastPlacedCell.col === col && this._lastPlacedCell.row === row) return;
     this._lastPlacedCell = { col, row };
 
+    // Snapshot before first mutation in this action (no-op if already tracking)
+    this._beginAction();
+
     const cx = col * TILE_SIZE + TILE_SIZE / 2;
     const cy = row * TILE_SIZE + TILE_SIZE / 2;
     const tileId = this.selectedTile;
@@ -1593,6 +1599,85 @@ export class LevelEditor {
     return Object.values(groups);
   }
 
+  // ── Undo / Redo ──
+
+  _takeSnapshot() {
+    return {
+      tiles: this.tiles.map(row => [...row]),
+      entities: JSON.parse(JSON.stringify(this.entities)),
+    };
+  }
+
+  _applySnapshot(snap) {
+    for (let r = 0; r < snap.tiles.length; r++) {
+      for (let c = 0; c < snap.tiles[r].length; c++) {
+        this.tiles[r][c] = snap.tiles[r][c];
+      }
+    }
+    this.entities = snap.entities;
+    this._terrainDirty = true;
+    this._sgCacheDirty = true;
+    this.dirty = true;
+    this.onTerrainChange?.();
+    this.onEntityChange?.(this.entities);
+  }
+
+  /** Begin tracking a continuous action (paint stroke, entity drag, patrol drag). */
+  _beginAction() {
+    if (this._activeAction) return; // already tracking
+    this._activeAction = this._takeSnapshot();
+  }
+
+  /** Commit the current action to the undo stack. No-op if nothing changed. */
+  _commitAction() {
+    if (!this._activeAction) return;
+    const before = this._activeAction;
+    this._activeAction = null;
+    // Only push if something actually changed
+    if (this._snapshotsEqual(before, this._takeSnapshot())) return;
+    this._undoStack.push(before);
+    this._redoStack = [];
+    if (this._undoStack.length > this._MAX_UNDO) this._undoStack.shift();
+  }
+
+  /** Push a single discrete action (not a continuous drag). */
+  _pushUndoSnapshot() {
+    const snap = this._takeSnapshot();
+    this._undoStack.push(snap);
+    this._redoStack = [];
+    if (this._undoStack.length > this._MAX_UNDO) this._undoStack.shift();
+  }
+
+  _snapshotsEqual(a, b) {
+    if (a.entities.length !== b.entities.length) return false;
+    for (let r = 0; r < a.tiles.length; r++) {
+      for (let c = 0; c < a.tiles[r].length; c++) {
+        if (a.tiles[r][c] !== b.tiles[r][c]) return false;
+      }
+    }
+    // Quick entity check — stringified comparison (entities are small)
+    return JSON.stringify(a.entities) === JSON.stringify(b.entities);
+  }
+
+  undo() {
+    this._commitAction(); // flush any in-progress action
+    if (!this._undoStack.length) return;
+    const current = this._takeSnapshot();
+    const prev = this._undoStack.pop();
+    this._redoStack.push(current);
+    this._applySnapshot(prev);
+    this._showToast('Undo');
+  }
+
+  redo() {
+    if (!this._redoStack.length) return;
+    const current = this._takeSnapshot();
+    const next = this._redoStack.pop();
+    this._undoStack.push(current);
+    this._applySnapshot(next);
+    this._showToast('Redo');
+  }
+
   // ── Toast notification ──
   _toastMsg = '';
   _toastTimer = 0;
@@ -1657,6 +1742,16 @@ export class LevelEditor {
     // Ctrl+C = copy level data
     if ((e.ctrlKey || e.metaKey) && e.code === 'KeyC') {
       this.copyToClipboard();
+      e.preventDefault();
+    }
+
+    // Ctrl+Z = undo, Ctrl+Shift+Z / Ctrl+Y = redo
+    if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ' && !e.shiftKey) {
+      this.undo();
+      e.preventDefault();
+    }
+    if ((e.ctrlKey || e.metaKey) && ((e.code === 'KeyZ' && e.shiftKey) || e.code === 'KeyY')) {
+      this.redo();
       e.preventDefault();
     }
 
@@ -1757,7 +1852,6 @@ export class LevelEditor {
 
       this._mouseDown = true;
       this._lastPlacedCell = null;
-      this._paintDelay = 0.15; // 150ms delay to allow double-click detection
     } else if (e.button === 2) {
       // Right-click: start camera drag
       this._rightMouseDown = true;
@@ -1774,14 +1868,18 @@ export class LevelEditor {
 
   _handleMouseUp(e) {
     if (e.button === 0) {
-      // Single click: if paint delay hasn't expired yet, place one tile now
-      if (this._mouseDown && this._paintDelay > 0 && !this._draggingPatrol && !this.moveMode) {
+      // Quick click: if no tile was placed yet during this mouseDown, ensure one is placed
+      if (this._mouseDown && !this._lastPlacedCell && !this._draggingPatrol && !this.moveMode) {
         this._pendingSinglePlace = true;
       }
       this._mouseDown = false;
-      this._paintDelay = 0;
       this._draggingPatrol = null;
       this._movingEntity = null;
+      // Commit continuous action to undo stack (skip if single-place is pending —
+      // that placement hasn't happened yet, commit will occur in processPendingActions)
+      if (!this._pendingSinglePlace) {
+        this._commitAction();
+      }
     } else if (e.button === 2) {
       this._rightMouseDown = false;
       this._rightDragStart = null;
@@ -1965,6 +2063,8 @@ export class LevelEditor {
     this._mouseDown = false;
     this._draggingPatrol = null;
     this._movingEntity = null;
+    // Commit continuous touch action to undo stack
+    this._commitAction();
   }
 
   // ── Process pending actions (needs getVisibleSize from game loop) ──
@@ -1975,6 +2075,7 @@ export class LevelEditor {
       const viewW = this.hudCanvas.width - SIDEBAR_W;
       const wx = this.camX + ((this._pendingDblClick.screenX - SIDEBAR_W) / viewW) * visW;
       const wy = this.camY + (this._pendingDblClick.screenY / this.hudCanvas.height) * visH;
+      this._pushUndoSnapshot();
       this._deleteAtWorldPos(wx, wy);
       this._pendingDblClick = null;
     }
@@ -2000,6 +2101,7 @@ export class LevelEditor {
       const wy = this.camY + (this._pendingGroupCycle.screenY / this.hudCanvas.height) * visH;
       const idx = this._findEntityAt(wx, wy);
       if (idx >= 0 && this._isSwitchOrGate(this.entities[idx].tileId)) {
+        this._pushUndoSnapshot();
         this._cycleSwitchGateGroup(idx);
         this._showToast(t('editor.groupToast', { group: this.entities[idx].group }));
       } else if (idx >= 0 && (this.entities[idx].tileId === 36 || this.entities[idx].tileId === 37)) {
@@ -2008,6 +2110,7 @@ export class LevelEditor {
         const typeName = ent.tileId === 36 ? 'Bottle' : 'Hint Stone';
         const newText = prompt(`${typeName} text:`, ent.text || '...');
         if (newText !== null) {
+          this._pushUndoSnapshot();
           ent.text = newText;
           this.dirty = true;
           this._showToast(`${typeName}: "${newText.substring(0, 30)}${newText.length > 30 ? '...' : ''}"`);
@@ -2040,6 +2143,8 @@ export class LevelEditor {
       this._lastPlacedCell = null; // reset so placement isn't skipped
       this._placeTileAtMouse(getVisibleSize);
       this._pendingSinglePlace = false;
+      // Now commit the action (snapshot was taken inside _placeTileAtMouse via _beginAction)
+      this._commitAction();
     }
   }
 
@@ -2054,12 +2159,14 @@ export class LevelEditor {
     if (!ent) { this._configEntityIdx = -1; return; }
 
     if (action === 'cycleGroup') {
+      this._pushUndoSnapshot();
       this._cycleSwitchGateGroup(this._configEntityIdx);
       this._showToast(t('editor.groupToast', { group: ent.group }));
     } else if (action === 'editText') {
       const typeName = ent.tileId === 36 ? 'Bottle' : 'Hint Stone';
       const newText = prompt(`${typeName} text:`, ent.text || '...');
       if (newText !== null) {
+        this._pushUndoSnapshot();
         ent.text = newText;
         this.dirty = true;
         this._showToast(`${typeName}: "${newText.substring(0, 30)}${newText.length > 30 ? '...' : ''}"`);

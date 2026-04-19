@@ -320,6 +320,14 @@ Plus ~25 hidden bottle messages and the Codex encyclopedia.
 | 13 | Boss fight system | Boss arena structure + first boss (Giant Crab) | **Done** |
 | 14 | Star system | 3-star rating per level, unlock logic, UI | Pending |
 | 15 | Story elements | Opening screens, world intros, ending scene | Pending |
+| 16 | Editor bug fixes | Fix double-speed playtest, UI leaks, physics/renderer memory leaks | **Done** |
+| 17 | Fixed timestep game loop | Decouple physics/logic from monitor refresh rate (fixed 60Hz step + interpolation) | Pending |
+| 18 | Editor state machine | Centralized state machine for menu/game/editor/playtest transitions | **Done** |
+| 19 | Undo/Redo | Command pattern undo/redo for all editor operations | **Done** |
+| 20 | Local Save/Load + JSON format | localStorage save/load, JSON export/import (= server format) | Pending |
+| 21 | Level Sharing Backend (Firebase) | Firestore + Auth + Cloud Functions for community levels | Pending |
+| 22 | Community Level Browser UI | Browse/search/rate community levels, level codes | Pending |
+| 23 | Cross-platform Auth | Google/Apple/Steam login with anonymous upgrade | Pending |
 
 ### Workflow
 

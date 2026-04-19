@@ -28,10 +28,11 @@ npx http-server
 ```
 index.html            — Entry point, two canvases (WebGL + HUD overlay)
 game.js               — Main game loop, physics setup, camera, collision listeners
+game-state.js         — Centralized state machine for app/editor/game transitions
 fish-controller.js    — Player movement: swim/dash/jump states, skills (stun/speed), water detection
 voxel-renderer.js     — Three.js voxel rendering: terrain, fish models, bubbles, water
 level-data.js         — Tile map definition (125×25), entity parsing, body merging
-level-editor.js       — In-game level editor (F4): tile palette, entity placement, patrol editing
+level-editor.js       — In-game level editor (F4): tile palette, entity placement, patrol editing, undo/redo
 touch-controls.js     — Mobile virtual joystick + dash button (pointer events)
 menu-scene.js         — Main menu background: aquarium scene with AI fish, camera pan
 menu-level-data.js    — Dedicated tile map for menu aquarium (60×25)
@@ -44,7 +45,7 @@ example.js            — Nape-js physics reference/demo (not used in game)
 
 App starts in menu state. `MenuScene` creates its own Three.js scene, physics space, and VoxelRenderer to render a dedicated aquarium level as the menu background. AI fish patrol around creating a living aquarium effect.
 
-- **States**: `menu` | `game` | `aquarium` | `settings` | `about`
+- **States** (managed by `GameStateMachine` in `game-state.js`): `MENU` | `MENU_EDITOR` | `GAME_PLAYING` | `GAME_PAUSED` | `GAME_EDITOR` | `EDITOR_PLAYTEST` | `GAME_OVER` | `VICTORY` | `AQUARIUM` | `SETTINGS` | `ABOUT` | `CODEX`
 - **Start Game**: stops menu scene, initializes and starts the game loop
 - **Aquarium**: hides menu UI, enables slow camera pan across the level, shows close (×) button
 - **Settings / About**: placeholder panels overlaid on the menu background
@@ -61,6 +62,7 @@ In-game editor activated with **F4**. Works in both menu and game states. Pauses
 - **Deletion**: double-click to remove entity or erase terrain tile
 - **Patrol editing**: enemies show patrol range lines with draggable min/max handles, snapped to tile centers
 - **Grid overlay**: toggle with G key
+- **Undo/Redo**: Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y). Snapshot-based: full tile+entity state captured before each action. Continuous actions (paint strokes, entity drags, patrol drags) grouped into single undo entries via mousedown→snapshot, mouseup→commit pattern. Max 100 undo levels.
 - **Export**: Ctrl+C copies LEVEL_STRINGS + patrol data to clipboard
 - **Entity overlay**: colored markers with labels for all entities (pearls, enemies, spawn, etc.)
 - **Mobile**: touch support for sidebar scroll/tap, world placement, double-tap delete, two-finger camera pan
