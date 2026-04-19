@@ -810,12 +810,17 @@ function _activateEditor() {
       );
       gameEditor.setPreviews(_editorPreviews);
       gameEditor.setScene(THREE, scene, voxelRenderer);
+      gameEditor.setLevelMeta(getCurrentLevelMeta());
       // Wire up 3D rebuild callbacks
       gameEditor.onTerrainChange = () => {
         if (voxelRenderer) voxelRenderer.rebuildTerrain();
       };
       gameEditor.onEntityChange = (entities) => {
         _rebuildGameEntityVisuals(entities);
+      };
+      gameEditor.onLevelResize = (cols, rows, worldW, worldH, waterRow) => {
+        if (voxelRenderer) voxelRenderer.rebuildTerrainFrom(TILES, cols, rows, worldH, waterRow * TILE_SIZE);
+        _rebuildGameEntityVisuals(gameEditor.entities);
       };
       gameEditor.onPlayTest = () => _startEditorPlayTest();
       gameEditor.activate(_gameCamX, _gameCamY, entityList);
@@ -836,6 +841,7 @@ function _activateEditor() {
       );
       menuEditor.setPreviews(_editorPreviews);
       menuEditor.setScene(THREE, menuScene.scene, menuScene.voxelRenderer);
+      menuEditor.setLevelMeta({ name: 'Menu Aquarium', waterRow: 4 });
       // Wire up 3D rebuild callbacks for menu
       menuEditor.onTerrainChange = () => {
         const mr = menuScene.voxelRenderer;
@@ -843,6 +849,12 @@ function _activateEditor() {
       };
       menuEditor.onEntityChange = (entities) => {
         _rebuildMenuEntityVisuals(entities);
+      };
+      menuEditor.onLevelResize = (cols, rows, worldW, worldH, waterRow) => {
+        // Rebuild terrain and entity visuals after load/import
+        const mr = menuScene.voxelRenderer;
+        if (mr) mr.rebuildTerrainFrom(MENU_TILES, cols, rows, worldH, waterRow * TILE_SIZE);
+        _rebuildMenuEntityVisuals(menuEditor.entities);
       };
       menuEditor.activate(menuScene.camX, menuScene.camY, menuEntities);
     } else {

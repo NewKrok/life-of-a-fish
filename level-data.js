@@ -337,6 +337,8 @@ export function getCurrentLevelMeta() {
     name: l.name,
     bossLevel: !!l.bossLevel,
     levelGoal: l.levelGoal || 'pearls', // 'pearls' | 'boss'
+    waterRow: l.waterRow ?? 4,
+    noCaveBg: !!l.noCaveBg,
   };
 }
 

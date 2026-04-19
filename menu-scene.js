@@ -332,6 +332,7 @@ export class MenuScene {
       mesh.instanceMatrix.needsUpdate = true;
       mesh.instanceColor.needsUpdate = true;
       this.scene.add(mesh);
+      this.voxelRenderer.terrainMeshes.push(mesh);
     }
 
     // Cave background layer
@@ -389,6 +390,7 @@ export class MenuScene {
       caveMesh.instanceMatrix.needsUpdate = true;
       caveMesh.instanceColor.needsUpdate = true;
       this.scene.add(caveMesh);
+      this.voxelRenderer.terrainMeshes.push(caveMesh);
     }
   }
 

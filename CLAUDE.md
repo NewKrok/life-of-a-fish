@@ -32,7 +32,7 @@ game-state.js         — Centralized state machine for app/editor/game transiti
 fish-controller.js    — Player movement: swim/dash/jump states, skills (stun/speed), water detection
 voxel-renderer.js     — Three.js voxel rendering: terrain, fish models, bubbles, water
 level-data.js         — Tile map definition (125×25), entity parsing, body merging
-level-editor.js       — In-game level editor (F4): tile palette, entity placement, patrol editing, undo/redo
+level-editor.js       — In-game level editor (F4): tile palette, entity placement, patrol editing, undo/redo, JSON save/load
 touch-controls.js     — Mobile virtual joystick + dash button (pointer events)
 menu-scene.js         — Main menu background: aquarium scene with AI fish, camera pan
 menu-level-data.js    — Dedicated tile map for menu aquarium (60×25)
@@ -63,7 +63,9 @@ In-game editor activated with **F4**. Works in both menu and game states. Pauses
 - **Patrol editing**: enemies show patrol range lines with draggable min/max handles, snapped to tile centers
 - **Grid overlay**: toggle with G key
 - **Undo/Redo**: Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y). Snapshot-based: full tile+entity state captured before each action. Continuous actions (paint strokes, entity drags, patrol drags) grouped into single undo entries via mousedown→snapshot, mouseup→commit pattern. Max 100 undo levels.
-- **Export**: Ctrl+C copies LEVEL_STRINGS + patrol data to clipboard
+- **Export**: Ctrl+C copies level as JSON to clipboard. JSON button in top bar does the same.
+- **Save/Load**: Save and Load buttons in top bar open an overlay panel. Levels stored in localStorage (`loaf_editor_levels` key, max 20 slots). Save creates named slots; Load restores from a slot. Ctrl+S quick-saves to last slot. Import JSON button for pasting JSON data.
+- **JSON format**: `{ version, name, cols, rows, waterRow, bossLevel?, levelGoal?, noCaveBg?, strings[], entities[] }`. Each entity: `{ tileId, row, col, patrol?, group?, text?, chainLength? }`. This format is also the server format for Firebase level sharing (#21).
 - **Entity overlay**: colored markers with labels for all entities (pearls, enemies, spawn, etc.)
 - **Mobile**: touch support for sidebar scroll/tap, world placement, double-tap delete, two-finger camera pan
 
