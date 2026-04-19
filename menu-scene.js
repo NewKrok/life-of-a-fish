@@ -16,7 +16,8 @@ import {
 import { VoxelRenderer } from './voxel-renderer.js';
 
 // ── Constants ──
-const DT = 1 / 60;
+const FIXED_DT = 1 / 60;             // s — fixed physics timestep
+const MAX_STEPS_PER_FRAME = 5;
 const ENEMY_SPEED = 55;              // px/s — gentle patrol
 const SHARK_PATROL_SPEED = 40;       // px/s
 const PUFFER_SPEED = 25;             // px/s
@@ -462,6 +463,8 @@ export class MenuScene {
   start() {
     if (this._running) return;
     this._running = true;
+    this._menuLastFrame = 0;
+    this._menuAccum = 0;
     this._loop();
   }
 
@@ -473,12 +476,30 @@ export class MenuScene {
     }
   }
 
-  // ── Game loop ──
-  _loop() {
+  // ── Game loop (fixed timestep + accumulator) ──
+  _loop(timestamp) {
     if (!this._running) return;
+    if (!timestamp) timestamp = performance.now();
+    if (!this._menuLastFrame) this._menuLastFrame = timestamp;
+    const rawDt = (timestamp - this._menuLastFrame) / 1000;
+    this._menuLastFrame = timestamp;
+    this._menuAccum = (this._menuAccum || 0) + Math.min(rawDt, MAX_STEPS_PER_FRAME * FIXED_DT);
 
     const editorMode = this._editor && this._editor.active;
 
+    // ── Fixed-step logic ──
+    while (this._menuAccum >= FIXED_DT) {
+      this._menuAccum -= FIXED_DT;
+      this._logicStep(editorMode);
+    }
+
+    // ── Render (once per frame) ──
+    this._renderFrame(editorMode);
+
+    this._animId = requestAnimationFrame((ts) => this._loop(ts));
+  }
+
+  _logicStep(editorMode) {
     // Skip AI + physics when editor is active
     if (!editorMode) {
       // Update enemy patrol AI
@@ -519,13 +540,47 @@ export class MenuScene {
       }
 
       // Physics step
-      this.space.step(DT, 8, 3);
+      this.space.step(FIXED_DT, 8, 3);
     }
 
-    // Camera update
-    const getVis = () => this._getVisibleSize();
-    // Editor uses flat camera (no pitch) with viewport offset for sidebar
-    const sidebarPx = 216;  // matches SIDEBAR_W in level-editor.js
+    // Camera panning (fixed-step for consistent speed)
+    const { visW } = this._getVisibleSize();
+    if (editorMode) {
+      const sidebarPx = 216;
+      const canvasW = this.renderer.domElement.clientWidth;
+      const canvasH = this.renderer.domElement.clientHeight;
+      const editorAspect = (canvasW - sidebarPx) / canvasH;
+      const getEditorVis = () => {
+        const vFov = CAM_FOV * Math.PI / 180;
+        const visH = 2 * Math.tan(vFov / 2) * CAM_DISTANCE;
+        return { visW: visH * editorAspect, visH };
+      };
+      this._editor.update(FIXED_DT, getEditorVis);
+      this._editor.processPendingActions(getEditorVis);
+      this.camX = this._editor.camX;
+      this.camY = this._editor.camY;
+      this.voxelRenderer._time += FIXED_DT;
+    } else if (this._aquariumMode) {
+      const margin = MENU_WORLD_W * 0.10;
+      const minCamX = margin;
+      const maxCamX = MENU_WORLD_W - visW - margin;
+      this.camX += this._aquariumCamDir * this._aquariumCamSpeed * FIXED_DT;
+      if (this.camX >= maxCamX) { this.camX = maxCamX; this._aquariumCamDir = -1; }
+      if (this.camX <= minCamX) { this.camX = minCamX; this._aquariumCamDir = 1; }
+    } else if (this._easingBack) {
+      this._easeElapsed += FIXED_DT;
+      const t = Math.min(this._easeElapsed / this._easeDuration, 1);
+      const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      this.camX = this._easeStartX + (this._easeTargetX - this._easeStartX) * ease;
+      this.camY = this._easeStartY + (this._easeTargetY - this._easeStartY) * ease;
+      if (t >= 1) this._easingBack = false;
+    } else {
+      this._centerCamera();
+    }
+  }
+
+  _renderFrame(editorMode) {
+    const sidebarPx = 216;
     const canvasW = this.renderer.domElement.clientWidth;
     const canvasH = this.renderer.domElement.clientHeight;
     const editorViewW = canvasW - sidebarPx;
@@ -533,50 +588,22 @@ export class MenuScene {
     const getEditorVis = () => {
       const vFov = CAM_FOV * Math.PI / 180;
       const visH = 2 * Math.tan(vFov / 2) * CAM_DISTANCE;
-      const visW = visH * editorAspect;
-      return { visW, visH };
+      return { visW: visH * editorAspect, visH };
     };
+    const getVis = () => this._getVisibleSize();
     const { visW, visH } = editorMode ? getEditorVis() : getVis();
 
-    if (editorMode) {
-      // Editor controls the camera — flat (no pitch)
-      this._editor.update(DT, getEditorVis);
-      this._editor.processPendingActions(getEditorVis);
-      this.camX = this._editor.camX;
-      this.camY = this._editor.camY;
-    } else if (this._aquariumMode) {
-      // Slow pan left/right with 10% margin on each side
-      const margin = MENU_WORLD_W * 0.10;
-      const minCamX = margin;
-      const maxCamX = MENU_WORLD_W - visW - margin;
-      this.camX += this._aquariumCamDir * this._aquariumCamSpeed * DT;
-      if (this.camX >= maxCamX) { this.camX = maxCamX; this._aquariumCamDir = -1; }
-      if (this.camX <= minCamX) { this.camX = minCamX; this._aquariumCamDir = 1; }
-    } else if (this._easingBack) {
-      // Ease back to center with smooth easeInOut
-      this._easeElapsed += DT;
-      const t = Math.min(this._easeElapsed / this._easeDuration, 1);
-      const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-      this.camX = this._easeStartX + (this._easeTargetX - this._easeStartX) * ease;
-      this.camY = this._easeStartY + (this._easeTargetY - this._easeStartY) * ease;
-      if (t >= 1) this._easingBack = false;
-    } else {
-      // Static: centered
-      this._centerCamera();
-    }
-
-    // Clamp camera (1 tile inset to avoid seeing behind level edges)
+    // Clamp camera
     const camInset = TILE_SIZE * 2;
     this.camX = Math.max(camInset, Math.min(this.camX, MENU_WORLD_W - visW - camInset));
     this.camY = Math.max(camInset, Math.min(this.camY, MENU_WORLD_H - visH - camInset));
 
-    // Sync editor cam back so 2D overlay matches 3D camera
     if (editorMode && this._editor) {
       this._editor.camX = this.camX;
       this._editor.camY = this.camY;
     }
 
-    // Position Three.js camera (editor = flat, normal = pitched)
+    // Position Three.js camera
     const lookX = this.camX + visW / 2;
     const lookY = -(this.camY + visH / 2);
     if (editorMode) {
@@ -588,22 +615,20 @@ export class MenuScene {
     }
     this.camera.lookAt(lookX, lookY, 0);
 
-    // Sync voxel renderer (skip in editor mode — entities positioned by editor callbacks)
+    // Sync voxel renderer
     if (!editorMode) {
       const fakeFishState = { inWater: true, swimSpeed: 0, facingRight: true, dashing: false };
       const fakeFishBody = { position: { x: lookX, y: this.camY + visH / 2 } };
-      this.voxelRenderer.syncFrame(fakeFishBody, fakeFishState, this.enemyBodies, DT, {
+      this.voxelRenderer.syncFrame(fakeFishBody, fakeFishState, this.enemyBodies, FIXED_DT, {
         sharkBodies: this.sharkBodies,
         pufferfishBodies: this.pufferfishBodies,
         crabBodies: this.crabBodies,
         toxicFishBodies: [],
         projectileBodies: [],
       });
-    } else {
-      this.voxelRenderer._time += DT;
     }
 
-    // Render — editor mode uses viewport/scissor to render right of sidebar
+    // Render
     if (editorMode) {
       this.renderer.setViewport(sidebarPx, 0, editorViewW, canvasH);
       this.renderer.setScissor(sidebarPx, 0, editorViewW, canvasH);
@@ -611,21 +636,18 @@ export class MenuScene {
       this.renderer.render(this.scene, this.camera);
       this.renderer.setScissorTest(false);
       this.renderer.setViewport(0, 0, canvasW, canvasH);
-      // Restore camera aspect
       this.camera.aspect = canvasW / canvasH;
       this.camera.updateProjectionMatrix();
     } else {
       this.renderer.render(this.scene, this.camera);
     }
 
-    // Editor overlay (drawn on shared HUD canvas)
+    // Editor overlay
     if (editorMode && this._editor.hudCtx) {
       const hud = this._editor.hudCanvas;
       this._editor.hudCtx.clearRect(0, 0, hud.width, hud.height);
       this._editor.render(getEditorVis);
-      this._editor.renderToast(DT);
+      this._editor.renderToast(FIXED_DT);
     }
-
-    this._animId = requestAnimationFrame(() => this._loop());
   }
 }

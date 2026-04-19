@@ -28,7 +28,7 @@ const HYSTERESIS = 8;            // px above/below surface to prevent flicker
 const ENTRY_MOMENTUM_FRAMES = 50; // frames to gradually blend from entry momentum to normal swim
 const ENTRY_DRAG_START = 0.998;  // near-zero drag right after entering water
 const ENTRY_SINK_FORCE = 350;    // downward force to counteract buoyancy during entry (px/s²)
-const DT = 1 / 60;
+const FIXED_DT = 1 / 60;  // s — fixed physics timestep (always called at 60Hz)
 
 export class FishController {
   constructor(space, body, cc, gravityY, sfx) {
@@ -77,11 +77,11 @@ export class FishController {
     const vy = body.velocity.y;
 
     // ── Skills cooldown / timer ticks ──
-    this.stunPulseCooldown = Math.max(0, this.stunPulseCooldown - 1000 * DT);
+    this.stunPulseCooldown = Math.max(0, this.stunPulseCooldown - 1000 * FIXED_DT);
     this.stunPulseActive = false; // reset — set to true only on activation frame
-    this.speedSurgeCooldown = Math.max(0, this.speedSurgeCooldown - 1000 * DT);
+    this.speedSurgeCooldown = Math.max(0, this.speedSurgeCooldown - 1000 * FIXED_DT);
     if (this.speedSurgeTimer > 0) {
-      this.speedSurgeTimer -= 1000 * DT;
+      this.speedSurgeTimer -= 1000 * FIXED_DT;
       if (this.speedSurgeTimer <= 0) {
         this.speedSurgeTimer = 0;
         this.speedSurgeActive = false;
@@ -142,9 +142,9 @@ export class FishController {
     }
 
     // ── Dash timer ──
-    this.dashCooldown = Math.max(0, this.dashCooldown - 1000 * DT);
+    this.dashCooldown = Math.max(0, this.dashCooldown - 1000 * FIXED_DT);
     if (this.dashing) {
-      this.dashTimer -= 1000 * DT;
+      this.dashTimer -= 1000 * FIXED_DT;
       if (this.dashTimer <= 0) {
         this.dashing = false;
       }
@@ -172,8 +172,8 @@ export class FishController {
 
       // Apply thrust from input (boosted during speed surge)
       const thrustMult = this.speedSurgeActive ? SPEED_SURGE_THRUST_MULT : 1;
-      cvx += input.dirX * SWIM_THRUST * thrustMult * DT;
-      cvy += input.dirY * SWIM_THRUST * thrustMult * DT;
+      cvx += input.dirX * SWIM_THRUST * thrustMult * FIXED_DT;
+      cvy += input.dirY * SWIM_THRUST * thrustMult * FIXED_DT;
 
       // Drag: reduced right after entering water so the fish carries momentum
       const t = this.entryMomentum > 0
@@ -183,7 +183,7 @@ export class FishController {
 
       // During entry momentum, push downward to counteract fluid buoyancy
       if (this.entryMomentum > 0) {
-        cvy += ENTRY_SINK_FORCE * t * DT;
+        cvy += ENTRY_SINK_FORCE * t * FIXED_DT;
       }
 
       // Extra drag when no input (fish slows down naturally)
@@ -192,7 +192,7 @@ export class FishController {
         cvy *= drag;
         // Gentle upward float when idle (buoyancy) — suppress during entry momentum
         if (this.entryMomentum === 0) {
-          cvy += IDLE_FLOAT_UP * DT;
+          cvy += IDLE_FLOAT_UP * FIXED_DT;
         }
       }
 
@@ -235,11 +235,11 @@ export class FishController {
       let cvy = body.velocity.y;
 
       // Slight horizontal control in air
-      cvx += input.dirX * SWIM_THRUST * 0.3 * DT;
+      cvx += input.dirX * SWIM_THRUST * 0.3 * FIXED_DT;
       cvx *= AIR_HORIZONTAL_DRAG;
 
       // Gravity is handled by the engine; amplify slightly
-      cvy += this.gravityY * (AIR_GRAVITY_MULT - 1) * DT;
+      cvy += this.gravityY * (AIR_GRAVITY_MULT - 1) * FIXED_DT;
 
       newVx = cvx;
       newVy = cvy;

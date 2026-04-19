@@ -321,7 +321,7 @@ Plus ~25 hidden bottle messages and the Codex encyclopedia.
 | 14 | Star system | 3-star rating per level, unlock logic, UI | Pending |
 | 15 | Story elements | Opening screens, world intros, ending scene | Pending |
 | 16 | Editor bug fixes | Fix double-speed playtest, UI leaks, physics/renderer memory leaks | **Done** |
-| 17 | Fixed timestep game loop | Decouple physics/logic from monitor refresh rate (fixed 60Hz step + interpolation) | Pending |
+| 17 | Fixed timestep game loop | Decouple physics/logic from monitor refresh rate (fixed 60Hz step + interpolation) | **Done** |
 | 18 | Editor state machine | Centralized state machine for menu/game/editor/playtest transitions | **Done** |
 | 19 | Undo/Redo | Command pattern undo/redo for all editor operations | **Done** |
 | 20 | Local Save/Load + JSON format | localStorage save/load, JSON export/import (= server format) | **Done** |

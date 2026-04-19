@@ -69,14 +69,19 @@ In-game editor activated with **F4**. Works in both menu and game states. Pauses
 - **Entity overlay**: colored markers with labels for all entities (pearls, enemies, spawn, etc.)
 - **Mobile**: touch support for sidebar scroll/tap, world placement, double-tap delete, two-finger camera pan
 
-### Game Loop (game.js, 60 FPS)
+### Game Loop (game.js, Fixed Timestep)
 
+Uses **fixed timestep accumulator** pattern: real elapsed time is accumulated, and game logic runs in fixed 1/60s steps regardless of monitor refresh rate (60Hz, 120Hz, 144Hz, etc.). Rendering happens once per frame after all logic steps complete.
+
+**Logic step** (`_gameLogicStep`, called at 60Hz):
 1. Aggregate input (keyboard + touch, including skill keys Q/R)
 2. Update enemy patrol AI (skip stunned enemies)
 3. `FishController.update()` — movement, dash, skills (stun pulse, speed surge), water transitions
 4. Stun Pulse AoE check + Speed Surge SFX trigger
 5. Clamp player to world bounds
-6. `nape.Space.step()` — physics (dt=1/60, 8 velocity / 3 position iterations)
+6. `nape.Space.step()` — physics (FIXED_DT=1/60, 8 velocity / 3 position iterations)
+
+**Render** (once per frame):
 7. Camera smooth-follow player
 8. `VoxelRenderer.syncFrame()` — sync 3D meshes to physics bodies, stun wobble, speed trail
 9. Three.js render

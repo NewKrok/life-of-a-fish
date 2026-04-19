@@ -61,7 +61,10 @@ onLocaleChange(() => {
 
 // ── Constants ──
 const GRAVITY = 200;
-const DT = 1 / 60;
+const FIXED_DT = 1 / 60;        // s — fixed physics/logic timestep
+const MAX_STEPS_PER_FRAME = 5;   // cap to prevent spiral of death on slow machines
+let _accumulator = 0;            // s — time debt for fixed-step loop
+let _lastFrameTime = 0;          // ms — last rAF timestamp
 const ENEMY_SPEED = 60;
 const ARMORED_FISH_SPEED = 50;         // px/s — slightly slower than piranha
 const ARMORED_KNOCKBACK = 300;         // px/s — half of crab push force
@@ -406,8 +409,18 @@ function irisCloseOnly(closeCx, closeCy, onBlack) {
 }
 
 // Standalone rAF loop for iris outside game loop (menu transitions)
-function _irisStandaloneLoop() {
-  _irisStep(1 / 60);
+let _irisLastFrame = 0;
+let _irisAccum = 0;
+function _irisStandaloneLoop(timestamp) {
+  if (!timestamp) timestamp = performance.now();
+  if (_irisLastFrame === 0) _irisLastFrame = timestamp;
+  const rawDt = (timestamp - _irisLastFrame) / 1000;
+  _irisLastFrame = timestamp;
+  _irisAccum += Math.min(rawDt, MAX_STEPS_PER_FRAME * FIXED_DT);
+  while (_irisAccum >= FIXED_DT) {
+    _irisAccum -= FIXED_DT;
+    _irisStep(FIXED_DT);
+  }
 
   // During black phase: if start-game is pending, init the game and hand off
   if (_startGamePending && irisState === 'black') {
@@ -434,6 +447,8 @@ function _irisStandaloneLoop() {
 
 function _irisStartStandalone() {
   if (_irisAnimId) cancelAnimationFrame(_irisAnimId);
+  _irisLastFrame = 0;
+  _irisAccum = 0;
   _irisAnimId = requestAnimationFrame(_irisStandaloneLoop);
 }
 
@@ -1294,7 +1309,9 @@ function updateCamera(w, h) {
 // ── Start Game (called when player clicks Start Game) ──
 function startGame() {
   if (gameInitialized) {
-    // Resume existing game
+    // Resume existing game — reset timestep to avoid delta spike
+    _lastFrameTime = 0;
+    _accumulator = 0;
     gameLoop();
     return;
   }
@@ -3778,13 +3795,23 @@ function _drawSkillIcon(x, y, size, label, activeColor, cooldownColor, cooldownP
   hudCtx.restore();
 }
 
-// ── Game Loop ──
-function gameLoop() {
+// ── Game Loop (Fixed Timestep + Accumulator) ──
+function gameLoop(timestamp) {
+  // Calculate real elapsed time, accumulate for fixed-step logic
+  if (!timestamp) timestamp = performance.now();
+  if (_lastFrameTime === 0) {
+    _lastFrameTime = timestamp;
+    _accumulator = FIXED_DT; // ensure at least one step on the first frame
+  } else {
+    const rawDt = (timestamp - _lastFrameTime) / 1000; // ms → s
+    _lastFrameTime = timestamp;
+    // Clamp to avoid spiral of death (e.g. tab was backgrounded)
+    _accumulator += Math.min(rawDt, MAX_STEPS_PER_FRAME * FIXED_DT);
+  }
 
   // ── Editor Mode ──
   if (editorActive && gameEditor) {
-    // Editor uses flat (top-down) camera, viewport offset by sidebar width
-    const sidebarPx = 216;  // matches SIDEBAR_W in level-editor.js
+    const sidebarPx = 216;
     const canvasW = renderer.domElement.clientWidth;
     const canvasH = renderer.domElement.clientHeight;
     const viewportW = canvasW - sidebarPx;
@@ -3797,10 +3824,15 @@ function gameLoop() {
       return { visW, visH };
     };
 
-    gameEditor.update(DT, editorGetVisibleSize);
-    gameEditor.processPendingActions(editorGetVisibleSize);
+    // Fixed-step editor logic
+    while (_accumulator >= FIXED_DT) {
+      _accumulator -= FIXED_DT;
+      gameEditor.update(FIXED_DT, editorGetVisibleSize);
+      gameEditor.processPendingActions(editorGetVisibleSize);
+      voxelRenderer._time += FIXED_DT;
+    }
 
-    // Use editor camera — flat (no pitch), aspect matches viewport
+    // Render (once per frame)
     camX = gameEditor.camX;
     camY = gameEditor.camY;
     _gameCamX = camX;
@@ -3815,11 +3847,6 @@ function gameLoop() {
     camera.position.set(lookX, lookY, CAM_DISTANCE);
     camera.lookAt(lookX, lookY, 0);
 
-    // In editor mode, skip syncFrame (entities are positioned by editor callbacks).
-    // Only update time-based animations (water, bubbles, etc.)
-    voxelRenderer._time += DT;
-
-    // Render 3D scene only to the viewport area (right of sidebar)
     renderer.setViewport(sidebarPx, 0, viewportW, canvasH);
     renderer.setScissor(sidebarPx, 0, viewportW, canvasH);
     renderer.setScissorTest(true);
@@ -3827,14 +3854,12 @@ function gameLoop() {
     renderer.setScissorTest(false);
     renderer.setViewport(0, 0, canvasW, canvasH);
 
-    // Restore camera aspect for non-editor use
     camera.aspect = canvasW / canvasH;
     camera.updateProjectionMatrix();
 
-    // Editor HUD
     hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
     gameEditor.render(editorGetVisibleSize);
-    gameEditor.renderToast(DT);
+    gameEditor.renderToast(FIXED_DT);
 
     gameAnimId = requestAnimationFrame(gameLoop);
     return;
@@ -3842,10 +3867,9 @@ function gameLoop() {
 
   // ── Paused ──
   if (gamePaused) {
-    // Keep rendering the scene but skip game logic
-    // Still step iris if it's playing (game over/victory triggered during iris)
-    if (irisState !== 'none') {
-      _irisStep(DT);
+    while (_accumulator >= FIXED_DT) {
+      _accumulator -= FIXED_DT;
+      if (irisState !== 'none') _irisStep(FIXED_DT);
     }
     renderer.render(scene, camera);
     renderHUD();
@@ -3857,23 +3881,26 @@ function gameLoop() {
   // ── Exit to menu: iris still playing after menu is shown ──
   if (_exitPending) {
     if (irisState === 'none') {
-      // Iris finished — stop game loop, menu scene is already running
       _exitPending = false;
       gameAnimId = null;
       return;
     }
-    // Still animating — step iris, draw overlay on top of menu scene
-    _irisStep(DT);
+    while (_accumulator >= FIXED_DT) {
+      _accumulator -= FIXED_DT;
+      _irisStep(FIXED_DT);
+    }
     hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
     _irisDraw();
     gameAnimId = requestAnimationFrame(gameLoop);
     return;
   }
 
-  // ── Death / Respawn Animation ──
-  const deathFrozen = updateDeathState(DT);
-  if (deathFrozen) {
-    // Update Three.js camera position (camX/camY may have changed during respawn)
+  // ── Death / Respawn Animation (freezes gameplay) ──
+  if (deathActive) {
+    while (_accumulator >= FIXED_DT) {
+      _accumulator -= FIXED_DT;
+      updateDeathState(FIXED_DT);
+    }
     const { visW: dVisW, visH: dVisH } = getVisibleSize();
     const dLookX = camX + dVisW / 2;
     const dLookY = -(camY + dVisH / 2);
@@ -3882,10 +3909,53 @@ function gameLoop() {
     renderer.render(scene, camera);
     renderHUD();
     renderDeathOverlay();
+    if (irisState !== 'none') _irisDraw();
     gameAnimId = requestAnimationFrame(gameLoop);
     return;
   }
 
+  // ── Fixed-Step Logic Loop ──
+  while (_accumulator >= FIXED_DT) {
+    _accumulator -= FIXED_DT;
+    _gameLogicStep();
+    if (irisState !== 'none') _irisStep(FIXED_DT);
+  }
+
+  // ── Render (once per frame, outside the fixed-step loop) ──
+  // Camera
+  updateGameCamera();
+  _gameCamX = camX;
+  _gameCamY = camY;
+
+  // Position perspective camera
+  const { visW: camVisW, visH: camVisH } = getVisibleSize();
+  const lookX = camX + camVisW / 2;
+  const lookY = -(camY + camVisH / 2);
+  camera.position.set(lookX, lookY - CAM_Y_OFFSET, CAM_Z_OFFSET);
+  camera.lookAt(lookX, lookY, 0);
+
+  // Sync voxel renderer
+  const fishState = fishCtrl.getState();
+  voxelRenderer.syncFrame(player, fishState, enemyBodies, FIXED_DT, {
+    sharkBodies, pufferfishBodies, crabBodies, toxicFishBodies, projectileBodies,
+    armoredFishBodies, spittingCoralBodies, switchBodies, gateBodies,
+    swingingAnchorBodies, bossCrabBodies, bossRockBodies,
+    camX, camY, camVisW, camVisH,
+  });
+
+  renderer.render(scene, camera);
+
+  // HUD
+  renderHUD();
+  renderDeathOverlay();
+  if (irisState !== 'none') _irisDraw();
+  renderPhysicsDebug();
+
+  gameAnimId = requestAnimationFrame(gameLoop);
+}
+
+// ── Single fixed-timestep logic step ──
+function _gameLogicStep() {
   // ── Input ──
   const kbInput = getKeyboardInput();
   const touchInput = touchControls.getInput();
@@ -3913,7 +3983,7 @@ function gameLoop() {
 
   // ── Countdown timer ──
   if (!deathActive && irisState === 'none' && !victoryActive) {
-    timeRemaining -= DT;
+    timeRemaining -= FIXED_DT;
     if (timeRemaining <= 0) {
       timeRemaining = 0;
       triggerDeath();  // time's up = death
@@ -4026,21 +4096,21 @@ function gameLoop() {
     // Dead boss: only tick victory timer
     if (!bc.space) {
       if (st.dead && st.victoryTimer !== undefined) {
-        st.victoryTimer = Math.max(0, st.victoryTimer - DT * 1000);
+        st.victoryTimer = Math.max(0, st.victoryTimer - FIXED_DT * 1000);
         if (st.victoryTimer <= 0) showVictory();
       }
       continue;
     }
 
     // Tick per-boss timers
-    st.stateTimer = Math.max(0, st.stateTimer - DT * 1000);
-    st.throwTimer = Math.max(0, st.throwTimer - DT * 1000);
-    st.chargeTimer = Math.max(0, st.chargeTimer - DT * 1000);
-    st.jumpTimer = Math.max(0, st.jumpTimer - DT * 1000);
-    st.slamTimer = Math.max(0, st.slamTimer - DT * 1000);
-    st.retreatTimer = Math.max(0, st.retreatTimer - DT * 1000);
-    if (st.invulnTimer > 0) st.invulnTimer = Math.max(0, st.invulnTimer - DT * 1000);
-    if (st.flashTimer > 0) st.flashTimer = Math.max(0, st.flashTimer - DT * 1000);
+    st.stateTimer = Math.max(0, st.stateTimer - FIXED_DT * 1000);
+    st.throwTimer = Math.max(0, st.throwTimer - FIXED_DT * 1000);
+    st.chargeTimer = Math.max(0, st.chargeTimer - FIXED_DT * 1000);
+    st.jumpTimer = Math.max(0, st.jumpTimer - FIXED_DT * 1000);
+    st.slamTimer = Math.max(0, st.slamTimer - FIXED_DT * 1000);
+    st.retreatTimer = Math.max(0, st.retreatTimer - FIXED_DT * 1000);
+    if (st.invulnTimer > 0) st.invulnTimer = Math.max(0, st.invulnTimer - FIXED_DT * 1000);
+    if (st.flashTimer > 0) st.flashTimer = Math.max(0, st.flashTimer - FIXED_DT * 1000);
 
     const bx = bc.position.x;
     const playerDx = player.position.x - bx;
@@ -4102,7 +4172,7 @@ function gameLoop() {
       }
       // Despawn boss after pearls have erupted
       if (st.dead && st.despawnTimer !== undefined) {
-        st.despawnTimer = Math.max(0, st.despawnTimer - DT * 1000);
+        st.despawnTimer = Math.max(0, st.despawnTimer - FIXED_DT * 1000);
         if (st.despawnTimer <= 0 && bc.space) {
           const cx = bc.position.x, cy = bc.position.y;
           bc.space = null;
@@ -4142,7 +4212,7 @@ function gameLoop() {
       }
     } else if (st.state === 'jump') {
       // Jump attack — parabolic arc toward player, deals damage on landing
-      st.jumpVy += BOSS_CRAB_JUMP_GRAVITY * DT;
+      st.jumpVy += BOSS_CRAB_JUMP_GRAVITY * FIXED_DT;
       bc.velocity = new Vec2(st.dir * BOSS_CRAB_JUMP_SPEED_X, st.jumpVy);
       // Land when reaching or exceeding spawn Y (ground level)
       if (bc.position.y >= st.spawnY && st.jumpVy > 0) {
@@ -4248,7 +4318,7 @@ function gameLoop() {
   for (const pb of pearlBodies) {
     if (!pb._bossLoot || !pb.space) continue;
     // Apply gravity
-    pb.velocity = new Vec2(pb.velocity.x * 0.99, pb.velocity.y + 400 * DT);
+    pb.velocity = new Vec2(pb.velocity.x * 0.99, pb.velocity.y + 400 * FIXED_DT);
     // Stop at floor level
     if (pb.position.y >= pb._lootFloorY) {
       pb.position.y = pb._lootFloorY;
@@ -4261,7 +4331,7 @@ function gameLoop() {
   for (let i = bossRockBodies.length - 1; i >= 0; i--) {
     const r = bossRockBodies[i];
     if (!r.space) { bossRockBodies.splice(i, 1); continue; }
-    r._life -= DT * 1000;
+    r._life -= FIXED_DT * 1000;
     if (r._life <= 0) {
       r.space = null;
       bossRockBodies.splice(i, 1);
@@ -4270,7 +4340,7 @@ function gameLoop() {
     // Apply gravity manually (KINEMATIC ignores the space gravity)
     // Falling rocks (from slam) use heavier gravity for faster descent
     const rockGrav = r._fallingRock ? BOSS_CRAB_THROW_GRAVITY * 1.2 : BOSS_CRAB_THROW_GRAVITY;
-    r.velocity = new Vec2(r.velocity.x, r.velocity.y + rockGrav * DT);
+    r.velocity = new Vec2(r.velocity.x, r.velocity.y + rockGrav * FIXED_DT);
   }
 
   // ── Update toxic fish AI (patrol + shoot) ──
@@ -4284,7 +4354,7 @@ function gameLoop() {
     tf.velocity = new Vec2(p._dir * p.speed, 0);
 
     // Shooting logic
-    tf._shoot.cooldown = Math.max(0, tf._shoot.cooldown - DT * 1000);
+    tf._shoot.cooldown = Math.max(0, tf._shoot.cooldown - FIXED_DT * 1000);
     const dx = player.position.x - tf.position.x;
     const dy = player.position.y - tf.position.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
@@ -4312,7 +4382,7 @@ function gameLoop() {
   // ── Update spitting coral AI (stationary, fan projectiles) ──
   for (const sc of spittingCoralBodies) {
     if (!sc.space) continue;
-    sc._shoot.cooldown = Math.max(0, sc._shoot.cooldown - DT * 1000);
+    sc._shoot.cooldown = Math.max(0, sc._shoot.cooldown - FIXED_DT * 1000);
     if (sc._shoot.cooldown <= 0) {
       sc._shoot.cooldown = CORAL_SHOOT_INTERVAL;
       // Fire 3 projectiles in fan pattern: left-up, straight up, right-up
@@ -4340,7 +4410,7 @@ function gameLoop() {
   for (let i = projectileBodies.length - 1; i >= 0; i--) {
     const pb = projectileBodies[i];
     if (!pb.space) { projectileBodies.splice(i, 1); continue; }
-    pb._life -= DT * 1000;
+    pb._life -= FIXED_DT * 1000;
     if (pb._life <= 0) {
       pb.space = null;
       projectileBodies.splice(i, 1);
@@ -4350,7 +4420,7 @@ function gameLoop() {
   // ── Update timed switches (countdown) ──
   for (const sw of switchBodies) {
     if (sw.type === 'timed' && sw.active) {
-      sw.timer -= DT * 1000;
+      sw.timer -= FIXED_DT * 1000;
       if (sw.timer <= 0) {
         sw.timer = 0;
         sw.active = false;
@@ -4364,7 +4434,7 @@ function gameLoop() {
     const targetAngle = gate.open ? Math.PI / 2 : 0;
     if (Math.abs(gate.angle - targetAngle) > 0.01) {
       const dir = targetAngle > gate.angle ? 1 : -1;
-      gate.angle += dir * GATE_OPEN_SPEED * DT;
+      gate.angle += dir * GATE_OPEN_SPEED * FIXED_DT;
       // Clamp
       if (dir > 0 && gate.angle > targetAngle) gate.angle = targetAngle;
       if (dir < 0 && gate.angle < targetAngle) gate.angle = targetAngle;
@@ -4398,9 +4468,9 @@ function gameLoop() {
   for (const sa of swingingAnchorBodies) {
     // Pendulum: angular_accel = -g/L * sin(angle)
     const angAccel = -(PENDULUM_GRAVITY / sa.chainLength) * Math.sin(sa.angle);
-    sa.angularVel += angAccel * DT;
+    sa.angularVel += angAccel * FIXED_DT;
     sa.angularVel *= 0.9995; // very slight damping — nearly perpetual
-    sa.angle += sa.angularVel * DT;
+    sa.angle += sa.angularVel * FIXED_DT;
     // Position anchor body at center of anchor model (below chain end)
     const ANCHOR_BODY_OFFSET = 12; // px — offset from chain end to anchor body center
     const totalLen = sa.chainLength + ANCHOR_BODY_OFFSET;
@@ -4423,7 +4493,7 @@ function gameLoop() {
 
   // ── Message overlay timer (bottles) ──
   if (_messageOverlay && _messageOverlay.timer > 0) {
-    _messageOverlay.timer -= DT * 1000;
+    _messageOverlay.timer -= FIXED_DT * 1000;
     if (_messageOverlay.timer <= 800) _messageOverlay.fadeOut = true;
     if (_messageOverlay.timer <= 0) _messageOverlay = null;
   }
@@ -4558,7 +4628,7 @@ function gameLoop() {
   ];
   for (const eb of _allStunnableEnemies) {
     if (eb._stunTimer > 0) {
-      eb._stunTimer -= DT * 1000;
+      eb._stunTimer -= FIXED_DT * 1000;
       if (eb._stunTimer <= 0) eb._stunTimer = 0;
     }
   }
@@ -4579,38 +4649,7 @@ function gameLoop() {
   }
 
   // ── Physics step ──
-  space.step(DT, 8, 3);
-
-  // ── Camera ──
-  updateGameCamera();
-  _gameCamX = camX;
-  _gameCamY = camY;
-
-  // ── Render Three.js ──
-  // Position perspective camera: follow player with pitch offset
-  const { visW: camVisW, visH: camVisH } = getVisibleSize();
-  const lookX = camX + camVisW / 2;
-  const lookY = -(camY + camVisH / 2);
-  camera.position.set(lookX, lookY - CAM_Y_OFFSET, CAM_Z_OFFSET);
-  camera.lookAt(lookX, lookY, 0);
-
-  // Sync voxel renderer
-  const fishState = fishCtrl.getState();
-  voxelRenderer.syncFrame(player, fishState, enemyBodies, DT, {
-    sharkBodies, pufferfishBodies, crabBodies, toxicFishBodies, projectileBodies,
-    armoredFishBodies, spittingCoralBodies, switchBodies, gateBodies,
-    swingingAnchorBodies, bossCrabBodies, bossRockBodies,
-    camX, camY, camVisW, camVisH,
-  });
-
-  renderer.render(scene, camera);
-
-  // ── HUD ──
-  renderHUD();
-  renderDeathOverlay();
-  renderPhysicsDebug();
-
-  gameAnimId = requestAnimationFrame(gameLoop);
+  space.step(FIXED_DT, 8, 3);
 }
 
 // Update iris open center to player spawn position (for start-game transition)
