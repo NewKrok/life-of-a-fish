@@ -347,13 +347,9 @@ describe('getLevelEntities', () => {
     expect(dashHint).toBeDefined();
   });
 
-  it('extracts giant crab boss from level 1 sandbox placement', () => {
+  it('does not contain a giant crab boss on level 1 (boss is on dedicated boss level)', () => {
     const ent = getLevelEntities();
-    expect(ent.giantCrabBosses.length).toBeGreaterThanOrEqual(1);
-    for (const bc of ent.giantCrabBosses) {
-      expect(bc.x).toBeGreaterThan(0);
-      expect(bc.y).toBeGreaterThan(0);
-    }
+    expect(ent.giantCrabBosses.length).toBe(0);
   });
 
   it('floating logs are not included in merged solid bodies', () => {

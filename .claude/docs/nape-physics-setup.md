@@ -107,7 +107,7 @@ Each entity class has a named `CbType` for collision filtering:
 - `switchTag`, `gateTag`
 - `floatingLogTag`, `swingingAnchorTag`
 - `bottleTag`, `hintStoneTag`
-- `bossCrabTag`, `bossRockTag` (Giant Crab Boss + airborne rock projectiles)
+- `bossCrabTag`, `bossRockTag` (Giant Crab Boss + airborne rock projectiles — both thrown and falling slam rocks)
 
 `InteractionListener` callbacks handle:
 - Player ↔ Pearl → collect pearl, destroy body
@@ -116,9 +116,10 @@ Each entity class has a named `CbType` for collision filtering:
 - Player ↔ Shark → respawn player
 - Player ↔ Pufferfish → respawn player
 - Player ↔ Crab → push player away (no kill)
-- Player ↔ Boss Crab → strong knockback (no direct kill; extra oomph while charging)
-- Player ↔ Boss Rock → respawn player, destroy rock
-- Boulder ↔ Boss Crab → −1 HP (gated by 1.2s invuln window), destroy boulder; boss despawns at 0 HP
+- Player ↔ Boss Crab → charge/jump state = kill player; other states = strong knockback; dying state = no damage
+- Player ↔ Boss Rock → respawn player, destroy rock (both thrown and falling rocks)
+- Boulder ↔ Boss Crab → −1 HP only if boulder speed >80 px/s (gated by 1.2s invuln window), destroy boulder; boss enters flee state on hit, dying state at 0 HP (3s topple → pearl eruption → despawn → 10s victory timer). All enemies die when boss dies
+- Boulder ↔ Crab → kill crab only if boulder speed >80 px/s (resting boulders ignored)
 - Player ↔ Projectile → respawn player, destroy projectile
 - Boulder ↔ Piranha (sensor) → kill piranha, remove from space
 - Boulder ↔ Shark (sensor) → kill shark, remove from space

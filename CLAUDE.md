@@ -94,7 +94,7 @@ In-game editor activated with **F4**. Works in both menu and game states. Pauses
 - Swinging anchors: kinematic bodies, pendulum physics from ceiling pivot point, configurable chain length via `anchorChainLengths` metadata
 - Bottle messages: static sensor bodies, collectible (disappear on contact), show text overlay
 - Hint stones: static sensor bodies, permanent, show text when player is within proximity range (~48px)
-- Giant Crab Boss: kinematic body with HP counter + state machine (patrol → windup → charge), tagged `bossCrabTag`. Spawns airborne rock projectiles tagged `bossRockTag` that arc with gravity and kill the player on contact. Thrown boulders decrement boss HP; invulnerability window between hits
+- Giant Crab Boss: kinematic body (112×77 px), 5 HP, tagged `bossCrabTag`. Full state machine: `patrol → windup → charge` (lethal, bounces off arena edges), `jumpWindup → jump` (lethal arc), `throwWindup → patrol` (6-rock alternating left/right claw sequence, 500ms stagger), `slamWindup → slam` (8 falling rocks from above), `flee` (after hit, runs from player ~2s), `retreat` (periodic breathing room), `dying` (3s topple → pearl eruption → 2s despawn → 10s collection → victory). Charge and jump are lethal; other contact pushes. Rocks tagged `bossRockTag` (thrown arcs + falling from slam). Boulders must have >80 px/s velocity to damage boss. All enemies die when boss dies. Arena uses `noCaveBg` flag
 - Each entity class has its own `CbType` for collision filtering
 
 ### Skills — "Gifts of the Ocean" (fish-controller.js + game.js)

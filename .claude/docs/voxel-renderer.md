@@ -89,6 +89,22 @@ Voxel groups built from hardcoded coordinate arrays, merged via `VoxelCollector`
 - No movement animation (static enemy)
 - Fires purple projectiles (`BoxGeometry 6×6×6`, emissive `0x8822cc`) in upward fan pattern
 
+**Giant Crab Boss** (dark red `0x8a1e1e`, V=8.4):
+- Large detailed body: 14 voxels wide × 11 tall × 14 deep, Z-compressed to 60% to prevent wall clipping
+- Shell with ridge bumps, barnacles scattered for "ancient guardian" look
+- Eye stalks with amber eyes + dark pupils
+- Mouth mandibles at front
+- 6 segmented legs (3 pairs) with joint color variation
+- **Two separate animated claw pivots** (left dominant + right throwing arm), each a separate `THREE.Group`
+  - Claws have arm segment, upper arm, claw head, tips, lower pincer
+  - During throw: rotation.x (lift) + rotation.z (swing) animation, ~1s per swing
+  - During throw windup: both arms raised with gentle sway, held rock meshes visible
+  - During slam windup: both arms raised high (-2.0 rad), slight tremble
+  - During slam impact: arms forward (+0.8 rad)
+- **Held rock meshes**: coral-encrusted chunks attached to each claw pivot, visible during throwWindup, hidden on release
+- **Dying animation**: rotation.x topple to 90° over 3s, then rapid flicker while pearls erupt, despawn with particle burst
+- **Rock projectiles**: multi-material coral-encrusted seafloor chunks (S=8 voxel size) — dark rock core, lighter chips, orange coral patch, green moss. Group of 5 meshes per rock
+
 **Switches** (per-type color: toggle green `0x22aa44`, pressure blue `0x3366cc`, timed orange `0xcc8822`):
 - **Toggle** (green): flat pad with center button — button presses down on activation and stays down permanently
 - **Pressure** (blue): same flat pad as toggle — button presses down while weight on it, pops back up when released
@@ -315,6 +331,8 @@ Called every frame after physics step. Updates:
 7. Toxic fish positions, 3D flip, tail wag
 8. Armored fish positions, 3D flip, tail wag
 9. Spitting coral positions, hide dead
+9b. **Giant crab boss**: position sync, 3D flip (lerped), quiver (hit flash, windup shake, slam shake, jump tilt), scuttle bob, dying topple (rotation.x to 90°), claw throw animation (lift+swing per arm, ~1s), held rock visibility, slam arm raise/impact, jumpWindup squash (scaleY=0.8), flicker on dying
+9c. **Boss rocks**: position sync from KINEMATIC body, spin rotation (x+z axes), remove when body.space===null
 10. Switch pad press animation, emissive glow pulse when active
 11. Gate pivot rotation animation (swing open/close)
 12. Projectile positions, spin rotation, emissive pulse, remove expired

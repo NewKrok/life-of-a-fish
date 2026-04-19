@@ -69,7 +69,7 @@ This means entities like floating logs and swinging anchors are **obstacles and 
 1. **Home Waters** — Tutorial. Swimming, dash, first pearls. Very easy (current level 1)
 2. **Reef's Edge** — Piranhas, first boulders (grab/throw). Underwater crates as breakable obstacles
 3. **Into the Blue** — Key-chest puzzle intro, seagrass hiding from sharks
-4. **Boss: Giant Crab** — Guards the reef's exit. Throws rocks, shoves the player. Hit with boulders 3 times to defeat
+4. **Boss: Giant Crab** — Guards the reef's exit. Multi-phase boss with charge (lethal), jump attack (lethal), 6-rock throw sequence (alternating claws), ground slam (falling rocks), flee after hit, periodic retreat. Hit with 5 thrown boulders to defeat. Death sequence: topple → pearl eruption → 10s collection time. All arena enemies die when boss dies. Arena has piranhas + crabs as minions
 
 **Introduced mechanics:** Core movement, dash, grab/throw, seagrass stealth, underwater crates
 **Introduced enemies:** Piranha, Shark, Crab
@@ -239,7 +239,7 @@ Design principles:
 
 | World | Boss | Core Mechanic | How to Win |
 |-------|------|--------------|------------|
-| 1 | Giant Crab | Push + boulder throw | Dodge shoves, throw 3 boulders at it |
+| 1 | Giant Crab | Charge (lethal), jump (lethal), 6-rock throw, ground slam, flee/retreat | Dodge attacks, throw 5 boulders at it (must be moving >80 px/s) |
 | 2 | Giant Jellyfish | Tentacle maze + dash | Dash through tentacle gaps, hit core with boulders |
 | 3 | Eel Queen | Dark arena + pattern reading | Read bioluminescent telegraph, dash weak points |
 | 4 | Anglerfish | Light-lure attraction + flanking | Resist pull, use currents to get behind, destroy lure nodes |
