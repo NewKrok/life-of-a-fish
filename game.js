@@ -12,7 +12,7 @@ import {
   TILE_SIZE, LEVEL_COLS, LEVEL_ROWS, WORLD_W, WORLD_H,
   WATER_SURFACE_Y, TILES,
   getLevelEntities, getMergedSolidBodies, getWaterZones, resetTiles,
-  getLevels, setCurrentLevel, getCurrentLevelIndex,
+  getLevels, setCurrentLevel, getCurrentLevelIndex, getCurrentLevelMeta,
   KEY_CHEST_COLORS,
 } from './level-data.js';
 
@@ -28,6 +28,7 @@ import { MenuScene } from './menu-scene.js';
 import { MusicSystem } from './music-system.js';
 import { SfxSystem } from './sfx-system.js';
 import { LevelEditor, generateEditorPreviews } from './level-editor.js';
+import { GameStateMachine, STATE } from './game-state.js';
 import { generateCodexPreviews } from './codex-renderer.js';
 import { initI18n, t, translateDOM, setLocale, getLocale, onLocaleChange } from './i18n.js';
 
@@ -60,7 +61,10 @@ onLocaleChange(() => {
 
 // ── Constants ──
 const GRAVITY = 200;
-const DT = 1 / 60;
+const FIXED_DT = 1 / 60;        // s — fixed physics/logic timestep
+const MAX_STEPS_PER_FRAME = 5;   // cap to prevent spiral of death on slow machines
+let _accumulator = 0;            // s — time debt for fixed-step loop
+let _lastFrameTime = 0;          // ms — last rAF timestamp
 const ENEMY_SPEED = 60;
 const ARMORED_FISH_SPEED = 50;         // px/s — slightly slower than piranha
 const ARMORED_KNOCKBACK = 300;         // px/s — half of crab push force
@@ -72,6 +76,36 @@ const PUFFER_SPEED = 30;              // px/s — vertical movement speed
 const PUFFER_RANGE = 60;              // px — vertical patrol range
 const CRAB_SPEED = 25;                // px/s — ground patrol speed
 const CRAB_PUSH_FORCE = 600;          // px/s — push velocity applied to player
+
+// ── Boss: Giant Crab (roadmap #13) ──
+const BOSS_CRAB_HP = 5;               // hits to defeat
+const BOSS_CRAB_PATROL_SPEED = 30;    // px/s — slow wandering
+const BOSS_CRAB_CHARGE_SPEED = 200;   // px/s — charge lunge speed
+const BOSS_CRAB_CHARGE_INTERVAL = 7000;  // ms — cooldown between charges
+const BOSS_CRAB_CHARGE_WINDUP = 1000; // ms — telegraph time before dash
+const BOSS_CRAB_CHARGE_DURATION = 3500; // ms — max charge duration (+40% longer rush)
+const BOSS_CRAB_PUSH_FORCE = 1200;    // px/s — stronger than regular crab push (bigger boss)
+const BOSS_CRAB_THROW_INTERVAL = 5500; // ms — time between rock throws
+const BOSS_CRAB_THROW_SPEED = 52;     // px/s — initial rock velocity (+15%)
+const BOSS_CRAB_THROW_GRAVITY = 85;   // px/s² — gravity applied to thrown rocks (+15%)
+const BOSS_CRAB_THROW_LIFE = 6000;    // ms — rock auto-despawns after this (longer for slower arc)
+const BOSS_CRAB_HIT_INVULN = 1200;    // ms — invulnerability window after hit
+const BOSS_CRAB_JUMP_SPEED_X = 180;   // px/s — horizontal speed during jump
+const BOSS_CRAB_JUMP_SPEED_Y = -525;  // px/s — upward launch velocity (50% higher jump)
+const BOSS_CRAB_JUMP_GRAVITY = 400;   // px/s² — gravity during jump arc (20% slower fall)
+const BOSS_CRAB_JUMP_INTERVAL = 9000; // ms — cooldown between jumps
+const BOSS_CRAB_JUMP_DAMAGE = true;   // landing deals damage (death)
+const BOSS_CRAB_JUMP_WINDUP = 800;    // ms — crouch telegraph before jump
+const BOSS_CRAB_THROW_WINDUP = 600;   // ms — arm-raise telegraph before throw
+const BOSS_CRAB_SLAM_INTERVAL = 12000; // ms — cooldown between ground slams
+const BOSS_CRAB_SLAM_WINDUP = 900;    // ms — telegraph before slam
+const BOSS_CRAB_SLAM_ROCKS = 8;       // number of rocks falling from above
+const BOSS_CRAB_SLAM_ROCK_SPREAD = 450; // px — horizontal spread of falling rocks (~one screen width)
+const BOSS_CRAB_RETREAT_INTERVAL = 12000; // ms — cooldown between retreats
+const BOSS_CRAB_RETREAT_SPEED = 60;    // px/s — backing-off speed
+const BOSS_CRAB_RETREAT_DURATION = 2000; // ms — how long the retreat lasts
+const BOSS_CRAB_WIDTH = 112;          // px — physics body width (matches visual ~14 voxels × V=8.4)
+const BOSS_CRAB_HEIGHT = 77;          // px — physics body height (matches visual ~9 voxels × V=8.4)
 const TOXIC_SHOOT_RANGE = 180;        // px — range to detect and shoot
 const TOXIC_SHOOT_INTERVAL = 2000;    // ms — cooldown between shots
 const TOXIC_PROJECTILE_SPEED = 150;   // px/s — projectile velocity
@@ -117,6 +151,9 @@ let appState = 'menu';  // 'menu' | 'game' | 'aquarium' | 'settings' | 'about' |
 let gameInitialized = false;
 let gameAnimId = null;
 
+// ── State Machine (central source of truth for transitions) ──
+const gsm = new GameStateMachine();
+
 // Menu scene (created immediately — runs as menu background)
 const menuScene = new MenuScene(THREE, renderer);
 
@@ -131,6 +168,8 @@ let _editorPlayTest = false;   // true when play-testing from editor
 let _editorPlayTestTiles = null;  // saved tile state (terrain only) for returning to editor
 let _editorPlayTestTilesWithEntities = null;  // saved tile state (with entities) for restart
 let _editorPlayTestEntities = null;  // saved entity state for editor play test
+let _editorPlayTestUndoStack = null; // saved undo/redo stacks for editor play test
+let _editorPlayTestRedoStack = null;
 
 // ── Music & SFX ──
 const music = new MusicSystem();
@@ -185,7 +224,7 @@ const editorTestExit = document.getElementById('editorTestExit');
 const touchControls = new TouchControls();
 
 function showMenu() {
-  appState = 'menu';
+  gsm.forceState(STATE.MENU);
   menuOverlay.classList.remove('hidden');
   // Ensure main menu buttons are visible, level select is hidden
   document.getElementById('menuMain').classList.remove('hidden');
@@ -370,8 +409,18 @@ function irisCloseOnly(closeCx, closeCy, onBlack) {
 }
 
 // Standalone rAF loop for iris outside game loop (menu transitions)
-function _irisStandaloneLoop() {
-  _irisStep(1 / 60);
+let _irisLastFrame = 0;
+let _irisAccum = 0;
+function _irisStandaloneLoop(timestamp) {
+  if (!timestamp) timestamp = performance.now();
+  if (_irisLastFrame === 0) _irisLastFrame = timestamp;
+  const rawDt = (timestamp - _irisLastFrame) / 1000;
+  _irisLastFrame = timestamp;
+  _irisAccum += Math.min(rawDt, MAX_STEPS_PER_FRAME * FIXED_DT);
+  while (_irisAccum >= FIXED_DT) {
+    _irisAccum -= FIXED_DT;
+    _irisStep(FIXED_DT);
+  }
 
   // During black phase: if start-game is pending, init the game and hand off
   if (_startGamePending && irisState === 'black') {
@@ -379,9 +428,8 @@ function _irisStandaloneLoop() {
     _irisAnimId = null;
     // Init game — its game loop will drive the remaining open phases
     menuScene.stop();
-    appState = 'game';
+    gsm.forceState(STATE.GAME_PLAYING);
     music.play('game');
-    if (!_editorPlayTest) pauseBtn.classList.add('visible');
     _startWithExpand = true;
     startGame();
     return;
@@ -399,6 +447,8 @@ function _irisStandaloneLoop() {
 
 function _irisStartStandalone() {
   if (_irisAnimId) cancelAnimationFrame(_irisAnimId);
+  _irisLastFrame = 0;
+  _irisAccum = 0;
   _irisAnimId = requestAnimationFrame(_irisStandaloneLoop);
 }
 
@@ -486,7 +536,7 @@ let _startWithExpand = true; // true on first load too
 
 document.getElementById('btnAquarium').addEventListener('click', () => {
   sfx.buttonClick();
-  appState = 'aquarium';
+  gsm.transition(STATE.AQUARIUM);
   hideMenuUI();
   aquariumCloseBtn.classList.add('visible');
   menuScene.setAquariumMode(true);
@@ -499,7 +549,7 @@ aquariumCloseBtn.addEventListener('click', () => {
 
 document.getElementById('btnSettings').addEventListener('click', () => {
   sfx.buttonClick();
-  appState = 'settings';
+  gsm.transition(STATE.SETTINGS);
   menuOverlay.classList.add('hidden');
   settingsPanel.classList.add('visible');
 });
@@ -511,7 +561,7 @@ document.getElementById('settingsBack').addEventListener('click', () => {
 
 document.getElementById('btnAbout').addEventListener('click', () => {
   sfx.buttonClick();
-  appState = 'about';
+  gsm.transition(STATE.ABOUT);
   menuOverlay.classList.add('hidden');
   aboutPanel.classList.add('visible');
 });
@@ -533,6 +583,7 @@ const CODEX_DATA = [
   { category: 'enemies', preview: 'toxicFish', i18nKey: 'toxicFish', tag: 'danger' },
   { category: 'enemies', preview: 'armoredFish', i18nKey: 'armoredFish', tag: 'danger' },
   { category: 'enemies', preview: 'spittingCoral', i18nKey: 'spittingCoral', tag: 'danger' },
+  { category: 'enemies', preview: 'giantCrabBoss', i18nKey: 'giantCrabBoss', tag: 'danger' },
   // ── Items ──
   { category: 'items', preview: 'pearl', i18nKey: 'pearl', tag: 'item' },
   { category: 'items', preview: 'key', i18nKey: 'key', tag: 'item' },
@@ -623,7 +674,7 @@ document.getElementById('codexTabs').addEventListener('click', (e) => {
 
 document.getElementById('btnCodex').addEventListener('click', () => {
   sfx.buttonClick();
-  appState = 'codex';
+  gsm.transition(STATE.CODEX);
   menuOverlay.classList.add('hidden');
   codexPanel.classList.add('visible');
   // Reset to "All" tab
@@ -734,10 +785,17 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'F4') {
     e.preventDefault();
     if (editorActive) {
-      // Deactivate editor
       _deactivateEditor();
+      // Transition back: GAME_EDITOR→GAME_PLAYING or MENU_EDITOR→MENU
+      if (gsm.is(STATE.GAME_EDITOR)) gsm.transition(STATE.GAME_PLAYING);
+      else if (gsm.is(STATE.MENU_EDITOR)) gsm.transition(STATE.MENU);
     } else {
-      // Activate editor for current context
+      // Transition to editor: GAME_PLAYING→GAME_EDITOR or MENU→MENU_EDITOR
+      if (gsm.is(STATE.GAME_PLAYING) || (gsm.is(STATE.MENU) && appState === 'game' && gameInitialized)) {
+        gsm.transition(STATE.GAME_EDITOR);
+      } else if (gsm.is(STATE.MENU)) {
+        gsm.transition(STATE.MENU_EDITOR);
+      }
       _activateEditor();
     }
   }
@@ -752,6 +810,10 @@ function _activateEditor() {
     _editorPreviews = generateEditorPreviews(THREE, VoxelRenderer, _codexPreviews);
   }
 
+  // Hide game UI elements while in editor
+  pauseBtn.classList.remove('visible');
+  touchControls.hide();
+
   if (appState === 'game' && gameInitialized) {
     // Game level editor
     if (!gameEditor) {
@@ -763,12 +825,17 @@ function _activateEditor() {
       );
       gameEditor.setPreviews(_editorPreviews);
       gameEditor.setScene(THREE, scene, voxelRenderer);
+      gameEditor.setLevelMeta(getCurrentLevelMeta());
       // Wire up 3D rebuild callbacks
       gameEditor.onTerrainChange = () => {
         if (voxelRenderer) voxelRenderer.rebuildTerrain();
       };
       gameEditor.onEntityChange = (entities) => {
         _rebuildGameEntityVisuals(entities);
+      };
+      gameEditor.onLevelResize = (cols, rows, worldW, worldH, waterRow) => {
+        if (voxelRenderer) voxelRenderer.rebuildTerrainFrom(TILES, cols, rows, worldH, waterRow * TILE_SIZE);
+        _rebuildGameEntityVisuals(gameEditor.entities);
       };
       gameEditor.onPlayTest = () => _startEditorPlayTest();
       gameEditor.activate(_gameCamX, _gameCamY, entityList);
@@ -789,6 +856,7 @@ function _activateEditor() {
       );
       menuEditor.setPreviews(_editorPreviews);
       menuEditor.setScene(THREE, menuScene.scene, menuScene.voxelRenderer);
+      menuEditor.setLevelMeta({ name: 'Menu Aquarium', waterRow: 4 });
       // Wire up 3D rebuild callbacks for menu
       menuEditor.onTerrainChange = () => {
         const mr = menuScene.voxelRenderer;
@@ -796,6 +864,12 @@ function _activateEditor() {
       };
       menuEditor.onEntityChange = (entities) => {
         _rebuildMenuEntityVisuals(entities);
+      };
+      menuEditor.onLevelResize = (cols, rows, worldW, worldH, waterRow) => {
+        // Rebuild terrain and entity visuals after load/import
+        const mr = menuScene.voxelRenderer;
+        if (mr) mr.rebuildTerrainFrom(MENU_TILES, cols, rows, worldH, waterRow * TILE_SIZE);
+        _rebuildMenuEntityVisuals(menuEditor.entities);
       };
       menuEditor.activate(menuScene.camX, menuScene.camY, menuEntities);
     } else {
@@ -837,7 +911,7 @@ function _buildEditorEntities(vr, entities) {
   const bottles = [], hints = [], logs = [], anchors = [];
 
   // Ground-based entities — visual position shifted to tile bottom
-  const GROUND_IDS = new Set([14, 29, 30, 31, 32, 33]);
+  const GROUND_IDS = new Set([14, 29, 30, 31, 32, 33, 38]);
 
   for (const ent of entities) {
     const yOff = GROUND_IDS.has(ent.tileId) ? TILE_SIZE / 2 : 0;
@@ -856,6 +930,7 @@ function _buildEditorEntities(vr, entities) {
       case 26: crates.push(fakeBody); break;
       case 28: vr.buildArmoredFish(); break;
       case 29: vr.buildSpittingCoral(); break;
+      case 38: vr.buildGiantCrabBoss(); break;
       case 30: switches.push({ body: fakeBody, type: 'toggle', group: ent.group || 0, active: false, timer: 0 }); break;
       case 31: switches.push({ body: fakeBody, type: 'pressure', group: ent.group || 0, active: false, timer: 0 }); break;
       case 32: switches.push({ body: fakeBody, type: 'timed', group: ent.group || 0, active: false, timer: 0 }); break;
@@ -891,8 +966,8 @@ function _buildEditorEntities(vr, entities) {
 // Position editor entity visuals at their world positions
 function _positionEditorEntities(vr, entities) {
   // Ground-based entities get visual offset to tile bottom
-  const GROUND_IDS = new Set([14, 29, 30, 31, 32, 33]);
-  let ei = 0, si = 0, pi = 0, ci = 0, ti = 0, ai = 0, sci = 0;
+  const GROUND_IDS = new Set([14, 29, 30, 31, 32, 33, 38]);
+  let ei = 0, si = 0, pi = 0, ci = 0, ti = 0, ai = 0, sci = 0, bcbi = 0;
   for (const ent of entities) {
     const x = ent.x;
     const groundOff = GROUND_IDS.has(ent.tileId) ? TILE_SIZE / 2 : 0;
@@ -925,6 +1000,10 @@ function _positionEditorEntities(vr, entities) {
       vr.spittingCoralGroups[sci].position.set(x, y, 0);
       vr.spittingCoralGroups[sci].visible = true;
       sci++;
+    } else if (ent.tileId === 38 && bcbi < vr.bossCrabGroups.length) {
+      vr.bossCrabGroups[bcbi].position.set(x, y, 0);
+      vr.bossCrabGroups[bcbi].visible = true;
+      bcbi++;
     }
     // Pearl, buoy, boulder, raft, key, chest, crate, switch, gate positions
     // are already set by the build methods via the fakeBody positions
@@ -941,6 +1020,11 @@ function _deactivateEditor() {
   if (appState === 'menu') {
     menuOverlay.classList.remove('hidden');
   }
+  // Restore game UI if we were in game state
+  if (appState === 'game' && gameInitialized) {
+    pauseBtn.classList.add('visible');
+    touchControls.show();
+  }
 }
 
 function _getActiveEditor() {
@@ -956,6 +1040,8 @@ function _startEditorPlayTest() {
   // Save editor state for returning (terrain-only tiles, before writing entities)
   _editorPlayTestTiles = gameEditor.tiles.map(row => [...row]);
   _editorPlayTestEntities = JSON.parse(JSON.stringify(gameEditor.entities));
+  _editorPlayTestUndoStack = gameEditor._undoStack;
+  _editorPlayTestRedoStack = gameEditor._redoStack;
 
   // Write editor entities into TILES so getLevelEntities() can find them
   for (const ent of gameEditor.entities) {
@@ -971,29 +1057,29 @@ function _startEditorPlayTest() {
   // Deactivate editor
   _deactivateEditor();
 
+  // Transition state machine: GAME_EDITOR → EDITOR_PLAYTEST
+  gsm.transition(STATE.EDITOR_PLAYTEST);
+
   // Reset game initialization so startGame rebuilds everything from current TILES
   gameInitialized = false;
   gameEditor = null; // force re-creation when editor is re-opened
-
-  // Start the game — tiles are already modified in place by the editor
-  _editorPlayTest = true;
-  appState = 'game';
 
   // Stop menu scene
   menuScene.stop();
   menuOverlay.classList.add('hidden');
 
-  // Show editor test controls instead of pause button
-  pauseBtn.classList.remove('visible');
-  editorTestControls.classList.add('visible');
+  // Cancel existing game loop before starting a new one to prevent double-speed
+  if (gameAnimId) {
+    cancelAnimationFrame(gameAnimId);
+    gameAnimId = null;
+  }
 
   startGame();
 }
 
 function _exitEditorPlayTest() {
-  _editorPlayTest = false;
-  editorTestControls.classList.remove('visible');
-  pauseBtn.classList.remove('visible');
+  // Transition state machine: EDITOR_PLAYTEST → GAME_EDITOR
+  gsm.transition(STATE.GAME_EDITOR);
 
   // Restore tile state with entities (so getLevelEntities works on re-init)
   if (_editorPlayTestTilesWithEntities) {
@@ -1013,7 +1099,6 @@ function _exitEditorPlayTest() {
   gameEditor = null;
 
   // Re-start game with editor's tile state (skip resetTiles)
-  appState = 'game';
   _editorPlayTest = true; // temporarily to skip resetTiles
   startGame();
   _editorPlayTest = false;
@@ -1022,6 +1107,9 @@ function _exitEditorPlayTest() {
   _activateEditor();
   if (gameEditor && _editorPlayTestEntities) {
     gameEditor.entities = _editorPlayTestEntities;
+    // Restore undo/redo stacks from before play test
+    if (_editorPlayTestUndoStack) gameEditor._undoStack = _editorPlayTestUndoStack;
+    if (_editorPlayTestRedoStack) gameEditor._redoStack = _editorPlayTestRedoStack;
     // Restore terrain-only tiles for editor (entities tracked separately)
     if (_editorPlayTestTiles) {
       for (let r = 0; r < _editorPlayTestTiles.length; r++) {
@@ -1036,6 +1124,9 @@ function _exitEditorPlayTest() {
 }
 
 function _restartEditorPlayTest() {
+  // Self-transition: EDITOR_PLAYTEST → EDITOR_PLAYTEST
+  gsm.transition(STATE.EDITOR_PLAYTEST);
+
   // Restore tile state with entities for a fresh start
   if (_editorPlayTestTilesWithEntities) {
     for (let r = 0; r < _editorPlayTestTilesWithEntities.length; r++) {
@@ -1064,6 +1155,139 @@ function _restartEditorPlayTest() {
 editorTestExit.addEventListener('click', () => _exitEditorPlayTest());
 editorTestRestart.addEventListener('click', () => _restartEditorPlayTest());
 
+// ── State Machine Hook Registration ──
+// Hooks sync legacy flags and manage UI visibility for each state.
+
+gsm.registerHooks(STATE.MENU, {
+  onEnter() {
+    appState = 'menu';
+    editorActive = false;
+    _editorPlayTest = false;
+    menuOverlay.classList.remove('hidden');
+    pauseBtn.classList.remove('visible');
+    editorTestControls.classList.remove('visible');
+    touchControls.hide();
+  },
+  onExit() {
+    menuOverlay.classList.add('hidden');
+  },
+});
+
+gsm.registerHooks(STATE.MENU_EDITOR, {
+  onEnter() {
+    appState = 'menu';
+    editorActive = true;
+    menuOverlay.classList.add('hidden');
+    aquariumCloseBtn.classList.remove('visible');
+    settingsPanel.classList.remove('visible');
+    aboutPanel.classList.remove('visible');
+    codexPanel.classList.remove('visible');
+    pauseBtn.classList.remove('visible');
+    touchControls.hide();
+  },
+  onExit() {
+    editorActive = false;
+  },
+});
+
+gsm.registerHooks(STATE.GAME_PLAYING, {
+  onEnter() {
+    appState = 'game';
+    editorActive = false;
+    _editorPlayTest = false;
+    pauseBtn.classList.add('visible');
+    touchControls.show();
+    editorTestControls.classList.remove('visible');
+  },
+});
+
+gsm.registerHooks(STATE.GAME_PAUSED, {
+  onEnter() {
+    appState = 'game';
+    touchControls.hide();
+  },
+  onExit() {
+    touchControls.show();
+  },
+});
+
+gsm.registerHooks(STATE.GAME_EDITOR, {
+  onEnter() {
+    appState = 'game';
+    editorActive = true;
+    pauseBtn.classList.remove('visible');
+    touchControls.hide();
+    editorTestControls.classList.remove('visible');
+  },
+  onExit() {
+    editorActive = false;
+  },
+});
+
+gsm.registerHooks(STATE.EDITOR_PLAYTEST, {
+  onEnter() {
+    appState = 'game';
+    editorActive = false;
+    _editorPlayTest = true;
+    pauseBtn.classList.remove('visible');
+    editorTestControls.classList.add('visible');
+    touchControls.hide();
+  },
+  onExit() {
+    _editorPlayTest = false;
+    editorTestControls.classList.remove('visible');
+  },
+});
+
+gsm.registerHooks(STATE.GAME_OVER, {
+  onEnter() {
+    touchControls.hide();
+  },
+});
+
+gsm.registerHooks(STATE.VICTORY, {
+  onEnter() {
+    touchControls.hide();
+  },
+});
+
+gsm.registerHooks(STATE.AQUARIUM, {
+  onEnter() {
+    appState = 'aquarium';
+    menuOverlay.classList.add('hidden');
+  },
+  onExit() {
+    appState = 'menu';
+  },
+});
+
+gsm.registerHooks(STATE.SETTINGS, {
+  onEnter() {
+    appState = 'settings';
+  },
+  onExit() {
+    appState = 'menu';
+  },
+});
+
+gsm.registerHooks(STATE.ABOUT, {
+  onEnter() {
+    appState = 'about';
+  },
+  onExit() {
+    appState = 'menu';
+  },
+});
+
+gsm.registerHooks(STATE.CODEX, {
+  onEnter() {
+    appState = 'codex';
+  },
+  onExit() {
+    appState = 'menu';
+  },
+});
+
 // Start the menu scene immediately
 menuScene.start();
 
@@ -1085,11 +1309,23 @@ function updateCamera(w, h) {
 // ── Start Game (called when player clicks Start Game) ──
 function startGame() {
   if (gameInitialized) {
-    // Resume existing game
+    // Resume existing game — reset timestep to avoid delta spike
+    _lastFrameTime = 0;
+    _accumulator = 0;
     gameLoop();
     return;
   }
   gameInitialized = true;
+
+  // Clean up previous game resources to prevent memory leaks on re-init
+  if (voxelRenderer) {
+    voxelRenderer.dispose();
+    voxelRenderer = null;
+  }
+  if (scene) {
+    scene = null;
+  }
+  camera = null;
 
   // Reset tile data so entities are re-extracted cleanly on re-start
   // Skip if play-testing from editor — tiles are already in the desired state
@@ -1141,6 +1377,8 @@ const floatingLogTag = new CbType();
 const swingingAnchorTag = new CbType();
 const bottleTag = new CbType();
 const hintStoneTag = new CbType();
+const bossCrabTag = new CbType();
+const bossRockTag = new CbType();
 
 // ── Build terrain bodies from merged tiles ──
 const mergedBodies = getMergedSolidBodies();
@@ -1189,6 +1427,7 @@ _capturedEntities = {
   swingingAnchors: entities.swingingAnchors.map(e => ({ ...e })),
   bottleMessages: entities.bottleMessages.map(e => ({ ...e })),
   hintStones: entities.hintStones.map(e => ({ ...e })),
+  giantCrabBosses: entities.giantCrabBosses.map(e => ({ ...e })),
 };
 
 // ── Hazard bodies (seaweed/spiky plants) ──
@@ -1292,6 +1531,46 @@ for (const cr of entities.crabs) {
   };
   crabBodies.push(b);
   voxelRenderer.buildCrab();
+}
+
+// ── Giant Crab Boss (world 1 boss — 5 HP, charge + rock throw) ──
+const bossCrabBodies = [];     // array of boss bodies (usually 0 or 1 per level)
+const bossRockBodies = [];     // active thrown rocks
+for (const bc of entities.giantCrabBosses) {
+  // Position body so its bottom edge sits on the floor (one tile below spawn)
+  const spawnY = bc.y - BOSS_CRAB_HEIGHT / 2 + TILE_SIZE / 2;
+  const b = new Body(BodyType.KINEMATIC, new Vec2(bc.x, spawnY));
+  const shape = new Polygon(Polygon.box(BOSS_CRAB_WIDTH, BOSS_CRAB_HEIGHT));
+  shape.sensorEnabled = true;
+  shape.cbTypes.add(bossCrabTag);
+  b.shapes.add(shape);
+  b.space = space;
+  // Arena bounds: patrol within 80% of the level width (10% margin each side)
+  const levelMargin = WORLD_W * 0.10;
+  const arenaMinX = Math.max(levelMargin, bc.x - 600);
+  const arenaMaxX = Math.min(WORLD_W - levelMargin, bc.x + 600);
+  b._boss = {
+    hp: BOSS_CRAB_HP,
+    maxHp: BOSS_CRAB_HP,
+    spawnX: bc.x,
+    spawnY: spawnY,
+    minX: arenaMinX,
+    maxX: arenaMaxX,
+    dir: 1,
+    state: 'patrol',        // 'patrol' | 'windup' | 'charge' | 'jumpWindup' | 'jump' | 'throwWindup' | 'slamWindup' | 'slam' | 'retreat'
+    stateTimer: 0,
+    throwTimer: BOSS_CRAB_THROW_INTERVAL * 0.6,  // stagger first throw
+    throwing: false,                              // true while throw sequence is active
+    chargeTimer: BOSS_CRAB_CHARGE_INTERVAL,
+    jumpTimer: BOSS_CRAB_JUMP_INTERVAL * 0.8,   // stagger first jump
+    jumpVy: 0,                                    // current vertical velocity during jump
+    slamTimer: BOSS_CRAB_SLAM_INTERVAL,
+    retreatTimer: BOSS_CRAB_RETREAT_INTERVAL * 0.7, // stagger first retreat
+    invulnTimer: 0,
+    flashTimer: 0,
+  };
+  bossCrabBodies.push(b);
+  voxelRenderer.buildGiantCrabBoss();
 }
 
 // ── Toxic fish enemies (ranged attacker) ──
@@ -1764,6 +2043,174 @@ const crabListener = new InteractionListener(
 );
 crabListener.space = space;
 
+// ── Boss crab collision -> strong knockback (no damage directly) ──
+const bossCrabListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, playerTag, bossCrabTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const boss = bossCrabBodies.find(b => b === b1 || b === b2);
+    if (!boss || !boss.space) return;
+    const st = boss._boss;
+    // Dying boss doesn't deal damage
+    if (st && st.state === 'dying') return;
+    // Jump and charge attacks kill the player on contact
+    if (st && (st.state === 'jump' || st.state === 'charge')) {
+      triggerDeath();
+      sfx.crabPush();
+      return;
+    }
+    const dx = player.position.x - boss.position.x;
+    const dy = player.position.y - boss.position.y;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    const pushDirX = dx >= 0 ? 1 : -1;
+    fishCtrl.knockback(pushDirX * BOSS_CRAB_PUSH_FORCE, (dy / len) * BOSS_CRAB_PUSH_FORCE * 0.3 - BOSS_CRAB_PUSH_FORCE * 0.4);
+    sfx.crabPush();
+  },
+);
+bossCrabListener.space = space;
+
+// ── Boulder hits boss crab -> decrement HP, flash, invulnerability ──
+const boulderBossListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, boulderTag, bossCrabTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const boulderBody = boulderBodies.find(br => br === b1 || br === b2);
+    // Only count thrown boulders with real velocity, not carried or resting ones
+    if (!boulderBody || boulderBody === grabbedBoulder) return;
+    const bvx = boulderBody.velocity.x, bvy = boulderBody.velocity.y;
+    const boulderSpeed = Math.sqrt(bvx * bvx + bvy * bvy);
+    if (boulderSpeed < 80) return; // ignore slow/resting boulders
+    const boss = bossCrabBodies.find(b => b === b1 || b === b2);
+    if (!boss || !boss.space || !boss._boss) return;
+    const st = boss._boss;
+    // Skip if in invulnerability window
+    if (st.invulnTimer > 0) return;
+    st.hp = Math.max(0, st.hp - 1);
+    st.invulnTimer = BOSS_CRAB_HIT_INVULN;
+    st.flashTimer = BOSS_CRAB_HIT_INVULN;
+    // Break the boulder on impact (same as normal enemy)
+    if (boulderBody.space) {
+      if (grabbedBoulder === boulderBody) grabbedBoulder = null;
+      boulderBody.space = null;
+      voxelRenderer.spawnBoulderBreak(boss.position.x, boss.position.y);
+    }
+    sfx.crabPush();
+    // Flee from player after getting hit (unless dying)
+    if (st.hp > 0) {
+      st.state = 'flee';
+      st.throwing = false; // cancel any throw sequence
+      st.stateTimer = BOSS_CRAB_HIT_INVULN + 1000; // flash duration + 1s flee
+    }
+    if (st.hp <= 0 && st.state !== 'dying') {
+      // Enter dying state — boss collapses, then explodes into pearls
+      st.state = 'dying';
+      st.stateTimer = 3000; // 3s collapse animation
+      st.throwing = false;
+      st.dir = 0;
+      boss.velocity = new Vec2(0, 0);
+      sfx.enemyDeath();
+    }
+  },
+);
+boulderBossListener.space = space;
+
+// ── Spawn a single rock from a specific claw side ──
+function _spawnSingleRock(boss, side) {
+  const dir = boss._boss ? boss._boss.dir : 1;
+  // Left claw is on the "left" side of the crab (negative Z → screen-forward)
+  // Right claw is on the "right" side (positive Z → screen-back)
+  // The claw tip extends forward (in boss facing direction) ~60px from center
+  const clawForward = dir * 60;
+  const clawUp = -BOSS_CRAB_HEIGHT * 0.3;
+  const originX = boss.position.x + clawForward;
+  const originY = boss.position.y + clawUp;
+  const targetX = player.position.x;
+  const targetY = player.position.y;
+  const dx = targetX - originX;
+  const dy = targetY - originY;
+  const flightT = Math.max(0.6, Math.min(2.2, Math.abs(dx) / BOSS_CRAB_THROW_SPEED + 0.4));
+  const vx = dx / flightT;
+  const vy = dy / flightT - 0.5 * BOSS_CRAB_THROW_GRAVITY * flightT;
+  const b = new Body(BodyType.KINEMATIC, new Vec2(originX, originY));
+  const shape = new Circle(14);
+  shape.sensorEnabled = true;
+  shape.cbTypes.add(bossRockTag);
+  b.shapes.add(shape);
+  b.space = space;
+  b.velocity = new Vec2(vx, vy);
+  b._life = BOSS_CRAB_THROW_LIFE;
+  bossRockBodies.push(b);
+  voxelRenderer.buildBossRock(b);
+  sfx.stoneThrow();
+}
+
+// ── Spawn rocks from boss — 6 throws alternating left/right claws ──
+function _spawnBossRock(boss) {
+  const bossIdx = bossCrabBodies.indexOf(boss);
+  const throwCount = 6;
+  const stagger = 500; // ms between each throw
+  const st = boss._boss;
+  if (st) st.throwing = true;
+
+  for (let i = 0; i < throwCount; i++) {
+    const side = i % 2 === 0 ? 'left' : 'right';
+    const isLast = i === throwCount - 1;
+    const throwDelay = i * stagger;
+    setTimeout(() => {
+      if (!boss.space || !st || st.state === 'dying') { st.throwing = false; return; }
+      if (bossIdx >= 0) voxelRenderer.startBossCrabThrow(bossIdx, side);
+      setTimeout(() => {
+        if (!boss.space || !st || st.state === 'dying') { st.throwing = false; return; }
+        _spawnSingleRock(boss, side);
+        if (isLast) st.throwing = false; // sequence complete
+      }, 450); // sync with arm swing peak
+    }, throwDelay);
+  }
+}
+
+// ── Spawn falling rocks from above during ground slam ──
+function _spawnFallingRocks(boss) {
+  const cx = boss.position.x;
+  const topY = 32; // near the top of the level (row 1)
+  for (let i = 0; i < BOSS_CRAB_SLAM_ROCKS; i++) {
+    const offsetX = (Math.random() - 0.5) * 2 * BOSS_CRAB_SLAM_ROCK_SPREAD;
+    const delay = i * 120; // stagger rocks slightly
+    setTimeout(() => {
+      if (!boss.space) return;
+      const rx = cx + offsetX;
+      const b = new Body(BodyType.KINEMATIC, new Vec2(rx, topY));
+      const shape = new Circle(14);
+      shape.sensorEnabled = true;
+      shape.cbTypes.add(bossRockTag);
+      b.shapes.add(shape);
+      b.space = space;
+      b.velocity = new Vec2((Math.random() - 0.5) * 15, 30);
+      b._life = BOSS_CRAB_THROW_LIFE;
+      b._fallingRock = true; // flag for heavier gravity
+      bossRockBodies.push(b);
+      voxelRenderer.buildBossRock(b);
+    }, delay);
+  }
+}
+
+// ── Boss rock projectile hits player -> death ──
+const bossRockListener = new InteractionListener(
+  CbEvent.BEGIN, InteractionType.SENSOR, playerTag, bossRockTag,
+  (cb) => {
+    const b1 = cb.int1.castBody ?? cb.int1.castShape?.body ?? null;
+    const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
+    const rock = bossRockBodies.find(r => r === b1 || r === b2);
+    if (rock && rock.space) {
+      voxelRenderer.spawnBoulderBreak(rock.position.x, rock.position.y);
+      rock.space = null;
+      triggerDeath();
+    }
+  },
+);
+bossRockListener.space = space;
+
 // Poison projectile collision -> death
 const projectileListener = new InteractionListener(
   CbEvent.BEGIN, InteractionType.SENSOR, playerTag, projectileTag,
@@ -1819,6 +2266,11 @@ const boulderCrabListener = new InteractionListener(
     const b2 = cb.int2.castBody ?? cb.int2.castShape?.body ?? null;
     const boulderBody = boulderBodies.find(br => br === b1 || br === b2);
     if (boulderBody === grabbedBoulder) return;
+    // Only moving boulders kill crabs (not resting ones on the floor)
+    if (boulderBody) {
+      const bvx = boulderBody.velocity.x, bvy = boulderBody.velocity.y;
+      if (Math.sqrt(bvx * bvx + bvy * bvy) < 80) return;
+    }
     const crabBody = crabBodies.find(c => c === b1 || c === b2);
     if (crabBody && crabBody.space) {
       const cx = crabBody.position.x;
@@ -2355,6 +2807,10 @@ const TOTAL_PEARLS = entities.pearls.length + entities.chests.length;
 const MAX_LIVES = 3;
 let lives = MAX_LIVES;
 
+// ── Level meta (boss flag, goal type) ──
+const _levelMeta = getCurrentLevelMeta();
+const IS_BOSS_LEVEL = _levelMeta.bossLevel || _levelMeta.levelGoal === 'boss';
+
 const LEVEL_TIME = 5 * 60;              // s — 5 minute countdown
 let timeRemaining = LEVEL_TIME;          // s — seconds left
 
@@ -2712,6 +3168,37 @@ function _resetEntities() {
 
   // ── Hint stones — no reset needed (static, permanent) ──
 
+  // ── Giant Crab Bosses — restore HP and spawn position ──
+  for (let i = 0; i < bossCrabBodies.length; i++) {
+    const b = bossCrabBodies[i];
+    const bc = entities.giantCrabBosses[i];
+    if (!bc) continue;
+    b.position = new Vec2(b._boss.spawnX, b._boss.spawnY);
+    b.velocity = new Vec2(0, 0);
+    if (b._boss) {
+      b._boss.hp = b._boss.maxHp;
+      b._boss.state = 'patrol';
+      b._boss.stateTimer = 0;
+      b._boss.throwTimer = BOSS_CRAB_THROW_INTERVAL * 0.6;
+      b._boss.throwing = false;
+      b._boss.chargeTimer = BOSS_CRAB_CHARGE_INTERVAL;
+      b._boss.jumpTimer = BOSS_CRAB_JUMP_INTERVAL * 0.8;
+      b._boss.jumpVy = 0;
+      b._boss.slamTimer = BOSS_CRAB_SLAM_INTERVAL;
+      b._boss.retreatTimer = BOSS_CRAB_RETREAT_INTERVAL * 0.7;
+      b._boss.invulnTimer = 0;
+      b._boss.flashTimer = 0;
+      b._boss.dir = 1;
+    }
+    if (!b.space) b.space = space;
+  }
+
+  // ── Boss rocks — despawn all active ──
+  for (const r of bossRockBodies) {
+    if (r.space) r.space = null;
+  }
+  bossRockBodies.length = 0;
+
   // ── Clear message overlay ──
   _messageOverlay = null;
   _activeHint = null;
@@ -2839,12 +3326,15 @@ function renderHUD() {
   const H = hudCanvas.height;
   hudCtx.clearRect(0, 0, W, H);
 
-  // ── Pearl progress bar (top-center) ──
+  // ── Pearl progress bar (top-center) — replaced by boss HP bar on boss levels ──
   const barW = 340;
   const barH = 28;
   const barX = (W - barW) / 2;
   const barY = 12;
   const progress = TOTAL_PEARLS > 0 ? pearlCount / TOTAL_PEARLS : 0;
+  if (IS_BOSS_LEVEL && bossCrabBodies.length > 0) {
+    _drawBossHpBar(barX, barY, barW, barH);
+  } else {
 
   // Bar background
   hudCtx.fillStyle = 'rgba(0, 20, 40, 0.65)';
@@ -2890,6 +3380,7 @@ function renderHUD() {
   hudCtx.font = "bold 16px 'Silkscreen', monospace";
   hudCtx.textAlign = 'center';
   hudCtx.fillText(t('hud.pearlCount', { current: pearlCount, total: TOTAL_PEARLS }), barX + barW / 2, barY + barH - 7);
+  } // end pearl-bar branch
 
   // ── Lives (hearts) — top-left ──
   const heartSize = 28;
@@ -3136,6 +3627,52 @@ function renderHUD() {
   }
 }
 
+// Draw the boss HP bar (top-center, replaces pearl bar on boss levels)
+function _drawBossHpBar(barX, barY, barW, barH) {
+  // Aggregate HP across all alive bosses — usually one, but supports multi-boss arenas
+  let totalHp = 0;
+  let totalMax = 0;
+  for (const b of bossCrabBodies) {
+    if (!b._boss) continue;
+    if (!b.space) continue; // dead — excluded from totals
+    totalHp += b._boss.hp;
+    totalMax += b._boss.maxHp;
+  }
+  if (totalMax <= 0) return;
+  const progress = totalHp / totalMax;
+
+  // Background
+  hudCtx.fillStyle = 'rgba(40, 10, 10, 0.7)';
+  hudCtx.beginPath();
+  hudCtx.roundRect(barX, barY, barW, barH, 14);
+  hudCtx.fill();
+
+  // Border
+  hudCtx.strokeStyle = 'rgba(255, 120, 100, 0.6)';
+  hudCtx.lineWidth = 2;
+  hudCtx.beginPath();
+  hudCtx.roundRect(barX, barY, barW, barH, 14);
+  hudCtx.stroke();
+
+  // Fill
+  if (progress > 0) {
+    const fillW = Math.max(8, barW * progress);
+    hudCtx.fillStyle = '#ff4a3a';
+    hudCtx.globalAlpha = 0.9;
+    hudCtx.beginPath();
+    hudCtx.roundRect(barX, barY, fillW, barH, 14);
+    hudCtx.fill();
+    hudCtx.globalAlpha = 1.0;
+  }
+
+  // Boss label
+  hudCtx.fillStyle = '#ffffff';
+  hudCtx.font = "bold 14px 'Silkscreen', monospace";
+  hudCtx.textAlign = 'center';
+  hudCtx.fillText(`${t('hud.boss')}  ${totalHp} / ${totalMax}`, barX + barW / 2, barY + barH - 8);
+  hudCtx.textAlign = 'left';
+}
+
 // Draw a pixel-art style heart
 function _drawHeart(cx, cy, size, filled) {
   const r = size / 2;
@@ -3258,13 +3795,23 @@ function _drawSkillIcon(x, y, size, label, activeColor, cooldownColor, cooldownP
   hudCtx.restore();
 }
 
-// ── Game Loop ──
-function gameLoop() {
+// ── Game Loop (Fixed Timestep + Accumulator) ──
+function gameLoop(timestamp) {
+  // Calculate real elapsed time, accumulate for fixed-step logic
+  if (!timestamp) timestamp = performance.now();
+  if (_lastFrameTime === 0) {
+    _lastFrameTime = timestamp;
+    _accumulator = FIXED_DT; // ensure at least one step on the first frame
+  } else {
+    const rawDt = (timestamp - _lastFrameTime) / 1000; // ms → s
+    _lastFrameTime = timestamp;
+    // Clamp to avoid spiral of death (e.g. tab was backgrounded)
+    _accumulator += Math.min(rawDt, MAX_STEPS_PER_FRAME * FIXED_DT);
+  }
 
   // ── Editor Mode ──
   if (editorActive && gameEditor) {
-    // Editor uses flat (top-down) camera, viewport offset by sidebar width
-    const sidebarPx = 216;  // matches SIDEBAR_W in level-editor.js
+    const sidebarPx = 216;
     const canvasW = renderer.domElement.clientWidth;
     const canvasH = renderer.domElement.clientHeight;
     const viewportW = canvasW - sidebarPx;
@@ -3277,10 +3824,15 @@ function gameLoop() {
       return { visW, visH };
     };
 
-    gameEditor.update(DT, editorGetVisibleSize);
-    gameEditor.processPendingActions(editorGetVisibleSize);
+    // Fixed-step editor logic
+    while (_accumulator >= FIXED_DT) {
+      _accumulator -= FIXED_DT;
+      gameEditor.update(FIXED_DT, editorGetVisibleSize);
+      gameEditor.processPendingActions(editorGetVisibleSize);
+      voxelRenderer._time += FIXED_DT;
+    }
 
-    // Use editor camera — flat (no pitch), aspect matches viewport
+    // Render (once per frame)
     camX = gameEditor.camX;
     camY = gameEditor.camY;
     _gameCamX = camX;
@@ -3295,11 +3847,6 @@ function gameLoop() {
     camera.position.set(lookX, lookY, CAM_DISTANCE);
     camera.lookAt(lookX, lookY, 0);
 
-    // In editor mode, skip syncFrame (entities are positioned by editor callbacks).
-    // Only update time-based animations (water, bubbles, etc.)
-    voxelRenderer._time += DT;
-
-    // Render 3D scene only to the viewport area (right of sidebar)
     renderer.setViewport(sidebarPx, 0, viewportW, canvasH);
     renderer.setScissor(sidebarPx, 0, viewportW, canvasH);
     renderer.setScissorTest(true);
@@ -3307,14 +3854,12 @@ function gameLoop() {
     renderer.setScissorTest(false);
     renderer.setViewport(0, 0, canvasW, canvasH);
 
-    // Restore camera aspect for non-editor use
     camera.aspect = canvasW / canvasH;
     camera.updateProjectionMatrix();
 
-    // Editor HUD
     hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
     gameEditor.render(editorGetVisibleSize);
-    gameEditor.renderToast(DT);
+    gameEditor.renderToast(FIXED_DT);
 
     gameAnimId = requestAnimationFrame(gameLoop);
     return;
@@ -3322,10 +3867,9 @@ function gameLoop() {
 
   // ── Paused ──
   if (gamePaused) {
-    // Keep rendering the scene but skip game logic
-    // Still step iris if it's playing (game over/victory triggered during iris)
-    if (irisState !== 'none') {
-      _irisStep(DT);
+    while (_accumulator >= FIXED_DT) {
+      _accumulator -= FIXED_DT;
+      if (irisState !== 'none') _irisStep(FIXED_DT);
     }
     renderer.render(scene, camera);
     renderHUD();
@@ -3337,23 +3881,26 @@ function gameLoop() {
   // ── Exit to menu: iris still playing after menu is shown ──
   if (_exitPending) {
     if (irisState === 'none') {
-      // Iris finished — stop game loop, menu scene is already running
       _exitPending = false;
       gameAnimId = null;
       return;
     }
-    // Still animating — step iris, draw overlay on top of menu scene
-    _irisStep(DT);
+    while (_accumulator >= FIXED_DT) {
+      _accumulator -= FIXED_DT;
+      _irisStep(FIXED_DT);
+    }
     hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
     _irisDraw();
     gameAnimId = requestAnimationFrame(gameLoop);
     return;
   }
 
-  // ── Death / Respawn Animation ──
-  const deathFrozen = updateDeathState(DT);
-  if (deathFrozen) {
-    // Update Three.js camera position (camX/camY may have changed during respawn)
+  // ── Death / Respawn Animation (freezes gameplay) ──
+  if (deathActive) {
+    while (_accumulator >= FIXED_DT) {
+      _accumulator -= FIXED_DT;
+      updateDeathState(FIXED_DT);
+    }
     const { visW: dVisW, visH: dVisH } = getVisibleSize();
     const dLookX = camX + dVisW / 2;
     const dLookY = -(camY + dVisH / 2);
@@ -3362,10 +3909,53 @@ function gameLoop() {
     renderer.render(scene, camera);
     renderHUD();
     renderDeathOverlay();
+    if (irisState !== 'none') _irisDraw();
     gameAnimId = requestAnimationFrame(gameLoop);
     return;
   }
 
+  // ── Fixed-Step Logic Loop ──
+  while (_accumulator >= FIXED_DT) {
+    _accumulator -= FIXED_DT;
+    _gameLogicStep();
+    if (irisState !== 'none') _irisStep(FIXED_DT);
+  }
+
+  // ── Render (once per frame, outside the fixed-step loop) ──
+  // Camera
+  updateGameCamera();
+  _gameCamX = camX;
+  _gameCamY = camY;
+
+  // Position perspective camera
+  const { visW: camVisW, visH: camVisH } = getVisibleSize();
+  const lookX = camX + camVisW / 2;
+  const lookY = -(camY + camVisH / 2);
+  camera.position.set(lookX, lookY - CAM_Y_OFFSET, CAM_Z_OFFSET);
+  camera.lookAt(lookX, lookY, 0);
+
+  // Sync voxel renderer
+  const fishState = fishCtrl.getState();
+  voxelRenderer.syncFrame(player, fishState, enemyBodies, FIXED_DT, {
+    sharkBodies, pufferfishBodies, crabBodies, toxicFishBodies, projectileBodies,
+    armoredFishBodies, spittingCoralBodies, switchBodies, gateBodies,
+    swingingAnchorBodies, bossCrabBodies, bossRockBodies,
+    camX, camY, camVisW, camVisH,
+  });
+
+  renderer.render(scene, camera);
+
+  // HUD
+  renderHUD();
+  renderDeathOverlay();
+  if (irisState !== 'none') _irisDraw();
+  renderPhysicsDebug();
+
+  gameAnimId = requestAnimationFrame(gameLoop);
+}
+
+// ── Single fixed-timestep logic step ──
+function _gameLogicStep() {
   // ── Input ──
   const kbInput = getKeyboardInput();
   const touchInput = touchControls.getInput();
@@ -3379,13 +3969,21 @@ function gameLoop() {
   };
 
   // ── Victory check ──
-  if (!victoryActive && !deathActive && pearlCount >= TOTAL_PEARLS) {
-    showVictory();
+  if (!victoryActive && !deathActive) {
+    if (IS_BOSS_LEVEL) {
+      // Victory is triggered by the dying state's victoryTimer, not by space check
+      // (gives player time to collect pearls after boss death)
+      const anyBossDying = bossCrabBodies.some(b => b._boss && b._boss.state === 'dying');
+      const anyBossAlive = bossCrabBodies.some(b => b.space && (!b._boss || b._boss.state !== 'dying'));
+      if (bossCrabBodies.length > 0 && !anyBossAlive && !anyBossDying) showVictory();
+    } else if (pearlCount >= TOTAL_PEARLS) {
+      showVictory();
+    }
   }
 
   // ── Countdown timer ──
   if (!deathActive && irisState === 'none' && !victoryActive) {
-    timeRemaining -= DT;
+    timeRemaining -= FIXED_DT;
     if (timeRemaining <= 0) {
       timeRemaining = 0;
       triggerDeath();  // time's up = death
@@ -3491,6 +4089,260 @@ function gameLoop() {
     cb.velocity = new Vec2(p._dir * p.speed, 0);
   }
 
+  // ── Update boss crab AI (patrol → windup → charge; periodic rock throw) ──
+  for (const bc of bossCrabBodies) {
+    if (!bc._boss) continue;
+    const st = bc._boss;
+    // Dead boss: only tick victory timer
+    if (!bc.space) {
+      if (st.dead && st.victoryTimer !== undefined) {
+        st.victoryTimer = Math.max(0, st.victoryTimer - FIXED_DT * 1000);
+        if (st.victoryTimer <= 0) showVictory();
+      }
+      continue;
+    }
+
+    // Tick per-boss timers
+    st.stateTimer = Math.max(0, st.stateTimer - FIXED_DT * 1000);
+    st.throwTimer = Math.max(0, st.throwTimer - FIXED_DT * 1000);
+    st.chargeTimer = Math.max(0, st.chargeTimer - FIXED_DT * 1000);
+    st.jumpTimer = Math.max(0, st.jumpTimer - FIXED_DT * 1000);
+    st.slamTimer = Math.max(0, st.slamTimer - FIXED_DT * 1000);
+    st.retreatTimer = Math.max(0, st.retreatTimer - FIXED_DT * 1000);
+    if (st.invulnTimer > 0) st.invulnTimer = Math.max(0, st.invulnTimer - FIXED_DT * 1000);
+    if (st.flashTimer > 0) st.flashTimer = Math.max(0, st.flashTimer - FIXED_DT * 1000);
+
+    const bx = bc.position.x;
+    const playerDx = player.position.x - bx;
+    const playerDy = player.position.y - bc.position.y;
+
+    // State machine
+    if (st.state === 'dying') {
+      // Boss is collapsing — stop movement, flash/shake
+      bc.velocity = new Vec2(0, 0);
+      if (st.stateTimer <= 0 && !st.dead) {
+        // Begin pearl eruption phase — boss stays visible while pearls fly out
+        st.dead = true;
+        st.despawnTimer = 2000; // boss visible for 2s while pearls erupt
+        const cx = bc.position.x, cy = bc.position.y;
+        sfx.enemyDeath();
+        bc.velocity = new Vec2(0, 0);
+
+        // Pearl explosion — staggered outward burst
+        const pearlNum = 8;
+        const pearlRestY = st.spawnY - BOSS_CRAB_HEIGHT * 0.5;
+        for (let p = 0; p < pearlNum; p++) {
+          const delay = p * 200; // slightly more spread over time
+          setTimeout(() => {
+            if (!space) return;
+            const angle = (p / pearlNum) * Math.PI * 2 + (Math.random() - 0.5) * 0.5;
+            const startX = cx + (Math.random() - 0.5) * 60;
+            const startY = cy - 20;
+            const pb = new Body(BodyType.KINEMATIC, new Vec2(startX, startY));
+            const ps = new Circle(6);
+            ps.sensorEnabled = true;
+            ps.cbTypes.add(pearlTag);
+            pb.shapes.add(ps);
+            pb.space = space;
+            pb.velocity = new Vec2(
+              Math.cos(angle) * 120 + (Math.random() - 0.5) * 40,
+              -180 - Math.random() * 60,
+            );
+            pb._bossLoot = true;
+            pb._lootFloorY = pearlRestY;
+            pearlBodies.push(pb);
+            voxelRenderer.buildPearlAt(pb);
+            // Small burst particle at each pearl spawn
+            voxelRenderer.spawnBoulderBreak(startX, startY);
+          }, delay);
+        }
+
+        // Kill all other enemies
+        for (const e of [...enemyBodies, ...crabBodies, ...toxicFishBodies, ...armoredFishBodies]) {
+          if (e.space) {
+            voxelRenderer.spawnEnemyDeath(e.position.x, e.position.y, [0xcc3322, 0xdd4433, 0xbb2211]);
+            e.space = null;
+          }
+        }
+        // Despawn all active boss rocks
+        for (const r of bossRockBodies) { if (r.space) r.space = null; }
+        bossRockBodies.length = 0;
+        // Victory after 10s pearl collection time
+        st.victoryTimer = 10000;
+      }
+      // Despawn boss after pearls have erupted
+      if (st.dead && st.despawnTimer !== undefined) {
+        st.despawnTimer = Math.max(0, st.despawnTimer - FIXED_DT * 1000);
+        if (st.despawnTimer <= 0 && bc.space) {
+          const cx = bc.position.x, cy = bc.position.y;
+          bc.space = null;
+          voxelRenderer.spawnBoulderBreak(cx, cy);
+          voxelRenderer.spawnEnemyDeath(cx, cy, [0xcc3322, 0xdd4433, 0xbb2211, 0xee5544, 0xff8866]);
+        }
+      }
+      continue; // skip all other logic for dying boss
+    }
+    if (st.state === 'charge') {
+      // Lunge in locked direction, reverse at arena edges
+      bc.velocity = new Vec2(st.dir * BOSS_CRAB_CHARGE_SPEED, 0);
+      if (bx <= st.minX) st.dir = 1;
+      if (bx >= st.maxX) st.dir = -1;
+      if (st.stateTimer <= 0) {
+        st.state = 'patrol';
+        st.stateTimer = 0;
+        st.chargeTimer = BOSS_CRAB_CHARGE_INTERVAL;
+      }
+    } else if (st.state === 'windup') {
+      // Telegraph: stop and face player
+      bc.velocity = new Vec2(0, 0);
+      if (playerDx < -4) st.dir = -1;
+      else if (playerDx > 4) st.dir = 1;
+      if (st.stateTimer <= 0) {
+        st.state = 'charge';
+        st.stateTimer = BOSS_CRAB_CHARGE_DURATION;
+      }
+    } else if (st.state === 'jumpWindup') {
+      // Telegraph: crouch before jumping
+      bc.velocity = new Vec2(0, 0);
+      if (playerDx < -4) st.dir = -1;
+      else if (playerDx > 4) st.dir = 1;
+      if (st.stateTimer <= 0) {
+        st.state = 'jump';
+        st.jumpVy = BOSS_CRAB_JUMP_SPEED_Y;
+      }
+    } else if (st.state === 'jump') {
+      // Jump attack — parabolic arc toward player, deals damage on landing
+      st.jumpVy += BOSS_CRAB_JUMP_GRAVITY * FIXED_DT;
+      bc.velocity = new Vec2(st.dir * BOSS_CRAB_JUMP_SPEED_X, st.jumpVy);
+      // Land when reaching or exceeding spawn Y (ground level)
+      if (bc.position.y >= st.spawnY && st.jumpVy > 0) {
+        bc.position.y = st.spawnY;
+        bc.velocity = new Vec2(0, 0);
+        st.state = 'patrol';
+        st.jumpTimer = BOSS_CRAB_JUMP_INTERVAL;
+        sfx.crabPush();
+      }
+    } else if (st.state === 'throwWindup') {
+      // Telegraph: stop and raise arms before throwing
+      bc.velocity = new Vec2(0, 0);
+      if (playerDx < -4) st.dir = -1;
+      else if (playerDx > 4) st.dir = 1;
+      if (st.stateTimer <= 0) {
+        st.state = 'patrol';
+        _spawnBossRock(bc);
+      }
+    } else if (st.state === 'slamWindup') {
+      // Telegraph before ground slam — crouch and shake
+      bc.velocity = new Vec2(0, 0);
+      if (st.stateTimer <= 0) {
+        st.state = 'slam';
+        st.stateTimer = 200; // brief slam animation
+        // Spawn falling rocks from above across the arena
+        _spawnFallingRocks(bc);
+        sfx.stoneThrow();
+      }
+    } else if (st.state === 'slam') {
+      // Ground slam recovery
+      bc.velocity = new Vec2(0, 0);
+      if (st.stateTimer <= 0) {
+        st.state = 'patrol';
+        st.slamTimer = BOSS_CRAB_SLAM_INTERVAL;
+      }
+    } else if (st.state === 'flee') {
+      // Flee from player after getting hit — run away fast
+      const awayDir = playerDx >= 0 ? -1 : 1;
+      st.dir = awayDir;
+      bc.velocity = new Vec2(awayDir * BOSS_CRAB_RETREAT_SPEED * 2, 0);
+      // Reverse at arena edge
+      if (bx <= st.minX) { st.dir = 1; bc.velocity = new Vec2(BOSS_CRAB_RETREAT_SPEED * 2, 0); }
+      if (bx >= st.maxX) { st.dir = -1; bc.velocity = new Vec2(-BOSS_CRAB_RETREAT_SPEED * 2, 0); }
+      if (st.stateTimer <= 0) {
+        st.state = 'patrol';
+      }
+    } else if (st.state === 'retreat') {
+      // Back away from the player — gives breathing room
+      const awayDir = playerDx >= 0 ? -1 : 1;
+      st.dir = awayDir;
+      bc.velocity = new Vec2(awayDir * BOSS_CRAB_RETREAT_SPEED, 0);
+      // Clamp to arena
+      if (bx <= st.minX || bx >= st.maxX) bc.velocity = new Vec2(0, 0);
+      if (st.stateTimer <= 0) {
+        st.state = 'patrol';
+        st.retreatTimer = BOSS_CRAB_RETREAT_INTERVAL;
+      }
+    } else {
+      // patrol — slow back-and-forth
+      if (bx >= st.maxX) st.dir = -1;
+      if (bx <= st.minX) st.dir = 1;
+      bc.velocity = new Vec2(st.dir * BOSS_CRAB_PATROL_SPEED, 0);
+
+      // Don't start new attacks while a throw sequence is still active
+      if (!st.throwing) {
+        // Start a charge when player is roughly on the same floor level and in range
+        const playerInFront = (st.dir === 1 ? playerDx > 0 : playerDx < 0);
+        const inRange = Math.abs(playerDx) < 380 && Math.abs(playerDy) < 90;
+        if (st.chargeTimer <= 0 && playerInFront && inRange) {
+          st.state = 'windup';
+          st.stateTimer = BOSS_CRAB_CHARGE_WINDUP;
+        }
+        // Jump attack — crouch then leap toward the player
+        else if (st.jumpTimer <= 0 && Math.abs(playerDx) < 500) {
+          st.state = 'jumpWindup';
+          st.stateTimer = BOSS_CRAB_JUMP_WINDUP;
+          st.dir = playerDx >= 0 ? 1 : -1;
+        }
+        // Ground slam — face-slam that rains rocks from above
+        else if (st.slamTimer <= 0) {
+          st.state = 'slamWindup';
+          st.stateTimer = BOSS_CRAB_SLAM_WINDUP;
+        }
+        // Retreat — back off to give the player breathing room
+        else if (st.retreatTimer <= 0 && Math.abs(playerDx) < 300) {
+          st.state = 'retreat';
+          st.stateTimer = BOSS_CRAB_RETREAT_DURATION;
+        }
+      }
+    }
+
+    // Rock throw — only during patrol, triggers a windup first
+    const distToPlayer = Math.abs(playerDx) + Math.abs(playerDy);
+    const inVisualRange = distToPlayer < 600;
+    if (st.throwTimer <= 0 && st.state === 'patrol' && inVisualRange && bc.space) {
+      st.throwTimer = BOSS_CRAB_THROW_INTERVAL;
+      st.state = 'throwWindup';
+      st.stateTimer = BOSS_CRAB_THROW_WINDUP;
+    }
+  }
+
+  // ── Tick boss loot pearls (custom gravity, stop at floor) ──
+  for (const pb of pearlBodies) {
+    if (!pb._bossLoot || !pb.space) continue;
+    // Apply gravity
+    pb.velocity = new Vec2(pb.velocity.x * 0.99, pb.velocity.y + 400 * FIXED_DT);
+    // Stop at floor level
+    if (pb.position.y >= pb._lootFloorY) {
+      pb.position.y = pb._lootFloorY;
+      pb.velocity = new Vec2(0, 0);
+      pb._bossLoot = false; // stop ticking, pearl rests on floor
+    }
+  }
+
+  // ── Tick boss rock projectiles (gravity + life) ──
+  for (let i = bossRockBodies.length - 1; i >= 0; i--) {
+    const r = bossRockBodies[i];
+    if (!r.space) { bossRockBodies.splice(i, 1); continue; }
+    r._life -= FIXED_DT * 1000;
+    if (r._life <= 0) {
+      r.space = null;
+      bossRockBodies.splice(i, 1);
+      continue;
+    }
+    // Apply gravity manually (KINEMATIC ignores the space gravity)
+    // Falling rocks (from slam) use heavier gravity for faster descent
+    const rockGrav = r._fallingRock ? BOSS_CRAB_THROW_GRAVITY * 1.2 : BOSS_CRAB_THROW_GRAVITY;
+    r.velocity = new Vec2(r.velocity.x, r.velocity.y + rockGrav * FIXED_DT);
+  }
+
   // ── Update toxic fish AI (patrol + shoot) ──
   for (const tf of toxicFishBodies) {
     if (!tf._patrol || !tf.space) continue;
@@ -3502,7 +4354,7 @@ function gameLoop() {
     tf.velocity = new Vec2(p._dir * p.speed, 0);
 
     // Shooting logic
-    tf._shoot.cooldown = Math.max(0, tf._shoot.cooldown - DT * 1000);
+    tf._shoot.cooldown = Math.max(0, tf._shoot.cooldown - FIXED_DT * 1000);
     const dx = player.position.x - tf.position.x;
     const dy = player.position.y - tf.position.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
@@ -3530,7 +4382,7 @@ function gameLoop() {
   // ── Update spitting coral AI (stationary, fan projectiles) ──
   for (const sc of spittingCoralBodies) {
     if (!sc.space) continue;
-    sc._shoot.cooldown = Math.max(0, sc._shoot.cooldown - DT * 1000);
+    sc._shoot.cooldown = Math.max(0, sc._shoot.cooldown - FIXED_DT * 1000);
     if (sc._shoot.cooldown <= 0) {
       sc._shoot.cooldown = CORAL_SHOOT_INTERVAL;
       // Fire 3 projectiles in fan pattern: left-up, straight up, right-up
@@ -3558,7 +4410,7 @@ function gameLoop() {
   for (let i = projectileBodies.length - 1; i >= 0; i--) {
     const pb = projectileBodies[i];
     if (!pb.space) { projectileBodies.splice(i, 1); continue; }
-    pb._life -= DT * 1000;
+    pb._life -= FIXED_DT * 1000;
     if (pb._life <= 0) {
       pb.space = null;
       projectileBodies.splice(i, 1);
@@ -3568,7 +4420,7 @@ function gameLoop() {
   // ── Update timed switches (countdown) ──
   for (const sw of switchBodies) {
     if (sw.type === 'timed' && sw.active) {
-      sw.timer -= DT * 1000;
+      sw.timer -= FIXED_DT * 1000;
       if (sw.timer <= 0) {
         sw.timer = 0;
         sw.active = false;
@@ -3582,7 +4434,7 @@ function gameLoop() {
     const targetAngle = gate.open ? Math.PI / 2 : 0;
     if (Math.abs(gate.angle - targetAngle) > 0.01) {
       const dir = targetAngle > gate.angle ? 1 : -1;
-      gate.angle += dir * GATE_OPEN_SPEED * DT;
+      gate.angle += dir * GATE_OPEN_SPEED * FIXED_DT;
       // Clamp
       if (dir > 0 && gate.angle > targetAngle) gate.angle = targetAngle;
       if (dir < 0 && gate.angle < targetAngle) gate.angle = targetAngle;
@@ -3616,9 +4468,9 @@ function gameLoop() {
   for (const sa of swingingAnchorBodies) {
     // Pendulum: angular_accel = -g/L * sin(angle)
     const angAccel = -(PENDULUM_GRAVITY / sa.chainLength) * Math.sin(sa.angle);
-    sa.angularVel += angAccel * DT;
+    sa.angularVel += angAccel * FIXED_DT;
     sa.angularVel *= 0.9995; // very slight damping — nearly perpetual
-    sa.angle += sa.angularVel * DT;
+    sa.angle += sa.angularVel * FIXED_DT;
     // Position anchor body at center of anchor model (below chain end)
     const ANCHOR_BODY_OFFSET = 12; // px — offset from chain end to anchor body center
     const totalLen = sa.chainLength + ANCHOR_BODY_OFFSET;
@@ -3641,7 +4493,7 @@ function gameLoop() {
 
   // ── Message overlay timer (bottles) ──
   if (_messageOverlay && _messageOverlay.timer > 0) {
-    _messageOverlay.timer -= DT * 1000;
+    _messageOverlay.timer -= FIXED_DT * 1000;
     if (_messageOverlay.timer <= 800) _messageOverlay.fadeOut = true;
     if (_messageOverlay.timer <= 0) _messageOverlay = null;
   }
@@ -3776,7 +4628,7 @@ function gameLoop() {
   ];
   for (const eb of _allStunnableEnemies) {
     if (eb._stunTimer > 0) {
-      eb._stunTimer -= DT * 1000;
+      eb._stunTimer -= FIXED_DT * 1000;
       if (eb._stunTimer <= 0) eb._stunTimer = 0;
     }
   }
@@ -3797,38 +4649,7 @@ function gameLoop() {
   }
 
   // ── Physics step ──
-  space.step(DT, 8, 3);
-
-  // ── Camera ──
-  updateGameCamera();
-  _gameCamX = camX;
-  _gameCamY = camY;
-
-  // ── Render Three.js ──
-  // Position perspective camera: follow player with pitch offset
-  const { visW: camVisW, visH: camVisH } = getVisibleSize();
-  const lookX = camX + camVisW / 2;
-  const lookY = -(camY + camVisH / 2);
-  camera.position.set(lookX, lookY - CAM_Y_OFFSET, CAM_Z_OFFSET);
-  camera.lookAt(lookX, lookY, 0);
-
-  // Sync voxel renderer
-  const fishState = fishCtrl.getState();
-  voxelRenderer.syncFrame(player, fishState, enemyBodies, DT, {
-    sharkBodies, pufferfishBodies, crabBodies, toxicFishBodies, projectileBodies,
-    armoredFishBodies, spittingCoralBodies, switchBodies, gateBodies,
-    swingingAnchorBodies,
-    camX, camY, camVisW, camVisH,
-  });
-
-  renderer.render(scene, camera);
-
-  // ── HUD ──
-  renderHUD();
-  renderDeathOverlay();
-  renderPhysicsDebug();
-
-  gameAnimId = requestAnimationFrame(gameLoop);
+  space.step(FIXED_DT, 8, 3);
 }
 
 // Update iris open center to player spawn position (for start-game transition)

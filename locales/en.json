@@ -23,6 +23,10 @@
       "name": "Deep Caves",
       "desc": "Dark caverns with narrow tunnels"
     },
+    "bossGiantCrab": {
+      "name": "Boss: Giant Crab",
+      "desc": "Guardian of the reef's exit. Five hits with boulders will do it."
+    },
     "sunkenRuins": {
       "name": "Sunken Ruins",
       "desc": "Ancient structures beneath the waves"
@@ -62,7 +66,8 @@
   },
   "hud": {
     "pearlCount": "{current} / {total}",
-    "physicsDebug": "PHYSICS DEBUG (F3)"
+    "physicsDebug": "PHYSICS DEBUG (F3)",
+    "boss": "BOSS"
   },
   "touch": {
     "dash": "DASH",
@@ -126,6 +131,12 @@
       "tagLabel": "Ranged",
       "desc": "A crusty polyp that spits venom in a triple fan. Every. Few. Seconds. Stand to the side and wait — or shut it up with a boulder.",
       "tip": "Tip: The projectiles always go up in a fan pattern. Stay below and to the side, or throw a boulder to destroy it."
+    },
+    "giantCrabBoss": {
+      "name": "Giant Crab",
+      "tagLabel": "Boss",
+      "desc": "Ancient guardian of the reef's exit. Throws rocks in high arcs and charges with terrifying force. Its claws don't kill directly — but they can shove you straight into the jaws of the sea.",
+      "tip": "Tip: Dodge the charges and grab boulders when it pauses. Five solid hits — and the reef is yours to pass."
     },
     "pearl": {
       "name": "Pearl",
@@ -273,13 +284,34 @@
     "coordinates": "Col:{col} Row:{row}",
     "moveMode": "MOVE",
     "controls": "G=grid  M=move  Click entity=config",
+    "load": "LOAD",
+    "copy": "JSON",
     "copiedToast": "Level data copied to clipboard!",
+    "jsonCopiedToast": "Level JSON copied to clipboard!",
     "copyFailed": "Copy failed — check clipboard permissions",
     "groupToast": "Group → {group}",
     "cfgGroup": "Group",
     "cfgText": "Text",
     "restartTitle": "Restart",
     "exitTitle": "Back to Editor",
+    "saveTitle": "Save Level",
+    "loadTitle": "Load Level",
+    "nameLabel": "Name:",
+    "namePrompt": "Level name:",
+    "saveNew": "SAVE",
+    "overwrite": "OVR",
+    "loadBtn": "LOAD",
+    "savedLevels": "Saved Levels",
+    "noSavedLevels": "No saved levels yet",
+    "savedToast": "Saved: {name}",
+    "loadedToast": "Loaded: {name}",
+    "deletedToast": "Slot deleted",
+    "saveFailed": "Save failed — localStorage may be full",
+    "loadFailed": "Load failed — invalid data",
+    "importJson": "IMPORT JSON",
+    "importPrompt": "Paste level JSON:",
+    "importedToast": "Level imported!",
+    "importFailed": "Import failed — invalid JSON",
     "cat": {
       "tools": "Tools",
       "terrain": "Terrain",
@@ -310,6 +342,7 @@
       "crab": "Crab",
       "toxicFish": "Toxic Fish",
       "spitCoral": "Spit Coral",
+      "giantCrabBoss": "Giant Crab (Boss)",
       "swToggle": "Sw Toggle",
       "swPressure": "Sw Pressure",
       "swTimed": "Sw Timed",

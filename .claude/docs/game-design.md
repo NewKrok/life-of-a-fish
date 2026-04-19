@@ -69,7 +69,7 @@ This means entities like floating logs and swinging anchors are **obstacles and 
 1. **Home Waters** — Tutorial. Swimming, dash, first pearls. Very easy (current level 1)
 2. **Reef's Edge** — Piranhas, first boulders (grab/throw). Underwater crates as breakable obstacles
 3. **Into the Blue** — Key-chest puzzle intro, seagrass hiding from sharks
-4. **Boss: Giant Crab** — Guards the reef's exit. Throws rocks, shoves the player. Hit with boulders 3 times to defeat
+4. **Boss: Giant Crab** — Guards the reef's exit. Multi-phase boss with charge (lethal), jump attack (lethal), 6-rock throw sequence (alternating claws), ground slam (falling rocks), flee after hit, periodic retreat. Hit with 5 thrown boulders to defeat. Death sequence: topple → pearl eruption → 10s collection time. All arena enemies die when boss dies. Arena has piranhas + crabs as minions
 
 **Introduced mechanics:** Core movement, dash, grab/throw, seagrass stealth, underwater crates
 **Introduced enemies:** Piranha, Shark, Crab
@@ -239,7 +239,7 @@ Design principles:
 
 | World | Boss | Core Mechanic | How to Win |
 |-------|------|--------------|------------|
-| 1 | Giant Crab | Push + boulder throw | Dodge shoves, throw 3 boulders at it |
+| 1 | Giant Crab | Charge (lethal), jump (lethal), 6-rock throw, ground slam, flee/retreat | Dodge attacks, throw 5 boulders at it (must be moving >80 px/s) |
 | 2 | Giant Jellyfish | Tentacle maze + dash | Dash through tentacle gaps, hit core with boulders |
 | 3 | Eel Queen | Dark arena + pattern reading | Read bioluminescent telegraph, dash weak points |
 | 4 | Anglerfish | Light-lure attraction + flanking | Resist pull, use currents to get behind, destroy lure nodes |
@@ -317,9 +317,17 @@ Plus ~25 hidden bottle messages and the Codex encyclopedia.
 | 10 | Skill: Stun Pulse | Stun nearby enemies ~3s, ~20s cooldown | **Done** |
 | 11 | Skill: Speed Surge | Sprint boost ~4s, ~25s cooldown | **Done** |
 | 12 | Water currents | Flow zones that push the fish directionally | Pending |
-| 13 | Boss fight system | Boss arena structure + first boss (Giant Crab) | Pending |
+| 13 | Boss fight system | Boss arena structure + first boss (Giant Crab) | **Done** |
 | 14 | Star system | 3-star rating per level, unlock logic, UI | Pending |
 | 15 | Story elements | Opening screens, world intros, ending scene | Pending |
+| 16 | Editor bug fixes | Fix double-speed playtest, UI leaks, physics/renderer memory leaks | **Done** |
+| 17 | Fixed timestep game loop | Decouple physics/logic from monitor refresh rate (fixed 60Hz step + interpolation) | **Done** |
+| 18 | Editor state machine | Centralized state machine for menu/game/editor/playtest transitions | **Done** |
+| 19 | Undo/Redo | Command pattern undo/redo for all editor operations | **Done** |
+| 20 | Local Save/Load + JSON format | localStorage save/load, JSON export/import (= server format) | **Done** |
+| 21 | Level Sharing Backend (Firebase) | Firestore + Auth + Cloud Functions for community levels | Pending |
+| 22 | Community Level Browser UI | Browse/search/rate community levels, level codes | Pending |
+| 23 | Cross-platform Auth | Google/Apple/Steam login with anonymous upgrade | Pending |
 
 ### Workflow
 

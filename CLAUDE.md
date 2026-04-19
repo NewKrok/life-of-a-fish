@@ -28,10 +28,11 @@ npx http-server
 ```
 index.html            — Entry point, two canvases (WebGL + HUD overlay)
 game.js               — Main game loop, physics setup, camera, collision listeners
+game-state.js         — Centralized state machine for app/editor/game transitions
 fish-controller.js    — Player movement: swim/dash/jump states, skills (stun/speed), water detection
 voxel-renderer.js     — Three.js voxel rendering: terrain, fish models, bubbles, water
 level-data.js         — Tile map definition (125×25), entity parsing, body merging
-level-editor.js       — In-game level editor (F4): tile palette, entity placement, patrol editing
+level-editor.js       — In-game level editor (F4): tile palette, entity placement, patrol editing, undo/redo, JSON save/load
 touch-controls.js     — Mobile virtual joystick + dash button (pointer events)
 menu-scene.js         — Main menu background: aquarium scene with AI fish, camera pan
 menu-level-data.js    — Dedicated tile map for menu aquarium (60×25)
@@ -44,7 +45,7 @@ example.js            — Nape-js physics reference/demo (not used in game)
 
 App starts in menu state. `MenuScene` creates its own Three.js scene, physics space, and VoxelRenderer to render a dedicated aquarium level as the menu background. AI fish patrol around creating a living aquarium effect.
 
-- **States**: `menu` | `game` | `aquarium` | `settings` | `about`
+- **States** (managed by `GameStateMachine` in `game-state.js`): `MENU` | `MENU_EDITOR` | `GAME_PLAYING` | `GAME_PAUSED` | `GAME_EDITOR` | `EDITOR_PLAYTEST` | `GAME_OVER` | `VICTORY` | `AQUARIUM` | `SETTINGS` | `ABOUT` | `CODEX`
 - **Start Game**: stops menu scene, initializes and starts the game loop
 - **Aquarium**: hides menu UI, enables slow camera pan across the level, shows close (×) button
 - **Settings / About**: placeholder panels overlaid on the menu background
@@ -61,18 +62,26 @@ In-game editor activated with **F4**. Works in both menu and game states. Pauses
 - **Deletion**: double-click to remove entity or erase terrain tile
 - **Patrol editing**: enemies show patrol range lines with draggable min/max handles, snapped to tile centers
 - **Grid overlay**: toggle with G key
-- **Export**: Ctrl+C copies LEVEL_STRINGS + patrol data to clipboard
+- **Undo/Redo**: Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y). Snapshot-based: full tile+entity state captured before each action. Continuous actions (paint strokes, entity drags, patrol drags) grouped into single undo entries via mousedown→snapshot, mouseup→commit pattern. Max 100 undo levels.
+- **Export**: Ctrl+C copies level as JSON to clipboard. JSON button in top bar does the same.
+- **Save/Load**: Save and Load buttons in top bar open an overlay panel. Levels stored in localStorage (`loaf_editor_levels` key, max 20 slots). Save creates named slots; Load restores from a slot. Ctrl+S quick-saves to last slot. Import JSON button for pasting JSON data.
+- **JSON format**: `{ version, name, cols, rows, waterRow, bossLevel?, levelGoal?, noCaveBg?, strings[], entities[] }`. Each entity: `{ tileId, row, col, patrol?, group?, text?, chainLength? }`. This format is also the server format for Firebase level sharing (#21).
 - **Entity overlay**: colored markers with labels for all entities (pearls, enemies, spawn, etc.)
 - **Mobile**: touch support for sidebar scroll/tap, world placement, double-tap delete, two-finger camera pan
 
-### Game Loop (game.js, 60 FPS)
+### Game Loop (game.js, Fixed Timestep)
 
+Uses **fixed timestep accumulator** pattern: real elapsed time is accumulated, and game logic runs in fixed 1/60s steps regardless of monitor refresh rate (60Hz, 120Hz, 144Hz, etc.). Rendering happens once per frame after all logic steps complete.
+
+**Logic step** (`_gameLogicStep`, called at 60Hz):
 1. Aggregate input (keyboard + touch, including skill keys Q/R)
 2. Update enemy patrol AI (skip stunned enemies)
 3. `FishController.update()` — movement, dash, skills (stun pulse, speed surge), water transitions
 4. Stun Pulse AoE check + Speed Surge SFX trigger
 5. Clamp player to world bounds
-6. `nape.Space.step()` — physics (dt=1/60, 8 velocity / 3 position iterations)
+6. `nape.Space.step()` — physics (FIXED_DT=1/60, 8 velocity / 3 position iterations)
+
+**Render** (once per frame):
 7. Camera smooth-follow player
 8. `VoxelRenderer.syncFrame()` — sync 3D meshes to physics bodies, stun wobble, speed trail
 9. Three.js render
@@ -94,6 +103,7 @@ In-game editor activated with **F4**. Works in both menu and game states. Pauses
 - Swinging anchors: kinematic bodies, pendulum physics from ceiling pivot point, configurable chain length via `anchorChainLengths` metadata
 - Bottle messages: static sensor bodies, collectible (disappear on contact), show text overlay
 - Hint stones: static sensor bodies, permanent, show text when player is within proximity range (~48px)
+- Giant Crab Boss: kinematic body (112×77 px), 5 HP, tagged `bossCrabTag`. Full state machine: `patrol → windup → charge` (lethal, bounces off arena edges), `jumpWindup → jump` (lethal arc), `throwWindup → patrol` (6-rock alternating left/right claw sequence, 500ms stagger), `slamWindup → slam` (8 falling rocks from above), `flee` (after hit, runs from player ~2s), `retreat` (periodic breathing room), `dying` (3s topple → pearl eruption → 2s despawn → 10s collection → victory). Charge and jump are lethal; other contact pushes. Rocks tagged `bossRockTag` (thrown arcs + falling from slam). Boulders must have >80 px/s velocity to damage boss. All enemies die when boss dies. Arena uses `noCaveBg` flag
 - Each entity class has its own `CbType` for collision filtering
 
 ### Skills — "Gifts of the Ocean" (fish-controller.js + game.js)
@@ -168,6 +178,7 @@ Tile map is a string grid (125 cols × 25 rows, 32px tiles):
 | `H`  | Swinging Anchor | 35  |
 | `I`  | Bottle Message | 36   |
 | `J`  | Hint Stone     | 37   |
+| `M`  | Giant Crab Boss | 38  |
 
 Keys are carriable/throwable like boulders but deal no damage. Throwing a key at its matching-color chest opens the chest with a particle effect and spawns a pearl. Chest pearls are included in `TOTAL_PEARLS` from level start.
 
@@ -176,6 +187,8 @@ Switches and gates are linked by group IDs stored in `switchGateGroups` metadata
 Floating logs are dynamic bodies that float in water and can be pushed. Swinging anchors hang from ceiling pivot points on chains and swing as pendulums. Chain length is configurable via `anchorChainLengths` metadata per level (default: 96px = 3 tiles). The anchor tile position represents the pivot point; the anchor body swings below.
 
 Bottle messages are collectible — swim into them to read the text, then the bottle disappears. Hint stones are permanent — swim close to read, text disappears when you leave. Both store custom text via level metadata (`bottleMessages`, `hintStones` arrays with `{ row, col, text }`). In the editor, Shift+click on a placed bottle/hint stone opens a text prompt.
+
+Giant Crab bosses are the world 1 boss. A level flagged `bossLevel: true` (with `levelGoal: 'boss'`) wins when every boss on it is defeated — the pearl-based victory check is bypassed. Each boss has 5 HP, patrols slowly, periodically winds up and charges (strong knockback on contact — no direct damage), and lobs rocks in parabolic arcs (rocks kill on hit). Boulders thrown at the boss decrement HP; there's a short invulnerability window between hits. HP bar replaces the pearl progress bar on boss levels.
 
 Water surface is at row 4 (128px).
 

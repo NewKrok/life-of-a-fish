@@ -38,6 +38,7 @@ const PALETTE = [
   { id: 14, char: 'C', labelKey: 'editor.pal.crab',                    color: '#d04020', category: 'enemies', previewKey: 'crab' },
   { id: 15, char: 'F', labelKey: 'editor.pal.toxicFish',               color: '#50c050', category: 'enemies', previewKey: 'toxicFish' },
   { id: 29, char: 'P', labelKey: 'editor.pal.spitCoral',               color: '#cc6688', category: 'enemies', previewKey: 'spittingCoral' },
+  { id: 38, char: 'M', labelKey: 'editor.pal.giantCrabBoss',           color: '#8a1e1e', category: 'enemies', previewKey: 'giantCrabBoss' },
   { id: 30, char: 'V', labelKey: 'editor.pal.swToggle',                color: '#22aa44', category: 'items',   previewKey: 'switchToggle' },
   { id: 31, char: 'N', labelKey: 'editor.pal.swPressure',              color: '#3366cc', category: 'items',   previewKey: 'switchPressure' },
   { id: 32, char: 'O', labelKey: 'editor.pal.swTimed',                 color: '#cc8822', category: 'items',   previewKey: 'switchTimed' },
@@ -78,7 +79,7 @@ for (const cat of CATEGORIES) {
 }
 
 // Entity tile IDs (non-terrain — stored as entity positions)
-const ENTITY_IDS = new Set([5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37]);
+const ENTITY_IDS = new Set([5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38]);
 
 // Enemies with patrol ranges
 const PATROL_DEFAULTS = {
@@ -91,7 +92,7 @@ const PATROL_DEFAULTS = {
 };
 
 // Ground-based entities — visually aligned to tile bottom instead of center
-const GROUND_ENTITY_IDS = new Set([14, 29, 30, 31, 32, 33]); // crab, spit coral, switches, gate
+const GROUND_ENTITY_IDS = new Set([14, 29, 30, 31, 32, 33, 38]); // crab, spit coral, switches, gate, giant crab boss
 
 // ── Camera scroll speed ──
 const CAM_SPEED = 400;          // px/s
@@ -194,10 +195,34 @@ export class LevelEditor {
 
     // Top bar button hit rects (set during render)
     this._saveBtnRect = null;
+    this._loadBtnRect = null;
+    this._copyBtnRect = null;
     this._playBtnRect = null;
 
     // Dirty flag for export
     this.dirty = false;
+
+    // Level metadata (set via setLevelMeta, used by serialize)
+    this._waterRow = 4;
+    this._bossLevel = false;
+    this._levelGoal = undefined;
+    this._noCaveBg = false;
+    this._levelName = 'Untitled';
+
+    // Save/Load overlay state
+    this._overlayMode = null;  // null | 'save' | 'load'
+    this._overlaySlots = [];   // cached slot list for rendering
+    this._overlayScroll = 0;   // scroll offset in overlay
+    this._overlayInputName = ''; // name input for save
+    this._overlayHoverIdx = -1;  // hovered slot index
+    this._overlayDeleteIdx = -1; // hovered delete button index
+    this._overlayBtnRects = [];  // [{ x, y, w, h, action, slotId? }] hit rects
+
+    // Undo/Redo stacks (snapshot-based)
+    this._undoStack = [];     // Array of { tiles, entities } snapshots
+    this._redoStack = [];
+    this._activeAction = null; // Snapshot taken at mousedown, pushed on mouseup
+    this._MAX_UNDO = 100;
 
     // Sidebar rendering cache (offscreen canvas + dirty flag)
     this._sidebarDirty = true;
@@ -213,6 +238,7 @@ export class LevelEditor {
     this.onTerrainChange = null;
     this.onEntityChange = null;
     this.onPlayTest = null;  // called when Play button is clicked
+    this.onLevelResize = null; // called after load/import resizes the level
 
     // Throttle terrain rebuilds
     this._terrainDirty = false;
@@ -338,6 +364,7 @@ export class LevelEditor {
       if (knownEntities.toxicFish) addGroup(knownEntities.toxicFish, 15);
       if (knownEntities.armoredFish) addGroup(knownEntities.armoredFish, 28);
       if (knownEntities.spittingCoral) addGroup(knownEntities.spittingCoral, 29);
+      if (knownEntities.giantCrabBosses) addGroup(knownEntities.giantCrabBosses, 38);
       if (knownEntities.toggleSwitches) addGroup(knownEntities.toggleSwitches, 30);
       if (knownEntities.pressureSwitches) addGroup(knownEntities.pressureSwitches, 31);
       if (knownEntities.timedSwitches) addGroup(knownEntities.timedSwitches, 32);
@@ -399,6 +426,7 @@ export class LevelEditor {
 
     // Move mode: drag entity
     if (this.moveMode && this._movingEntity && this._mouseDown) {
+      this._beginAction(); // snapshot before first move frame
       const ent = this.entities[this._movingEntity.entityIdx];
       if (ent) {
         const { visW: vw, visH: vh } = getVisibleSize();
@@ -444,17 +472,13 @@ export class LevelEditor {
     }
 
     // Continuous painting while mouse held (skip if dragging patrol or in move mode)
-    // Delay first paint briefly to allow double-click detection
     if (this._mouseDown && !this._draggingPatrol && !this.moveMode) {
-      if (this._paintDelay > 0) {
-        this._paintDelay -= dt;
-      } else {
-        this._placeTileAtMouse(getVisibleSize);
-      }
+      this._placeTileAtMouse(getVisibleSize);
     }
 
     // Drag patrol handle or chain handle (snapped to tile centers)
     if (this._draggingPatrol && this._mouseDown) {
+      this._beginAction(); // snapshot before first drag frame
       const ent = this.entities[this._draggingPatrol.entityIdx];
       const { visW: vw, visH: vh } = getVisibleSize();
       const rawX = this.camX + ((this._mouseScreen.x - SIDEBAR_W) / (this.hudCanvas.width - SIDEBAR_W)) * vw;
@@ -757,16 +781,22 @@ export class LevelEditor {
     const modeLabel = this.moveMode ? `  ${t('editor.moveMode')}` : '';
     ctx.fillText(`${t('editor.coordinates', { col: mCol, row: mRow })}${modeLabel}  |  ${t('editor.controls')}`, SIDEBAR_W + 170, 21);
 
-    // ── Top bar buttons (Save, Play) ──
-    const btnW = 60;
+    // ── Top bar buttons (Save, Load, Copy, Play) ──
+    const btnW = 50;
     const btnH = 22;
     const btnY = 5;
-    const btnGap = 8;
+    const btnGap = 6;
+
+    // Buttons from right to left: Play, Copy, Load, Save
+    const playBtnX = W - btnW - 10;
+    const copyBtnX = playBtnX - btnW - btnGap;
+    const loadBtnX = copyBtnX - btnW - btnGap;
+    const saveBtnX = loadBtnX - btnW - btnGap;
 
     // Save button
-    const saveBtnX = W - btnW * 2 - btnGap - 10;
     this._saveBtnRect = { x: saveBtnX, y: btnY, w: btnW, h: btnH };
-    ctx.fillStyle = 'rgba(40, 120, 60, 0.8)';
+    const saveActive = this._overlayMode === 'save';
+    ctx.fillStyle = saveActive ? 'rgba(60, 160, 80, 0.9)' : 'rgba(40, 120, 60, 0.8)';
     ctx.fillRect(saveBtnX, btnY, btnW, btnH);
     ctx.strokeStyle = 'rgba(100, 255, 140, 0.5)';
     ctx.lineWidth = 1;
@@ -776,8 +806,32 @@ export class LevelEditor {
     ctx.textAlign = 'center';
     ctx.fillText(t('editor.save'), saveBtnX + btnW / 2, btnY + 15);
 
+    // Load button
+    this._loadBtnRect = { x: loadBtnX, y: btnY, w: btnW, h: btnH };
+    const loadActive = this._overlayMode === 'load';
+    ctx.fillStyle = loadActive ? 'rgba(60, 120, 200, 0.9)' : 'rgba(40, 80, 140, 0.8)';
+    ctx.fillRect(loadBtnX, btnY, btnW, btnH);
+    ctx.strokeStyle = 'rgba(100, 180, 255, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(loadBtnX, btnY, btnW, btnH);
+    ctx.fillStyle = '#fff';
+    ctx.font = "bold 9px 'Silkscreen', monospace";
+    ctx.textAlign = 'center';
+    ctx.fillText(t('editor.load'), loadBtnX + btnW / 2, btnY + 15);
+
+    // Copy (JSON clipboard) button
+    this._copyBtnRect = { x: copyBtnX, y: btnY, w: btnW, h: btnH };
+    ctx.fillStyle = 'rgba(100, 80, 140, 0.8)';
+    ctx.fillRect(copyBtnX, btnY, btnW, btnH);
+    ctx.strokeStyle = 'rgba(180, 140, 255, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(copyBtnX, btnY, btnW, btnH);
+    ctx.fillStyle = '#fff';
+    ctx.font = "bold 9px 'Silkscreen', monospace";
+    ctx.textAlign = 'center';
+    ctx.fillText(t('editor.copy'), copyBtnX + btnW / 2, btnY + 15);
+
     // Play button
-    const playBtnX = W - btnW - 10;
     this._playBtnRect = { x: playBtnX, y: btnY, w: btnW, h: btnH };
     ctx.fillStyle = 'rgba(40, 80, 160, 0.8)';
     ctx.fillRect(playBtnX, btnY, btnW, btnH);
@@ -791,8 +845,310 @@ export class LevelEditor {
 
     ctx.restore();
 
+    // ── Save/Load overlay ──
+    if (this._overlayMode) this._renderOverlay(W, H);
+
     // ── Entity config toolbar ──
     this._renderConfigToolbar(getVisibleSize);
+  }
+
+  // ── Render Save/Load overlay panel ──
+  _renderOverlay(W, H) {
+    const ctx = this.hudCtx;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    this._overlayBtnRects = [];
+
+    // Dim background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fillRect(SIDEBAR_W, TOP_BAR_H, W - SIDEBAR_W, H - TOP_BAR_H);
+
+    // Panel dimensions
+    const panelW = 340;
+    const panelH = Math.min(400, H - TOP_BAR_H - 40);
+    const panelX = SIDEBAR_W + (W - SIDEBAR_W - panelW) / 2;
+    const panelY = TOP_BAR_H + (H - TOP_BAR_H - panelH) / 2;
+
+    // Panel background
+    ctx.fillStyle = 'rgba(6, 21, 32, 0.95)';
+    ctx.fillRect(panelX, panelY, panelW, panelH);
+    ctx.strokeStyle = 'rgba(100, 200, 255, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(panelX, panelY, panelW, panelH);
+
+    // Title
+    const isSave = this._overlayMode === 'save';
+    ctx.fillStyle = '#ffd93d';
+    ctx.font = "bold 12px 'Silkscreen', monospace";
+    ctx.textAlign = 'center';
+    ctx.fillText(isSave ? t('editor.saveTitle') : t('editor.loadTitle'), panelX + panelW / 2, panelY + 22);
+
+    // Close button (top-right corner of panel)
+    const closeBtnSize = 20;
+    const closeX = panelX + panelW - closeBtnSize - 4;
+    const closeY = panelY + 4;
+    ctx.fillStyle = 'rgba(120, 40, 40, 0.8)';
+    ctx.fillRect(closeX, closeY, closeBtnSize, closeBtnSize);
+    ctx.fillStyle = '#fff';
+    ctx.font = "bold 10px 'Silkscreen', monospace";
+    ctx.textAlign = 'center';
+    ctx.fillText('\u2715', closeX + closeBtnSize / 2, closeY + 15);
+    this._overlayBtnRects.push({ x: closeX, y: closeY, w: closeBtnSize, h: closeBtnSize, action: 'close' });
+
+    let curY = panelY + 36;
+
+    // Save mode: name input + "Save New" button
+    if (isSave) {
+      const inputX = panelX + 12;
+      const inputW = panelW - 80;
+      const inputH = 24;
+
+      // Name label + input box
+      ctx.fillStyle = 'rgba(200, 230, 255, 0.7)';
+      ctx.font = "9px 'Silkscreen', monospace";
+      ctx.textAlign = 'left';
+      ctx.fillText(t('editor.nameLabel'), inputX, curY + 10);
+
+      const nameBoxX = inputX + 50;
+      const nameBoxW = inputW - 50;
+      ctx.fillStyle = 'rgba(20, 40, 60, 0.9)';
+      ctx.fillRect(nameBoxX, curY, nameBoxW, inputH);
+      ctx.strokeStyle = 'rgba(100, 200, 255, 0.4)';
+      ctx.strokeRect(nameBoxX, curY, nameBoxW, inputH);
+      ctx.fillStyle = '#fff';
+      ctx.font = "10px 'Silkscreen', monospace";
+      ctx.textAlign = 'left';
+      const displayName = this._overlayInputName || this._levelName || 'Untitled';
+      ctx.fillText(displayName.substring(0, 24), nameBoxX + 4, curY + 16);
+      this._overlayBtnRects.push({ x: nameBoxX, y: curY, w: nameBoxW, h: inputH, action: 'editName' });
+
+      // Save New button
+      const saveBtnW = 50;
+      const saveBtnX = panelX + panelW - saveBtnW - 12;
+      ctx.fillStyle = 'rgba(40, 140, 70, 0.9)';
+      ctx.fillRect(saveBtnX, curY, saveBtnW, inputH);
+      ctx.strokeStyle = 'rgba(100, 255, 140, 0.5)';
+      ctx.strokeRect(saveBtnX, curY, saveBtnW, inputH);
+      ctx.fillStyle = '#fff';
+      ctx.font = "bold 9px 'Silkscreen', monospace";
+      ctx.textAlign = 'center';
+      ctx.fillText(t('editor.saveNew'), saveBtnX + saveBtnW / 2, curY + 16);
+      this._overlayBtnRects.push({ x: saveBtnX, y: curY, w: saveBtnW, h: inputH, action: 'saveNew' });
+
+      curY += inputH + 10;
+    }
+
+    // Load mode: Import JSON button
+    if (!isSave) {
+      const importBtnW = 120;
+      const importBtnX = panelX + (panelW - importBtnW) / 2;
+      const importBtnH = 24;
+      ctx.fillStyle = 'rgba(100, 80, 140, 0.9)';
+      ctx.fillRect(importBtnX, curY, importBtnW, importBtnH);
+      ctx.strokeStyle = 'rgba(180, 140, 255, 0.5)';
+      ctx.strokeRect(importBtnX, curY, importBtnW, importBtnH);
+      ctx.fillStyle = '#fff';
+      ctx.font = "bold 9px 'Silkscreen', monospace";
+      ctx.textAlign = 'center';
+      ctx.fillText(t('editor.importJson'), importBtnX + importBtnW / 2, curY + 16);
+      this._overlayBtnRects.push({ x: importBtnX, y: curY, w: importBtnW, h: importBtnH, action: 'importJson' });
+      curY += importBtnH + 10;
+    }
+
+    // Divider
+    ctx.strokeStyle = 'rgba(100, 200, 255, 0.2)';
+    ctx.beginPath();
+    ctx.moveTo(panelX + 12, curY);
+    ctx.lineTo(panelX + panelW - 12, curY);
+    ctx.stroke();
+    curY += 8;
+
+    // Slot list header
+    ctx.fillStyle = 'rgba(200, 230, 255, 0.6)';
+    ctx.font = "9px 'Silkscreen', monospace";
+    ctx.textAlign = 'left';
+    ctx.fillText(t('editor.savedLevels'), panelX + 12, curY + 10);
+    curY += 18;
+
+    // Slot list
+    const slots = this._overlaySlots;
+    const slotH = 32;
+    const slotGap = 4;
+    const listAreaH = panelY + panelH - curY - 8;
+    const maxVisible = Math.floor(listAreaH / (slotH + slotGap));
+
+    if (slots.length === 0) {
+      ctx.fillStyle = 'rgba(200, 230, 255, 0.3)';
+      ctx.font = "9px 'Silkscreen', monospace";
+      ctx.textAlign = 'center';
+      ctx.fillText(t('editor.noSavedLevels'), panelX + panelW / 2, curY + 20);
+    }
+
+    // Clip rendering to list area
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(panelX, curY, panelW, listAreaH);
+    ctx.clip();
+
+    for (let i = 0; i < slots.length; i++) {
+      const slot = slots[i];
+      const sy = curY + i * (slotH + slotGap) - this._overlayScroll;
+      if (sy + slotH < curY || sy > curY + listAreaH) continue;
+
+      const isHover = this._overlayHoverIdx === i;
+
+      // Slot background
+      ctx.fillStyle = isHover ? 'rgba(40, 80, 120, 0.8)' : 'rgba(20, 40, 60, 0.6)';
+      ctx.fillRect(panelX + 8, sy, panelW - 16, slotH);
+      ctx.strokeStyle = isHover ? 'rgba(100, 200, 255, 0.5)' : 'rgba(100, 200, 255, 0.2)';
+      ctx.strokeRect(panelX + 8, sy, panelW - 16, slotH);
+
+      // Slot name
+      ctx.fillStyle = '#fff';
+      ctx.font = "bold 10px 'Silkscreen', monospace";
+      ctx.textAlign = 'left';
+      ctx.fillText(slot.name.substring(0, 22), panelX + 16, sy + 14);
+
+      // Saved date
+      ctx.fillStyle = 'rgba(200, 230, 255, 0.5)';
+      ctx.font = "8px 'Silkscreen', monospace";
+      const dateStr = _formatDate(slot.savedAt);
+      ctx.fillText(dateStr, panelX + 16, sy + 26);
+
+      // Size info
+      const sizeStr = `${slot.data?.cols || '?'}x${slot.data?.rows || '?'}`;
+      ctx.fillText(sizeStr, panelX + 160, sy + 26);
+
+      // Action button: Load (in load mode) or Overwrite (in save mode)
+      if (isSave) {
+        // Overwrite button
+        const owBtnW = 36;
+        const owBtnX = panelX + panelW - 16 - owBtnW - 30;
+        ctx.fillStyle = 'rgba(140, 120, 40, 0.8)';
+        ctx.fillRect(owBtnX, sy + 4, owBtnW, slotH - 8);
+        ctx.fillStyle = '#fff';
+        ctx.font = "bold 8px 'Silkscreen', monospace";
+        ctx.textAlign = 'center';
+        ctx.fillText(t('editor.overwrite'), owBtnX + owBtnW / 2, sy + slotH / 2 + 3);
+        this._overlayBtnRects.push({ x: owBtnX, y: sy + 4, w: owBtnW, h: slotH - 8, action: 'overwrite', slotId: slot.id });
+      } else {
+        // Load button
+        const ldBtnW = 36;
+        const ldBtnX = panelX + panelW - 16 - ldBtnW - 30;
+        ctx.fillStyle = 'rgba(40, 120, 80, 0.8)';
+        ctx.fillRect(ldBtnX, sy + 4, ldBtnW, slotH - 8);
+        ctx.fillStyle = '#fff';
+        ctx.font = "bold 8px 'Silkscreen', monospace";
+        ctx.textAlign = 'center';
+        ctx.fillText(t('editor.loadBtn'), ldBtnX + ldBtnW / 2, sy + slotH / 2 + 3);
+        this._overlayBtnRects.push({ x: ldBtnX, y: sy + 4, w: ldBtnW, h: slotH - 8, action: 'loadSlot', slotId: slot.id });
+      }
+
+      // Delete button (both modes)
+      const delBtnW = 24;
+      const delBtnX = panelX + panelW - 16 - delBtnW;
+      const isDelHover = this._overlayDeleteIdx === i;
+      ctx.fillStyle = isDelHover ? 'rgba(180, 40, 40, 0.9)' : 'rgba(120, 40, 40, 0.6)';
+      ctx.fillRect(delBtnX, sy + 4, delBtnW, slotH - 8);
+      ctx.fillStyle = '#fff';
+      ctx.font = "bold 9px 'Silkscreen', monospace";
+      ctx.textAlign = 'center';
+      ctx.fillText('\u2715', delBtnX + delBtnW / 2, sy + slotH / 2 + 3);
+      this._overlayBtnRects.push({ x: delBtnX, y: sy + 4, w: delBtnW, h: slotH - 8, action: 'deleteSlot', slotId: slot.id });
+    }
+
+    ctx.restore(); // pop clip
+    ctx.restore(); // pop transform
+  }
+
+  // ── Handle overlay button clicks ──
+  _handleOverlayClick(ex, ey) {
+    for (const btn of this._overlayBtnRects) {
+      if (ex >= btn.x && ex <= btn.x + btn.w && ey >= btn.y && ey <= btn.y + btn.h) {
+        switch (btn.action) {
+          case 'close':
+            this._overlayMode = null;
+            return true;
+          case 'saveNew': {
+            const name = this._overlayInputName || this._levelName || 'Untitled';
+            this._levelName = name;
+            const slotId = 'slot_' + Date.now();
+            if (this.saveToSlot(slotId)) {
+              this._showToast(t('editor.savedToast', { name }));
+              this._overlaySlots = LevelEditor.getSavedLevels();
+            } else {
+              this._showToast(t('editor.saveFailed'));
+            }
+            return true;
+          }
+          case 'overwrite': {
+            const slot = this._overlaySlots.find(s => s.id === btn.slotId);
+            if (slot && this.saveToSlot(btn.slotId)) {
+              this._showToast(t('editor.savedToast', { name: slot.name }));
+              this._overlaySlots = LevelEditor.getSavedLevels();
+            }
+            return true;
+          }
+          case 'loadSlot': {
+            if (this.loadFromSlot(btn.slotId)) {
+              const slot = this._overlaySlots.find(s => s.id === btn.slotId);
+              this._showToast(t('editor.loadedToast', { name: slot?.name || '?' }));
+              this._overlayMode = null;
+            } else {
+              this._showToast(t('editor.loadFailed'));
+            }
+            return true;
+          }
+          case 'deleteSlot': {
+            LevelEditor.deleteSlot(btn.slotId);
+            this._overlaySlots = LevelEditor.getSavedLevels();
+            this._showToast(t('editor.deletedToast'));
+            return true;
+          }
+          case 'importJson': {
+            this._promptJsonImport();
+            return true;
+          }
+          case 'editName': {
+            const newName = prompt(t('editor.namePrompt'), this._overlayInputName || this._levelName || 'Untitled');
+            if (newName !== null && newName.trim()) {
+              this._overlayInputName = newName.trim();
+              this._levelName = newName.trim();
+            }
+            return true;
+          }
+        }
+      }
+    }
+    // Click outside panel closes overlay
+    return false;
+  }
+
+  _promptJsonImport() {
+    const input = prompt(t('editor.importPrompt'));
+    if (!input) return;
+    try {
+      const data = JSON.parse(input);
+      if (this.deserializeLevel(data)) {
+        this._showToast(t('editor.importedToast'));
+        this._overlayMode = null;
+      } else {
+        this._showToast(t('editor.importFailed'));
+      }
+    } catch {
+      this._showToast(t('editor.importFailed'));
+    }
+  }
+
+  _openOverlay(mode) {
+    this._overlayMode = mode;
+    this._overlaySlots = LevelEditor.getSavedLevels();
+    this._overlayScroll = 0;
+    this._overlayHoverIdx = -1;
+    this._overlayDeleteIdx = -1;
+    if (mode === 'save') {
+      this._overlayInputName = this._levelName || 'Untitled';
+    }
   }
 
   // ── Render floating config toolbar above selected entity ──
@@ -1251,6 +1607,9 @@ export class LevelEditor {
     if (this._lastPlacedCell && this._lastPlacedCell.col === col && this._lastPlacedCell.row === row) return;
     this._lastPlacedCell = { col, row };
 
+    // Snapshot before first mutation in this action (no-op if already tracking)
+    this._beginAction();
+
     const cx = col * TILE_SIZE + TILE_SIZE / 2;
     const cy = row * TILE_SIZE + TILE_SIZE / 2;
     const tileId = this.selectedTile;
@@ -1575,6 +1934,17 @@ export class LevelEditor {
     });
   }
 
+  // ── Copy JSON format to clipboard ──
+  copyJsonToClipboard() {
+    const data = this.serializeLevel();
+    const json = JSON.stringify(data, null, 2);
+    navigator.clipboard.writeText(json).then(() => {
+      this._showToast(t('editor.jsonCopiedToast'));
+    }).catch(() => {
+      this._showToast(t('editor.copyFailed'));
+    });
+  }
+
   _exportSwitchGateGroups() {
     const groups = {};
     for (const ent of this.entities) {
@@ -1589,6 +1959,305 @@ export class LevelEditor {
       }
     }
     return Object.values(groups);
+  }
+
+  // ── JSON Serialize / Deserialize ──
+
+  /**
+   * Serialize the current editor state to a JSON-compatible object.
+   * This is the canonical level format — also used for Firebase (#21).
+   * @param {string} [name] - Level name (defaults to 'Untitled')
+   * @returns {object} JSON-serializable level data
+   */
+  serializeLevel(name) {
+    const strings = this.exportLevelStrings();
+    const entities = [];
+
+    for (const ent of this.entities) {
+      const col = Math.round((ent.x - TILE_SIZE / 2) / TILE_SIZE);
+      const row = Math.round((ent.y - TILE_SIZE / 2) / TILE_SIZE);
+      const e = { tileId: ent.tileId, row, col };
+
+      // Patrol data (enemies)
+      if (ent.patrol) {
+        if (ent.patrol.x1 !== undefined) {
+          // Point-to-point patrol (piranha, armored fish)
+          e.patrol = {
+            x1: Math.round(ent.patrol.x1), y1: Math.round(ent.patrol.y1),
+            x2: Math.round(ent.patrol.x2), y2: Math.round(ent.patrol.y2),
+          };
+        } else if (ent.patrol.axis) {
+          // Axis-aligned patrol (shark, puffer, crab, toxic)
+          e.patrol = {
+            axis: ent.patrol.axis,
+            min: Math.round(ent.patrol.min),
+            max: Math.round(ent.patrol.max),
+          };
+        }
+      }
+
+      // Switch/gate group
+      if (ent.group !== undefined) e.group = ent.group;
+
+      // Bottle/hint stone text
+      if (ent.text !== undefined && ent.text !== '...') e.text = ent.text;
+
+      // Anchor chain length
+      if (ent.chainLength !== undefined) e.chainLength = ent.chainLength;
+
+      entities.push(e);
+    }
+
+    return {
+      version: 1,
+      name: name || this._levelName || 'Untitled',
+      cols: this.cols,
+      rows: this.rows,
+      waterRow: this._waterRow ?? 4,
+      bossLevel: this._bossLevel || undefined,
+      levelGoal: this._levelGoal || undefined,
+      noCaveBg: this._noCaveBg || undefined,
+      strings,
+      entities,
+    };
+  }
+
+  /**
+   * Deserialize a JSON level object into the editor.
+   * Replaces current tiles and entities entirely.
+   * @param {object} data - Level data from serializeLevel() or localStorage
+   */
+  deserializeLevel(data) {
+    if (!data || !data.strings || !data.entities) return false;
+
+    // Keep editor grid size fixed — loaded data is clipped/padded to fit
+    const targetCols = this.cols;
+    const targetRows = this.rows;
+    this._waterRow = data.waterRow ?? 4;
+    this._bossLevel = !!data.bossLevel;
+    this._levelGoal = data.levelGoal || undefined;
+    this._noCaveBg = !!data.noCaveBg;
+    this._levelName = data.name || 'Untitled';
+
+    // Parse tile strings into 2D array (clip/pad to current grid size)
+    const charToId = {};
+    for (const p of PALETTE) charToId[p.char] = p.id;
+
+    for (let r = 0; r < targetRows; r++) {
+      const str = (data.strings && data.strings[r]) || '';
+      for (let c = 0; c < targetCols; c++) {
+        const ch = str[c] || '.';
+        const id = charToId[ch] ?? 0;
+        this.tiles[r][c] = ENTITY_IDS.has(id) ? 0 : id;
+      }
+    }
+
+    // Rebuild entities from JSON (skip entities outside grid bounds)
+    this.entities = [];
+    for (const e of data.entities) {
+      if (e.col < 0 || e.col >= targetCols || e.row < 0 || e.row >= targetRows) continue;
+      const cx = e.col * TILE_SIZE + TILE_SIZE / 2;
+      const cy = e.row * TILE_SIZE + TILE_SIZE / 2;
+      const ent = { x: cx, y: cy, tileId: e.tileId };
+
+      if (e.patrol) ent.patrol = { ...e.patrol };
+      if (e.group !== undefined) ent.group = e.group;
+      if (e.text !== undefined) ent.text = e.text;
+      if (e.chainLength !== undefined) ent.chainLength = e.chainLength;
+
+      // Restore default patrol for enemies that should have one but data lacks it
+      if (!ent.patrol && PATROL_DEFAULTS[e.tileId]) {
+        const pDef = PATROL_DEFAULTS[e.tileId];
+        const snap = (v) => Math.floor(v / TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
+        if (pDef.type === 'point') {
+          ent.patrol = {
+            x1: snap(cx - pDef.range), y1: cy,
+            x2: snap(cx + pDef.range), y2: cy,
+          };
+        } else if (pDef.axis === 'x') {
+          ent.patrol = { axis: 'x', min: snap(cx - pDef.range), max: snap(cx + pDef.range) };
+        } else {
+          ent.patrol = { axis: 'y', min: snap(cy - pDef.range), max: snap(cy + pDef.range) };
+        }
+      }
+
+      // Default text for bottles/hints
+      if ((e.tileId === 36 || e.tileId === 37) && !ent.text) ent.text = '...';
+      // Default chain length for anchors
+      if (e.tileId === 35 && ent.chainLength === undefined) ent.chainLength = 96;
+
+      this.entities.push(ent);
+    }
+
+    // Trigger full rebuild
+    this._terrainDirty = true;
+    this._sgCacheDirty = true;
+    this.dirty = true;
+    this._undoStack = [];
+    this._redoStack = [];
+    this.onTerrainChange?.();
+    this.onEntityChange?.(this.entities);
+
+    // Center camera on spawn point (tileId 7) if present
+    const spawn = this.entities.find(e => e.tileId === 7);
+    if (spawn) {
+      this.camX = spawn.x - this.worldW * 0.3;
+      this.camY = spawn.y - this.worldH * 0.4;
+      this.camX = Math.max(0, this.camX);
+      this.camY = Math.max(0, this.camY);
+    }
+
+    return true;
+  }
+
+  /**
+   * Store metadata from the active level so serialize can include it.
+   * Called by game.js when activating the editor.
+   */
+  setLevelMeta(meta) {
+    this._waterRow = meta.waterRow ?? 4;
+    this._bossLevel = !!meta.bossLevel;
+    this._levelGoal = meta.levelGoal || undefined;
+    this._noCaveBg = !!meta.noCaveBg;
+    this._levelName = meta.name || 'Untitled';
+  }
+
+  // ── localStorage Save / Load ──
+
+  static _STORAGE_KEY = 'loaf_editor_levels';
+  static _MAX_SLOTS = 20;
+
+  /** Get all saved level slots. Returns array of { id, name, savedAt }. */
+  static getSavedLevels() {
+    try {
+      const raw = localStorage.getItem(LevelEditor._STORAGE_KEY);
+      if (!raw) return [];
+      const list = JSON.parse(raw);
+      return Array.isArray(list) ? list : [];
+    } catch { return []; }
+  }
+
+  /** Save current editor state to a slot. */
+  saveToSlot(slotId) {
+    const data = this.serializeLevel();
+    const list = LevelEditor.getSavedLevels();
+    const now = new Date().toISOString();
+
+    const existing = list.findIndex(s => s.id === slotId);
+    const entry = { id: slotId, name: data.name, savedAt: now, data };
+
+    if (existing >= 0) {
+      list[existing] = entry;
+    } else {
+      if (list.length >= LevelEditor._MAX_SLOTS) {
+        // Remove oldest
+        list.sort((a, b) => a.savedAt.localeCompare(b.savedAt));
+        list.shift();
+      }
+      list.push(entry);
+    }
+
+    try {
+      localStorage.setItem(LevelEditor._STORAGE_KEY, JSON.stringify(list));
+      return true;
+    } catch { return false; }
+  }
+
+  /** Load a level from a slot. */
+  loadFromSlot(slotId) {
+    const list = LevelEditor.getSavedLevels();
+    const slot = list.find(s => s.id === slotId);
+    if (!slot || !slot.data) return false;
+    return this.deserializeLevel(slot.data);
+  }
+
+  /** Delete a saved level slot. */
+  static deleteSlot(slotId) {
+    const list = LevelEditor.getSavedLevels();
+    const filtered = list.filter(s => s.id !== slotId);
+    try {
+      localStorage.setItem(LevelEditor._STORAGE_KEY, JSON.stringify(filtered));
+      return true;
+    } catch { return false; }
+  }
+
+  // ── Undo / Redo ──
+
+  _takeSnapshot() {
+    return {
+      tiles: this.tiles.map(row => [...row]),
+      entities: JSON.parse(JSON.stringify(this.entities)),
+    };
+  }
+
+  _applySnapshot(snap) {
+    for (let r = 0; r < snap.tiles.length; r++) {
+      for (let c = 0; c < snap.tiles[r].length; c++) {
+        this.tiles[r][c] = snap.tiles[r][c];
+      }
+    }
+    this.entities = snap.entities;
+    this._terrainDirty = true;
+    this._sgCacheDirty = true;
+    this.dirty = true;
+    this.onTerrainChange?.();
+    this.onEntityChange?.(this.entities);
+  }
+
+  /** Begin tracking a continuous action (paint stroke, entity drag, patrol drag). */
+  _beginAction() {
+    if (this._activeAction) return; // already tracking
+    this._activeAction = this._takeSnapshot();
+  }
+
+  /** Commit the current action to the undo stack. No-op if nothing changed. */
+  _commitAction() {
+    if (!this._activeAction) return;
+    const before = this._activeAction;
+    this._activeAction = null;
+    // Only push if something actually changed
+    if (this._snapshotsEqual(before, this._takeSnapshot())) return;
+    this._undoStack.push(before);
+    this._redoStack = [];
+    if (this._undoStack.length > this._MAX_UNDO) this._undoStack.shift();
+  }
+
+  /** Push a single discrete action (not a continuous drag). */
+  _pushUndoSnapshot() {
+    const snap = this._takeSnapshot();
+    this._undoStack.push(snap);
+    this._redoStack = [];
+    if (this._undoStack.length > this._MAX_UNDO) this._undoStack.shift();
+  }
+
+  _snapshotsEqual(a, b) {
+    if (a.entities.length !== b.entities.length) return false;
+    for (let r = 0; r < a.tiles.length; r++) {
+      for (let c = 0; c < a.tiles[r].length; c++) {
+        if (a.tiles[r][c] !== b.tiles[r][c]) return false;
+      }
+    }
+    // Quick entity check — stringified comparison (entities are small)
+    return JSON.stringify(a.entities) === JSON.stringify(b.entities);
+  }
+
+  undo() {
+    this._commitAction(); // flush any in-progress action
+    if (!this._undoStack.length) return;
+    const current = this._takeSnapshot();
+    const prev = this._undoStack.pop();
+    this._redoStack.push(current);
+    this._applySnapshot(prev);
+    this._showToast('Undo');
+  }
+
+  redo() {
+    if (!this._redoStack.length) return;
+    const current = this._takeSnapshot();
+    const next = this._redoStack.pop();
+    this._undoStack.push(current);
+    this._applySnapshot(next);
+    this._showToast('Redo');
   }
 
   // ── Toast notification ──
@@ -1626,7 +2295,20 @@ export class LevelEditor {
 
   _handleKeyDown(e) {
     if (!this.active) return;
-    this._keys[e.code] = true;
+    // Don't register movement keys when Ctrl/Meta is held (shortcuts like Ctrl+S, Ctrl+C)
+    if (!e.ctrlKey && !e.metaKey) {
+      this._keys[e.code] = true;
+    }
+
+    // Escape closes overlay
+    if (e.code === 'Escape' && this._overlayMode) {
+      this._overlayMode = null;
+      e.preventDefault();
+      return;
+    }
+
+    // Block other keys while overlay is open
+    if (this._overlayMode) return;
 
     // Number keys 0-9 to select palette
     if (e.code.startsWith('Digit')) {
@@ -1652,9 +2334,33 @@ export class LevelEditor {
       e.preventDefault();
     }
 
-    // Ctrl+C = copy level data
+    // Ctrl+C = copy level as JSON
     if ((e.ctrlKey || e.metaKey) && e.code === 'KeyC') {
-      this.copyToClipboard();
+      this.copyJsonToClipboard();
+      e.preventDefault();
+    }
+
+    // Ctrl+S = quick save to localStorage
+    if ((e.ctrlKey || e.metaKey) && e.code === 'KeyS') {
+      e.preventDefault();
+      const slots = LevelEditor.getSavedLevels();
+      // Overwrite most recent slot with same name, or create new
+      const existing = slots.find(s => s.name === this._levelName);
+      const slotId = existing ? existing.id : ('slot_' + Date.now());
+      if (this.saveToSlot(slotId)) {
+        this._showToast(t('editor.savedToast', { name: this._levelName }));
+      } else {
+        this._showToast(t('editor.saveFailed'));
+      }
+    }
+
+    // Ctrl+Z = undo, Ctrl+Shift+Z / Ctrl+Y = redo
+    if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ' && !e.shiftKey) {
+      this.undo();
+      e.preventDefault();
+    }
+    if ((e.ctrlKey || e.metaKey) && ((e.code === 'KeyZ' && e.shiftKey) || e.code === 'KeyY')) {
+      this.redo();
       e.preventDefault();
     }
 
@@ -1697,15 +2403,30 @@ export class LevelEditor {
         return;
       }
 
+      // Check overlay clicks first (absorbs all clicks when overlay is open)
+      if (this._overlayMode) {
+        if (this._handleOverlayClick(e.clientX, e.clientY)) return;
+        // Click outside panel closes overlay
+        this._overlayMode = null;
+        return;
+      }
+
       // Check top bar button clicks
-      if (this._saveBtnRect && e.clientY < TOP_BAR_H) {
-        const r = this._saveBtnRect;
-        if (e.clientX >= r.x && e.clientX <= r.x + r.w && e.clientY >= r.y && e.clientY <= r.y + r.h) {
-          this.copyToClipboard();
+      if (e.clientY < TOP_BAR_H) {
+        const hitBtn = (rect) => rect && e.clientX >= rect.x && e.clientX <= rect.x + rect.w && e.clientY >= rect.y && e.clientY <= rect.y + rect.h;
+        if (hitBtn(this._saveBtnRect)) {
+          this._openOverlay('save');
           return;
         }
-        const p = this._playBtnRect;
-        if (p && e.clientX >= p.x && e.clientX <= p.x + p.w && e.clientY >= p.y && e.clientY <= p.y + p.h) {
+        if (hitBtn(this._loadBtnRect)) {
+          this._openOverlay('load');
+          return;
+        }
+        if (hitBtn(this._copyBtnRect)) {
+          this.copyJsonToClipboard();
+          return;
+        }
+        if (hitBtn(this._playBtnRect)) {
           if (this.onPlayTest) this.onPlayTest();
           return;
         }
@@ -1755,7 +2476,6 @@ export class LevelEditor {
 
       this._mouseDown = true;
       this._lastPlacedCell = null;
-      this._paintDelay = 0.15; // 150ms delay to allow double-click detection
     } else if (e.button === 2) {
       // Right-click: start camera drag
       this._rightMouseDown = true;
@@ -1772,14 +2492,18 @@ export class LevelEditor {
 
   _handleMouseUp(e) {
     if (e.button === 0) {
-      // Single click: if paint delay hasn't expired yet, place one tile now
-      if (this._mouseDown && this._paintDelay > 0 && !this._draggingPatrol && !this.moveMode) {
+      // Quick click: if no tile was placed yet during this mouseDown, ensure one is placed
+      if (this._mouseDown && !this._lastPlacedCell && !this._draggingPatrol && !this.moveMode) {
         this._pendingSinglePlace = true;
       }
       this._mouseDown = false;
-      this._paintDelay = 0;
       this._draggingPatrol = null;
       this._movingEntity = null;
+      // Commit continuous action to undo stack (skip if single-place is pending —
+      // that placement hasn't happened yet, commit will occur in processPendingActions)
+      if (!this._pendingSinglePlace) {
+        this._commitAction();
+      }
     } else if (e.button === 2) {
       this._rightMouseDown = false;
       this._rightDragStart = null;
@@ -1963,6 +2687,8 @@ export class LevelEditor {
     this._mouseDown = false;
     this._draggingPatrol = null;
     this._movingEntity = null;
+    // Commit continuous touch action to undo stack
+    this._commitAction();
   }
 
   // ── Process pending actions (needs getVisibleSize from game loop) ──
@@ -1973,6 +2699,7 @@ export class LevelEditor {
       const viewW = this.hudCanvas.width - SIDEBAR_W;
       const wx = this.camX + ((this._pendingDblClick.screenX - SIDEBAR_W) / viewW) * visW;
       const wy = this.camY + (this._pendingDblClick.screenY / this.hudCanvas.height) * visH;
+      this._pushUndoSnapshot();
       this._deleteAtWorldPos(wx, wy);
       this._pendingDblClick = null;
     }
@@ -1998,6 +2725,7 @@ export class LevelEditor {
       const wy = this.camY + (this._pendingGroupCycle.screenY / this.hudCanvas.height) * visH;
       const idx = this._findEntityAt(wx, wy);
       if (idx >= 0 && this._isSwitchOrGate(this.entities[idx].tileId)) {
+        this._pushUndoSnapshot();
         this._cycleSwitchGateGroup(idx);
         this._showToast(t('editor.groupToast', { group: this.entities[idx].group }));
       } else if (idx >= 0 && (this.entities[idx].tileId === 36 || this.entities[idx].tileId === 37)) {
@@ -2006,6 +2734,7 @@ export class LevelEditor {
         const typeName = ent.tileId === 36 ? 'Bottle' : 'Hint Stone';
         const newText = prompt(`${typeName} text:`, ent.text || '...');
         if (newText !== null) {
+          this._pushUndoSnapshot();
           ent.text = newText;
           this.dirty = true;
           this._showToast(`${typeName}: "${newText.substring(0, 30)}${newText.length > 30 ? '...' : ''}"`);
@@ -2038,6 +2767,8 @@ export class LevelEditor {
       this._lastPlacedCell = null; // reset so placement isn't skipped
       this._placeTileAtMouse(getVisibleSize);
       this._pendingSinglePlace = false;
+      // Now commit the action (snapshot was taken inside _placeTileAtMouse via _beginAction)
+      this._commitAction();
     }
   }
 
@@ -2052,12 +2783,14 @@ export class LevelEditor {
     if (!ent) { this._configEntityIdx = -1; return; }
 
     if (action === 'cycleGroup') {
+      this._pushUndoSnapshot();
       this._cycleSwitchGateGroup(this._configEntityIdx);
       this._showToast(t('editor.groupToast', { group: ent.group }));
     } else if (action === 'editText') {
       const typeName = ent.tileId === 36 ? 'Bottle' : 'Hint Stone';
       const newText = prompt(`${typeName} text:`, ent.text || '...');
       if (newText !== null) {
+        this._pushUndoSnapshot();
         ent.text = newText;
         this.dirty = true;
         this._showToast(`${typeName}: "${newText.substring(0, 30)}${newText.length > 30 ? '...' : ''}"`);
@@ -2578,4 +3311,13 @@ function _renderGroupPreview(THREE, offRenderer, group, camDist) {
 
   scene.remove(group);
   return url;
+}
+
+// ── Date formatter for slot display ──
+function _formatDate(isoStr) {
+  try {
+    const d = new Date(isoStr);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  } catch { return isoStr; }
 }

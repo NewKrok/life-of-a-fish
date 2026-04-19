@@ -3,7 +3,7 @@
 // Uses InstancedMesh for terrain, Group of boxes for fish/enemies.
 // Enhanced with procedural textures, god rays, and underwater atmosphere.
 
-import { TILE_SIZE, LEVEL_COLS, LEVEL_ROWS, TILES, WATER_SURFACE_Y, WORLD_W, WORLD_H, KEY_CHEST_COLORS } from './level-data.js';
+import { TILE_SIZE, LEVEL_COLS, LEVEL_ROWS, TILES, WATER_SURFACE_Y, NO_CAVE_BG, WORLD_W, WORLD_H, KEY_CHEST_COLORS } from './level-data.js';
 
 const VOXEL_DEPTH = TILE_SIZE; // Z depth of each voxel
 
@@ -187,6 +187,14 @@ export class VoxelRenderer {
     this.projectileMeshes = [];    // { mesh, body } pairs for poison projectiles
     this.switchMeshes = [];        // { mesh, body, type, padMesh } pairs
     this.gateMeshes = [];          // { mesh, body, pivotGroup } pairs
+    // Boss (roadmap #13)
+    this.bossCrabGroups = [];      // wrapper groups, one per boss spawn
+    this._bossCrabFlipAngles = []; // y-rotation per boss
+    this._bossCrabThrowArms = [];  // right-claw pivot groups for throw animation
+    this._bossCrabLeftArms = [];   // left-claw pivot groups for throw animation
+    this._bossCrabThrowAnims = []; // { progress, active, side:'left'|'right' } per boss
+    this._bossCrabHeldRocks = [];  // { left: mesh, right: mesh } per boss — rocks visible in claws
+    this.bossRockMeshes = [];      // { mesh, body } for airborne rocks
 
     // New visual elements
     this.godRays = [];
@@ -225,6 +233,19 @@ export class VoxelRenderer {
     this.armoredFishTailPivots.length = 0;
     this._armoredFlipAngles.length = 0;
     remove(this.spittingCoralGroups);
+    remove(this.bossCrabGroups);
+    this._bossCrabFlipAngles.length = 0;
+    this._bossCrabThrowArms.length = 0;
+    this._bossCrabLeftArms.length = 0;
+    this._bossCrabThrowAnims.length = 0;
+    this._bossCrabHeldRocks.length = 0;
+    // Boss rocks
+    for (const r of this.bossRockMeshes) {
+      this.scene.remove(r.mesh);
+      if (r.mesh.geometry) r.mesh.geometry.dispose();
+      if (r.mesh.material) r.mesh.material.dispose();
+    }
+    this.bossRockMeshes.length = 0;
     // Pearls
     for (const p of this.pearlMeshes) {
       this.scene.remove(p.mesh);
@@ -644,6 +665,63 @@ export class VoxelRenderer {
       this.terrainMeshes.push(mesh);
     }
 
+    // ── Surface depth layer: extra Z blocks on top-most floor tiles ──
+    // Makes the floor look thick so entities' legs don't float in air
+    if (NO_CAVE_BG) {
+      const SOLID = new Set([1, 2, 3]);
+      // Find surface tiles: solid with empty above
+      const surfaceTiles = [];
+      for (let row = 1; row < LEVEL_ROWS; row++) {
+        for (let col = 0; col < LEVEL_COLS; col++) {
+          if (SOLID.has(TILES[row][col]) && TILES[row - 1][col] === 0) {
+            surfaceTiles.push({ row, col, type: TILES[row][col] });
+          }
+        }
+      }
+      if (surfaceTiles.length > 0) {
+        const depthLayers = 1; // one extra layer forward and backward
+        const depthCount = surfaceTiles.length * depthLayers * 2;
+        const depthGeo = new THREE.BoxGeometry(TILE_SIZE, TILE_SIZE, VOXEL_DEPTH);
+        const depthTex = this._generateTileTexture(surfaceTiles[0].type);
+        const depthMat = new THREE.MeshStandardMaterial({ map: depthTex, roughness: 0.9, metalness: 0.0 });
+        const depthMesh = new THREE.InstancedMesh(depthGeo, depthMat, depthCount);
+        depthMesh.castShadow = true;
+        depthMesh.receiveShadow = true;
+        depthMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(depthCount * 3), 3);
+        let dIdx = 0;
+        const dColor = new THREE.Color();
+        for (const st of surfaceTiles) {
+          const x = st.col * TILE_SIZE + TILE_SIZE / 2;
+          const y = -(st.row * TILE_SIZE + TILE_SIZE / 2);
+          const worldY = st.row * TILE_SIZE + TILE_SIZE / 2;
+          const depthBelow = Math.max(0, worldY - WATER_SURFACE_Y);
+          const maxDepth = WORLD_H - WATER_SURFACE_Y;
+          const depthFactor = 1.0 - (depthBelow / maxDepth) * 0.55;
+          // Slightly darker for depth layers
+          const darkened = depthFactor * 0.85;
+          dColor.setRGB(darkened, darkened, darkened);
+          for (let layer = 1; layer <= depthLayers; layer++) {
+            // Forward (toward camera)
+            dummy.position.set(x, y, layer * VOXEL_DEPTH);
+            dummy.updateMatrix();
+            depthMesh.setMatrixAt(dIdx, dummy.matrix);
+            depthMesh.setColorAt(dIdx, dColor);
+            dIdx++;
+            // Backward (away from camera)
+            dummy.position.set(x, y, -layer * VOXEL_DEPTH);
+            dummy.updateMatrix();
+            depthMesh.setMatrixAt(dIdx, dummy.matrix);
+            depthMesh.setColorAt(dIdx, dColor);
+            dIdx++;
+          }
+        }
+        depthMesh.instanceMatrix.needsUpdate = true;
+        depthMesh.instanceColor.needsUpdate = true;
+        this.scene.add(depthMesh);
+        this.terrainMeshes.push(depthMesh);
+      }
+    }
+
     // ── Cave background layer: darker blocks behind terrain ──
     const caveBg = this._buildCaveBackgroundMap();
     let caveCount = 0;
@@ -764,25 +842,27 @@ export class VoxelRenderer {
       this.terrainMeshes.push(mesh);
     }
 
-    // Cave background
-    const SOLID_TYPES = new Set([1, 2, 3]);
-    const NON_EMPTY = new Set([1, 2, 3, 4, 8]);
+    // Cave background (skip for open boss arenas)
     const caveBg = Array.from({ length: rows }, () => new Array(cols).fill(false));
-    const radius = CAVE_BG_NEIGHBOR_RADIUS;
-    for (let row = 0; row < rows; row++) {
-      for (let col = 0; col < cols; col++) {
-        if (NON_EMPTY.has(tiles[row][col])) continue;
-        let nearSolid = false;
-        for (let dr = -radius; dr <= radius && !nearSolid; dr++) {
-          for (let dc = -radius; dc <= radius && !nearSolid; dc++) {
-            if (dr === 0 && dc === 0) continue;
-            const nr = row + dr, nc = col + dc;
-            if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) {
-              if (SOLID_TYPES.has(tiles[nr][nc])) nearSolid = true;
+    if (!NO_CAVE_BG) {
+      const SOLID_TYPES = new Set([1, 2, 3]);
+      const NON_EMPTY = new Set([1, 2, 3, 4, 8]);
+      const radius = CAVE_BG_NEIGHBOR_RADIUS;
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          if (NON_EMPTY.has(tiles[row][col])) continue;
+          let nearSolid = false;
+          for (let dr = -radius; dr <= radius && !nearSolid; dr++) {
+            for (let dc = -radius; dc <= radius && !nearSolid; dc++) {
+              if (dr === 0 && dc === 0) continue;
+              const nr = row + dr, nc = col + dc;
+              if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) {
+                if (SOLID_TYPES.has(tiles[nr][nc])) nearSolid = true;
+              }
             }
           }
+          caveBg[row][col] = nearSolid;
         }
-        caveBg[row][col] = nearSolid;
       }
     }
     let caveCount = 0;
@@ -823,6 +903,10 @@ export class VoxelRenderer {
   // Returns a 2D boolean array: true where a cave background block should appear.
   // An empty cell gets a cave bg if it's within CAVE_BG_NEIGHBOR_RADIUS of a solid tile.
   _buildCaveBackgroundMap() {
+    // Boss arenas have no cave background (open water)
+    if (NO_CAVE_BG) {
+      return Array.from({ length: LEVEL_ROWS }, () => new Array(LEVEL_COLS).fill(false));
+    }
     const SOLID_TYPES = new Set([1, 2, 3]); // stone, sand, coral
     const NON_EMPTY_TYPES = new Set([1, 2, 3, 4, 8]); // all rendered tile types
     const caveBg = Array.from({ length: LEVEL_ROWS }, () => new Array(LEVEL_COLS).fill(false));
@@ -1414,6 +1498,256 @@ export class VoxelRenderer {
     return wrapper;
   }
 
+  // ── Build giant crab boss (roadmap #13) — larger, darker, mean-looking ──
+  buildGiantCrabBoss() {
+    const THREE = this.THREE;
+    const V = 8.4;  // ~4× larger than regular crab (V=2), large but not overwhelming
+    const matOpts = { roughness: 0.85, metalness: 0.05 };
+
+    // Darker, more menacing palette
+    const SHELL = 0x8a1e1e;
+    const SHELL_DARK = 0x5c1010;
+    const SHELL_LIGHT = 0xa52a2a;
+    const SHELL_RIDGE = 0x6e1515;   // ridge detail on shell top
+    const BELLY = 0xc88060;
+    const BELLY_DARK = 0xa06840;
+    const CLAW = 0xaa2a2a;
+    const CLAW_INNER = 0x8a2020;
+    const CLAW_TIP = 0xffe0b0;
+    const EYE = 0xffcc00;           // glowing amber eyes
+    const EYE_PUPIL = 0x220000;
+    const EYE_STALK = 0x6e1515;
+    const BARNACLE = 0x554433;
+    const BARNACLE_LIGHT = 0x665544;
+    const LEG = 0x5c1010;
+    const LEG_JOINT = 0x7a1818;
+
+    // ── Main body (12 wide × 6 tall × 14 deep) ──
+    const vc = new VoxelCollector(V);
+
+    // Shell layers — front to back with varying widths for organic shape
+    const sliceTip = (z) => {
+      vc.row([4, 5, 6, 7], 4, z, SHELL);
+      vc.row([3, 4, 5, 6, 7, 8], 3, z, SHELL_LIGHT);
+      vc.row([4, 5, 6, 7], 2, z, BELLY);
+    };
+    const sliceNarrow = (z) => {
+      vc.row([3, 4, 5, 6, 7, 8], 5, z, SHELL_DARK);
+      vc.row([2, 3, 4, 5, 6, 7, 8, 9], 4, z, SHELL);
+      vc.row([2, 3, 4, 5, 6, 7, 8, 9], 3, z, SHELL_LIGHT);
+      vc.row([3, 4, 5, 6, 7, 8], 2, z, BELLY);
+    };
+    const sliceMid = (z) => {
+      vc.row([2, 3, 4, 5, 6, 7, 8, 9], 6, z, SHELL_DARK);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 5, z, SHELL);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 4, z, SHELL);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 3, z, SHELL_LIGHT);
+      vc.row([2, 3, 4, 5, 6, 7, 8, 9], 2, z, BELLY);
+    };
+    const sliceWide = (z) => {
+      vc.row([2, 3, 4, 5, 6, 7, 8, 9], 7, z, SHELL_RIDGE);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 6, z, SHELL_DARK);
+      vc.row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], 5, z, SHELL);
+      vc.row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], 4, z, SHELL);
+      vc.row([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], 3, z, SHELL_LIGHT);
+      vc.row([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 2, z, BELLY);
+      vc.row([2, 3, 4, 5, 6, 7, 8, 9], 1, z, BELLY_DARK);
+    };
+
+    // Build shell front-to-back (14 slices deep)
+    sliceTip(0); sliceTip(13);
+    sliceNarrow(1); sliceNarrow(12);
+    sliceMid(2); sliceMid(3); sliceMid(10); sliceMid(11);
+    sliceWide(4); sliceWide(5); sliceWide(6); sliceWide(7); sliceWide(8); sliceWide(9);
+
+    // Shell ridge bumps along the top
+    for (const z of [4, 6, 8]) {
+      vc.add(4, 8, z, SHELL_RIDGE); vc.add(7, 8, z, SHELL_RIDGE);
+    }
+    vc.add(5, 8, 5, SHELL_RIDGE); vc.add(6, 8, 7, SHELL_RIDGE);
+
+    // Barnacles — scattered for "ancient guardian" look
+    vc.add(3, 7, 4, BARNACLE); vc.add(8, 7, 5, BARNACLE);
+    vc.add(4, 7, 8, BARNACLE_LIGHT); vc.add(7, 7, 3, BARNACLE);
+    vc.add(2, 6, 6, BARNACLE_LIGHT); vc.add(9, 6, 7, BARNACLE);
+    vc.add(5, 7, 10, BARNACLE); vc.add(6, 7, 2, BARNACLE_LIGHT);
+
+    // Eyes on thick stalks
+    vc.add(9, 6, 2, EYE_STALK); vc.add(9, 7, 2, EYE_STALK); vc.add(9, 8, 2, EYE);
+    vc.add(10, 8, 2, EYE); vc.add(10, 9, 2, EYE_PUPIL);
+    vc.add(9, 6, 11, EYE_STALK); vc.add(9, 7, 11, EYE_STALK); vc.add(9, 8, 11, EYE);
+    vc.add(10, 8, 11, EYE); vc.add(10, 9, 11, EYE_PUPIL);
+
+    // Mouth parts (front mandibles)
+    vc.add(10, 3, 5, SHELL_DARK); vc.add(10, 3, 6, SHELL_DARK);
+    vc.add(10, 3, 7, SHELL_DARK); vc.add(11, 3, 6, SHELL_DARK);
+
+    // Left claw — removed from body, built as separate pivot group below
+
+    // Legs — 3 pairs, segmented with joints
+    for (const z of [2, 3, 5, 7, 9, 10]) {
+      // Left legs
+      vc.add(0, 1, z, LEG); vc.add(0, 0, z, LEG_JOINT);
+      vc.add(-1, -1, z, LEG); vc.add(-1, -2, z, LEG);
+      // Right legs
+      vc.add(11, 1, z, LEG); vc.add(11, 0, z, LEG_JOINT);
+      vc.add(12, -1, z, LEG); vc.add(12, -2, z, LEG);
+    }
+
+    const bodyGroup = vc.build(THREE, matOpts);
+    // Center the visual model on the physics body center
+    // Model spans x: -1..13 (~14), y: -2..9 (~11), z: -2..14 (~16)
+    // Compress Z to 60% so the crab doesn't clip through back walls
+    bodyGroup.scale.set(1, 1, 0.6);
+    bodyGroup.position.set(-6 * V, -3.5 * V, -6.5 * V * 0.6);
+
+    // ── Right claw (throwing arm) — built as separate group for animation ──
+    const clawVc = new VoxelCollector(V);
+    // Arm segment connecting to body
+    clawVc.add(0, 0, 0, CLAW); clawVc.add(0, 1, 0, CLAW);
+    clawVc.add(0, 0, 1, CLAW); clawVc.add(0, 1, 1, CLAW);
+    // Upper arm
+    clawVc.add(1, 0, 0, CLAW); clawVc.add(1, 1, 0, CLAW); clawVc.add(1, 2, 0, CLAW_INNER);
+    clawVc.add(1, 0, 1, CLAW); clawVc.add(1, 1, 1, CLAW); clawVc.add(1, 2, 1, CLAW_INNER);
+    // Claw head
+    clawVc.add(2, 0, 0, CLAW); clawVc.add(2, 1, 0, CLAW); clawVc.add(2, 2, 0, CLAW);
+    clawVc.add(2, 0, 1, CLAW); clawVc.add(2, 1, 1, CLAW); clawVc.add(2, 2, 1, CLAW);
+    clawVc.add(2, 0, 2, CLAW); clawVc.add(2, 1, 2, CLAW);
+    // Tips
+    clawVc.add(3, 1, 0, CLAW_TIP); clawVc.add(3, 2, 0, CLAW_TIP);
+    clawVc.add(3, 1, 1, CLAW_TIP); clawVc.add(3, 2, 1, CLAW_TIP);
+    clawVc.add(4, 1, 0, CLAW_TIP); clawVc.add(4, 2, 0, CLAW_TIP);
+    // Lower pincer
+    clawVc.add(3, 0, 0, CLAW); clawVc.add(3, 0, 1, CLAW);
+    clawVc.add(4, 0, 0, CLAW_TIP);
+
+    const clawMesh = clawVc.build(THREE, matOpts);
+    clawMesh.scale.set(1, 1, 0.6); // match body Z compression
+    clawMesh.position.set(0, -0.5 * V, -1 * V * 0.6);
+
+    // Pivot group — pivot point at shoulder joint
+    const clawPivot = new THREE.Group();
+    clawPivot.add(clawMesh);
+    // Position the pivot at the right shoulder of the body (relative to wrapper center)
+    clawPivot.position.set(8.5 * V - 6 * V, 3.5 * V - 3.5 * V, (14 * V - 6.5 * V) * 0.6);
+
+    // ── Left claw (dominant arm) — also separate for animation ──
+    const leftClawVc = new VoxelCollector(V);
+    // Arm segment
+    leftClawVc.add(0, 0, 0, CLAW); leftClawVc.add(0, 1, 0, CLAW);
+    leftClawVc.add(0, 0, -1, CLAW); leftClawVc.add(0, 1, -1, CLAW);
+    // Upper arm
+    leftClawVc.add(1, 0, 0, CLAW); leftClawVc.add(1, 1, 0, CLAW); leftClawVc.add(1, 2, 0, CLAW_INNER);
+    leftClawVc.add(1, 0, -1, CLAW); leftClawVc.add(1, 1, -1, CLAW); leftClawVc.add(1, 2, -1, CLAW_INNER);
+    // Claw head (bigger — dominant claw)
+    leftClawVc.add(2, 0, 0, CLAW); leftClawVc.add(2, 1, 0, CLAW); leftClawVc.add(2, 2, 0, CLAW);
+    leftClawVc.add(2, 0, -1, CLAW); leftClawVc.add(2, 1, -1, CLAW); leftClawVc.add(2, 2, -1, CLAW);
+    leftClawVc.add(2, 0, -2, CLAW); leftClawVc.add(2, 1, -2, CLAW);
+    leftClawVc.add(3, 0, 0, CLAW); leftClawVc.add(3, 1, 0, CLAW); leftClawVc.add(3, 2, 0, CLAW);
+    leftClawVc.add(3, 0, -1, CLAW); leftClawVc.add(3, 1, -1, CLAW);
+    // Tips
+    leftClawVc.add(4, 1, 0, CLAW_TIP); leftClawVc.add(4, 2, 0, CLAW_TIP);
+    leftClawVc.add(4, 1, -1, CLAW_TIP); leftClawVc.add(4, 2, -1, CLAW_TIP);
+    leftClawVc.add(5, 1, 0, CLAW_TIP); leftClawVc.add(5, 2, 0, CLAW_TIP);
+    // Lower pincer
+    leftClawVc.add(3, -1, 0, CLAW); leftClawVc.add(3, -1, -1, CLAW);
+    leftClawVc.add(4, -1, 0, CLAW_TIP);
+
+    const leftClawMesh = leftClawVc.build(THREE, matOpts);
+    leftClawMesh.scale.set(1, 1, 0.6); // match body Z compression
+    leftClawMesh.position.set(0, -0.5 * V, 0.5 * V * 0.6);
+
+    const leftClawPivot = new THREE.Group();
+    leftClawPivot.add(leftClawMesh);
+    // Position at left shoulder (z=0 side, mirrored from right)
+    leftClawPivot.position.set(8.5 * V - 6 * V, 3.5 * V - 3.5 * V, (-1 * V - 6.5 * V) * 0.6);
+
+    const wrapper = new this.THREE.Group();
+    wrapper.add(bodyGroup);
+    wrapper.add(clawPivot);
+    wrapper.add(leftClawPivot);
+    this.scene.add(wrapper);
+    this.bossCrabGroups.push(wrapper);
+    this._bossCrabThrowArms.push(clawPivot);
+    this._bossCrabLeftArms.push(leftClawPivot);
+    this._bossCrabThrowAnims.push({ progress: 0, active: false, side: 'right' });
+
+    // Held rocks (shown during throwWindup, hidden otherwise)
+    // Coral-encrusted seafloor chunks matching the projectile style
+    const buildHeldRock = () => {
+      const rg = new THREE.Group();
+      const S = V * 0.5;
+      const mRock = new THREE.MeshStandardMaterial({ color: 0x6a5848, roughness: 0.95 });
+      const mCoral = new THREE.MeshStandardMaterial({ color: 0xcc6644, roughness: 0.7 });
+      rg.add(new THREE.Mesh(new THREE.BoxGeometry(S * 2, S * 1.6, S * 1.8), mRock));
+      const chip = new THREE.Mesh(new THREE.BoxGeometry(S * 0.8, S * 0.6, S * 0.7), mRock);
+      chip.position.set(S * 0.9, S * 0.2, 0);
+      rg.add(chip);
+      const coral = new THREE.Mesh(new THREE.BoxGeometry(S * 0.5, S * 0.4, S * 0.5), mCoral);
+      coral.position.set(S * 0.2, S * 0.8, 0);
+      rg.add(coral);
+      return rg;
+    };
+    const leftRock = buildHeldRock();
+    leftRock.position.set(3.5 * V, 2 * V, -0.5 * V * 0.6);
+    leftRock.visible = false;
+    leftClawPivot.add(leftRock);
+    const rightRock = buildHeldRock();
+    rightRock.position.set(3.5 * V, 2 * V, 0.5 * V * 0.6);
+    rightRock.visible = false;
+    clawPivot.add(rightRock);
+    this._bossCrabHeldRocks.push({ left: leftRock, right: rightRock });
+
+    return wrapper;
+  }
+
+  // ── Build an airborne rock projectile thrown by a boss ──
+  // These are chunks of coral-encrusted seafloor rock
+  buildBossRock(body) {
+    const THREE = this.THREE;
+    const group = new THREE.Group();
+    const matRock = new THREE.MeshStandardMaterial({ color: 0x6a5848, roughness: 0.95, metalness: 0.0 });
+    const matLight = new THREE.MeshStandardMaterial({ color: 0x8a7868, roughness: 0.9, metalness: 0.0 });
+    const matCoral = new THREE.MeshStandardMaterial({ color: 0xcc6644, roughness: 0.7, metalness: 0.0 });
+    const matMoss = new THREE.MeshStandardMaterial({ color: 0x446644, roughness: 0.85, metalness: 0.0 });
+    const S = 8; // voxel size for the rock (large seafloor chunks)
+
+    // Irregular rock shape — central mass + random protrusions
+    const core = new THREE.Mesh(new THREE.BoxGeometry(S * 2.2, S * 1.8, S * 2), matRock);
+    group.add(core);
+    // Jagged edges
+    const chip1 = new THREE.Mesh(new THREE.BoxGeometry(S, S * 0.8, S), matLight);
+    chip1.position.set(S * 1.2, S * 0.3, 0);
+    group.add(chip1);
+    const chip2 = new THREE.Mesh(new THREE.BoxGeometry(S * 0.8, S, S * 0.7), matLight);
+    chip2.position.set(-S * 0.8, -S * 0.6, S * 0.5);
+    group.add(chip2);
+    // Small coral patch
+    const coral = new THREE.Mesh(new THREE.BoxGeometry(S * 0.6, S * 0.5, S * 0.6), matCoral);
+    coral.position.set(S * 0.4, S * 1.0, -S * 0.2);
+    group.add(coral);
+    // Moss/algae on one side
+    const moss = new THREE.Mesh(new THREE.BoxGeometry(S * 0.7, S * 0.4, S * 1.2), matMoss);
+    moss.position.set(-S * 0.9, S * 0.5, S * 0.3);
+    group.add(moss);
+
+    group.position.set(body.position.x, -body.position.y, 0);
+    group.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
+    this.scene.add(group);
+    this.bossRockMeshes.push({ mesh: group, body });
+    return group;
+  }
+
+  // ── Trigger throw animation on a specific claw for boss at index ──
+  startBossCrabThrow(bossIndex, side = 'right') {
+    const anim = this._bossCrabThrowAnims[bossIndex];
+    if (anim) {
+      anim.progress = 0;
+      anim.active = true;
+      anim.side = side;
+    }
+  }
+
   // ── Build toxic fish enemy (ranged attacker — green/purple fish) ──
   buildToxicFish() {
     const THREE = this.THREE;
@@ -1818,6 +2152,8 @@ export class VoxelRenderer {
     for (const g of this.toxicFishGroups) g.visible = true;
     for (const g of this.armoredFishGroups) g.visible = true;
     for (const g of this.spittingCoralGroups) g.visible = true;
+    for (const g of this.bossCrabGroups) g.visible = true;
+    for (const a of this._bossCrabThrowAnims) { a.progress = 0; a.active = false; a.side = 'right'; }
   }
 
   // ── Build boulder meshes ──
@@ -3855,7 +4191,8 @@ export class VoxelRenderer {
         this.pearlMeshes.splice(i, 1);
         continue;
       }
-      // Gentle bob and spin
+      // Sync position from physics body + gentle bob and spin
+      p.mesh.position.x = p.body.position.x;
       const baseY = -p.body.position.y;
       p.mesh.position.y = baseY + Math.sin(this._time * 2.5 + i * 1.3) * 3;
       p.mesh.rotation.y = this._time * 1.5 + i;
@@ -4101,6 +4438,192 @@ export class VoxelRenderer {
       }
     }
 
+    // ── Sync giant crab bosses (charge wobble + hit flash + scuttle) ──
+    const bossCrabBodies = extras.bossCrabBodies;
+    if (bossCrabBodies) {
+      for (let i = 0; i < bossCrabBodies.length && i < this.bossCrabGroups.length; i++) {
+        const bc = bossCrabBodies[i];
+        const bg = this.bossCrabGroups[i];
+        if (!bc.space) { bg.visible = false; continue; }
+        bg.position.set(bc.position.x, -bc.position.y, 0);
+
+        // Flip to face the direction it's moving
+        if (this._bossCrabFlipAngles[i] === undefined) this._bossCrabFlipAngles[i] = 0;
+        const boss = bc._boss;
+        let targetFlip = this._bossCrabFlipAngles[i];
+        if (boss && boss.dir === -1) targetFlip = Math.PI;
+        else if (boss && boss.dir === 1) targetFlip = 0;
+        this._bossCrabFlipAngles[i] += (targetFlip - this._bossCrabFlipAngles[i]) * 0.08;
+        bg.rotation.y = this._bossCrabFlipAngles[i];
+
+        // Hit flash: quick red/white pulse by scaling + rotation quiver
+        let quiver = 0;
+        if (boss && boss.state === 'dying') {
+          if (boss.dead && boss.despawnTimer !== undefined && boss.despawnTimer <= 0) {
+            // Fully despawned
+            bg.visible = false;
+          } else if (boss.dead) {
+            // Pearl eruption phase — fully toppled, rapid flicker
+            bg.rotation.x = Math.PI / 2;
+            bg.position.y -= 20;
+            bg.visible = Math.sin(this._time * 25) > -0.2;
+          } else {
+            // Collapsing: topple backward onto back over 3s
+            const dyingProgress = 1 - (boss.stateTimer / 3000); // 0→1 over 3s
+            const tilt = Math.min(dyingProgress * 1.5, 1.0) * (Math.PI / 2);
+            bg.rotation.x = tilt + Math.sin(this._time * 40) * 0.06 * (1 - dyingProgress);
+            if (dyingProgress > 0.75) {
+              bg.visible = Math.sin(this._time * 35) > -0.3;
+            }
+            bg.position.y -= dyingProgress * 20;
+          }
+        } else {
+          bg.rotation.x = 0;
+        }
+        if (boss && boss.flashTimer > 0) {
+          quiver = Math.sin(this._time * 40) * 0.15;
+        }
+        // Windup telegraph: slight crouch/shake
+        if (boss && boss.state === 'windup') {
+          quiver += Math.sin(this._time * 25) * 0.08;
+        }
+        // Jump windup: crouch + compress vertically (clearly "about to spring")
+        if (boss && boss.state === 'jumpWindup') {
+          quiver += Math.sin(this._time * 30) * 0.08;
+          bg.position.y -= 8; // crouch down hard
+          bg.scale.set(1.1, 0.8, 1); // squash horizontally wider, vertically shorter
+        } else {
+          bg.scale.set(1, 1, 1);
+        }
+        // Throw windup: slight sway (telegraphs the throw)
+        if (boss && boss.state === 'throwWindup') {
+          quiver += Math.sin(this._time * 20) * 0.06;
+        }
+        // Slam windup: rear up tall then slam down (arms raised high)
+        if (boss && boss.state === 'slamWindup') {
+          quiver += Math.sin(this._time * 35) * 0.05;
+          bg.position.y += 6; // rise up before slamming
+        }
+        // Slam impact: brief push-down
+        if (boss && boss.state === 'slam') {
+          bg.position.y -= 4;
+        }
+        // Jump: tilt forward in movement direction
+        if (boss && boss.state === 'jump') {
+          quiver += boss.dir * 0.2;
+        }
+        bg.rotation.z = quiver;
+
+        // Slam windup: raise arms high overhead (distinct from throw windup)
+        if (boss && boss.state === 'slamWindup') {
+          const rArm = this._bossCrabThrowArms[i];
+          const lArm = this._bossCrabLeftArms[i];
+          const lift = -2.0 + Math.sin(this._time * 4) * 0.15; // arms way up, slight tremble
+          if (rArm) { rArm.rotation.x = lift; rArm.rotation.z = -0.3; }
+          if (lArm) { lArm.rotation.x = lift; lArm.rotation.z = -0.3; }
+        }
+        // Slam impact: slam arms down
+        if (boss && boss.state === 'slam') {
+          const rArm = this._bossCrabThrowArms[i];
+          const lArm = this._bossCrabLeftArms[i];
+          if (rArm) { rArm.rotation.x = 0.8; rArm.rotation.z = 0.3; }
+          if (lArm) { lArm.rotation.x = 0.8; lArm.rotation.z = 0.3; }
+        }
+
+        // Throw windup: raise both arms as telegraph + show held rocks
+        const heldRocks = this._bossCrabHeldRocks[i];
+        if (boss && boss.state === 'throwWindup') {
+          const rArm = this._bossCrabThrowArms[i];
+          const lArm = this._bossCrabLeftArms[i];
+          const lift = Math.sin(this._time * 3) * 0.1 - 0.8; // gentle sway while raised
+          if (rArm) rArm.rotation.x = lift;
+          if (lArm) lArm.rotation.x = lift;
+          // Show rocks in both claws
+          if (heldRocks) { heldRocks.left.visible = true; heldRocks.right.visible = true; }
+        } else if (heldRocks && boss) {
+          // During throw anim, hide rock in the active claw (it was "released")
+          const throwA = this._bossCrabThrowAnims[i];
+          if (throwA && throwA.active && throwA.progress > 0.5) {
+            if (throwA.side === 'left') heldRocks.left.visible = false;
+            else heldRocks.right.visible = false;
+          }
+          // When no throw is happening, hide both
+          if (!throwA || !throwA.active) {
+            heldRocks.left.visible = false;
+            heldRocks.right.visible = false;
+          }
+        }
+
+        // Scuttle bob during patrol/charge
+        if (boss && boss.state !== 'windup' && boss.state !== 'slamWindup' && boss.state !== 'slam' && boss.state !== 'jumpWindup' && boss.state !== 'throwWindup') {
+          const freq = boss.state === 'charge' ? 18 : boss.state === 'jump' ? 0 : 10;
+          const scuttle = freq > 0 ? Math.abs(Math.sin(this._time * freq + i * 3)) * 2.2 : 0;
+          bg.position.y += scuttle;
+        }
+
+        // Animate throwing arms (left and right claws)
+        const rightArm = this._bossCrabThrowArms[i];
+        const leftArm = this._bossCrabLeftArms[i];
+        const throwAnim = this._bossCrabThrowAnims[i];
+        if (throwAnim) {
+          if (throwAnim.active) {
+            throwAnim.progress += dt * 1.0; // slow swing ~1s for readability
+            if (throwAnim.progress >= 1) {
+              throwAnim.active = false;
+              throwAnim.progress = 0;
+            }
+          }
+          const p = throwAnim.progress;
+          let armLift = 0;
+          let armSwing = 0;
+          if (throwAnim.active) {
+            if (p < 0.4) {
+              const t = p / 0.4;
+              armLift = -1.6 * t;
+              armSwing = -0.3 * t;
+            } else if (p < 0.65) {
+              const t = (p - 0.4) / 0.25;
+              armLift = -1.6 + 1.6 * t;
+              armSwing = -0.3 + 1.6 * t;
+            } else {
+              const t = (p - 0.65) / 0.35;
+              armLift = 0;
+              armSwing = 1.3 * (1 - t);
+            }
+          }
+          // Apply animation to the active arm, reset idle arm
+          const activeArm = throwAnim.side === 'left' ? leftArm : rightArm;
+          const idleArm = throwAnim.side === 'left' ? rightArm : leftArm;
+          if (activeArm) {
+            activeArm.rotation.x = armLift;
+            activeArm.rotation.z = armSwing;
+          }
+          if (idleArm && !throwAnim.active) {
+            idleArm.rotation.x = 0;
+            idleArm.rotation.z = 0;
+          }
+        }
+      }
+    }
+
+    // ── Sync boss rocks (airborne, spinning) ──
+    const bossRockBodies = extras.bossRockBodies;
+    if (bossRockBodies) {
+      for (let i = this.bossRockMeshes.length - 1; i >= 0; i--) {
+        const r = this.bossRockMeshes[i];
+        if (!r.body.space) {
+          this.scene.remove(r.mesh);
+          if (r.mesh.geometry) r.mesh.geometry.dispose();
+          if (r.mesh.material) r.mesh.material.dispose();
+          this.bossRockMeshes.splice(i, 1);
+          continue;
+        }
+        r.mesh.position.set(r.body.position.x, -r.body.position.y, 0);
+        r.mesh.rotation.x += dt * 4;
+        r.mesh.rotation.z += dt * 5;
+      }
+    }
+
     // ── Sync switches (type-specific animation) ──
     if (_swB) {
       for (const sm of this.switchMeshes) {
@@ -4197,6 +4720,7 @@ export class VoxelRenderer {
       cullGroup(this.toxicFishGroups, toxicFishBodies);
       cullGroup(this.armoredFishGroups, armoredFishBodies);
       cullGroup(this.spittingCoralGroups, spittingCoralBodies);
+      cullGroup(this.bossCrabGroups, bossCrabBodies);
 
       // Cull items
       for (const b of this.buoyMeshes) cullBody(b);

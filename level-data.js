@@ -34,6 +34,7 @@
 //  35 = swinging anchor (kinematic pendulum, hangs from ceiling on chain)
 //  36 = bottle message (collectible, shows text once, then disappears)
 //  37 = hint stone (permanent, shows text when player is nearby)
+//  38 = giant crab boss (world 1 boss — 5 HP, charge + rock throw)
 
 export const TILE_SIZE = 32;
 
@@ -86,6 +87,7 @@ const KEY = {
   H: 35, // swinging anchor (horgony)
   I: 36, // bottle message (collectible)
   J: 37, // hint stone (permanent hint)
+  M: 38, // giant crab boss
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -124,7 +126,7 @@ const LEVELS = [
       "####...............A......##.....###....###p.##dxdd#####..p..####....####.....###..pd####..A..####...pd#############pp...####", // 19
       "####........dd.....W......##.....###....Gp#..#########.......####....####.....###..e.####..e..####..##################...####", // 20
       "####......dddd.....W......##..p..###.....p#..#########.......####....####..p..###....####.....####..##################...####", // 21
-      "####..Cpddddddd..d.W.dp.d.##..d..###.d..###d.#########..d..d.####d...####..C..###d...####..d..####..##################..d####", // 22
+      "####..Cpddddddd..d.W.dp.d.##..d..###.d..###d.#########..d..d.####d...####.....###d...####..d..####..##################..d####", // 22
       "#sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss#", // 23
       "#############################################################################################################################", // 24
     ],
@@ -188,6 +190,60 @@ const LEVELS = [
     ],
   },
 
+  // ── Boss Level 1: Giant Crab ──
+  // World 1 boss arena — wider floor, scattered boulders for ammo, hazardous plants
+  // on the edges so the boss's knockback feels dangerous. No pearls required to win
+  // (victory condition = boss defeat, see bossLevel flag + levelGoal: 'boss').
+  {
+    id: "bossGiantCrab",
+    name: "Boss: Giant Crab",
+    description: "Guardian of the reef's exit",
+    cols: 60,
+    rows: 30,
+    waterRow: 3, // water surface at row 3
+    bossLevel: true,
+    levelGoal: 'boss', // victory triggered when all boss bodies are defeated
+    noCaveBg: true,    // open arena — no dark cave background
+    strings: [
+      "############################################################", // 0
+      "#..........................................................#", // 1
+      "#..........................................................#", // 2
+      "#..........................................................#", // 3
+      "#..........................................................#", // 4
+      "#..........................................................#", // 5
+      "#..........................................................#", // 6
+      "#......J...................................................#", // 7
+      "#...........................I..............................#", // 8
+      "#..........................................................#", // 9
+      "#..........e.......................................e.......#", // 10
+      "#..........................................................#", // 11
+      "#.....e............................................e.......#", // 12
+      "#..........................................................#", // 13
+      "#..........................................................#", // 14
+      "#............R....R.........................R....R.........#", // 15
+      "#..........................................................#", // 16
+      "#.........................p................................#", // 17
+      "#..@.....R.......R..C.........M..........C.....R.....p..C.#", // 18
+      "#xxsssssssssssssssssssssssssssssssssssssssssssssssssssssxxs#", // 19
+      "#sssssssssssssssssssssssssssssssssssssssssssssssssssssssssss#", // 20
+      "#sssssssssssssssssssssssssssssssssssssssssssssssssssssssssss#", // 21
+      "#sssssssssssssssssssssssssssssssssssssssssssssssssssssssssss#", // 22
+      "#sssssssssssssssssssssssssssssssssssssssssssssssssssssssssss#", // 23
+      "#sssssssssssssssssssssssssssssssssssssssssssssssssssssssssss#", // 24
+      "#sssssssssssssssssssssssssssssssssssssssssssssssssssssssssss#", // 25
+      "#sssssssssssssssssssssssssssssssssssssssssssssssssssssssssss#", // 26
+      "#sssssssssssssssssssssssssssssssssssssssssssssssssssssssssss#", // 27
+      "#sssssssssssssssssssssssssssssssssssssssssssssssssssssssssss#", // 28
+      "############################################################", // 29
+    ],
+    bottleMessages: [
+      { row: 8, col: 28, text: "The big one guards the reef's edge. It hits hard — let the floor do the work." },
+    ],
+    hintStones: [
+      { row: 7, col: 7, text: "Throw {key:E|GRAB} <color='#c8a050'>boulders</color> at the <color='#ff6666'>giant crab</color>. It takes 5 hits." },
+    ],
+  },
+
   // ── Level 3: Sunken Ruins ──
   {
     id: "sunkenRuins",
@@ -238,6 +294,7 @@ export let LEVEL_ROWS = LEVELS[0].rows;
 export let WORLD_W = LEVEL_COLS * TILE_SIZE;
 export let WORLD_H = LEVEL_ROWS * TILE_SIZE;
 export let WATER_SURFACE_Y = LEVELS[0].waterRow * TILE_SIZE;
+export let NO_CAVE_BG = !!LEVELS[0].noCaveBg;
 
 // Parse the string map into a 2D number array
 export const TILES = [];
@@ -272,6 +329,19 @@ export function getCurrentLevelIndex() {
   return _currentLevelIndex;
 }
 
+/** Get metadata for the active level (flags like bossLevel, levelGoal, name, id). */
+export function getCurrentLevelMeta() {
+  const l = LEVELS[_currentLevelIndex];
+  return {
+    id: l.id,
+    name: l.name,
+    bossLevel: !!l.bossLevel,
+    levelGoal: l.levelGoal || 'pearls', // 'pearls' | 'boss'
+    waterRow: l.waterRow ?? 4,
+    noCaveBg: !!l.noCaveBg,
+  };
+}
+
 /** Switch to a different level. Updates all exported dimensions and re-parses tiles. */
 export function setCurrentLevel(index) {
   if (index < 0 || index >= LEVELS.length) return;
@@ -284,6 +354,7 @@ export function setCurrentLevel(index) {
   WORLD_W = LEVEL_COLS * TILE_SIZE;
   WORLD_H = LEVEL_ROWS * TILE_SIZE;
   WATER_SURFACE_Y = level.waterRow * TILE_SIZE;
+  NO_CAVE_BG = !!level.noCaveBg;
 
   _parseTiles();
 }
@@ -324,6 +395,7 @@ export function getLevelEntities() {
     swingingAnchors: [], // { x, y, chainLength }
     bottleMessages: [], // { x, y, text }
     hintStones: [], // { x, y, text }
+    giantCrabBosses: [], // { x, y }
   };
   for (let row = 0; row < LEVEL_ROWS; row++) {
     for (let col = 0; col < LEVEL_COLS; col++) {
@@ -404,6 +476,9 @@ export function getLevelEntities() {
         TILES[row][col] = 0;
       } else if (t === 37) {
         entities.hintStones.push({ x: cx, y: cy, text: '...' });
+        TILES[row][col] = 0;
+      } else if (t === 38) {
+        entities.giantCrabBosses.push({ x: cx, y: cy });
         TILES[row][col] = 0;
       }
     }
