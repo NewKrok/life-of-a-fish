@@ -30,7 +30,42 @@
     "ratePrompt": "Rate this community level",
     "rateAlready": "You already rated this level",
     "rateSubmitting": "Saving…",
-    "rateThanks": "Thanks for rating!"
+    "rateThanks": "Thanks for rating!",
+    "byOwner": "by {name}"
+  },
+  "account": {
+    "title": "Account",
+    "open": "Account",
+    "guest": "Guest",
+    "anonOwner": "Anon",
+    "statusAnonymous": "Signed in as Guest — your progress is saved to this browser only",
+    "statusSignedIn": "Signed in as {name} ({provider})",
+    "linkGoogle": "Sign in with Google",
+    "linkApple": "Sign in with Apple",
+    "signOut": "Sign out",
+    "working": "Working…",
+    "linkedOk": "Success — your account is linked!",
+    "alreadyLinked": "This account is already linked to that provider",
+    "signedOutOk": "Signed out — you're a new guest now",
+    "signOutTitle": "Sign out?",
+    "signOutBody": "Your published levels will stay on your old account. Signing in again will restore access.",
+    "conflictTitle": "Account already in use",
+    "conflictBody": "This provider account already belongs to another player. Continuing will switch to that account — your current guest progress will no longer be reachable.",
+    "conflictConfirm": "Switch accounts",
+    "modalConfirm": "Continue",
+    "modalCancel": "Cancel",
+    "provider": {
+      "google": "Google",
+      "apple": "Apple",
+      "anonymous": "Guest"
+    },
+    "err": {
+      "cancelled": "Sign-in cancelled",
+      "popup-blocked": "Sign-in popup was blocked — allow popups and try again",
+      "provider-disabled": "This sign-in method is not enabled yet",
+      "already-linked": "Already linked to this provider",
+      "credential-already-in-use": "That account is already in use"
+    }
   },
   "levelSelect": {
     "title": "Select Level",

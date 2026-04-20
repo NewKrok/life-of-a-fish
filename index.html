@@ -1113,6 +1113,163 @@
         margin-top: 6px;
         min-height: 12px;
       }
+
+      /* ── Account / Auth (#23) ── */
+      .community-card-owner {
+        color: rgba(200, 230, 255, 0.55);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 140px;
+      }
+
+      /* Top-right user chip on the main menu */
+      #userChip {
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        display: none;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px 6px 6px;
+        background: rgba(10, 30, 60, 0.8);
+        border: 2px solid rgba(100, 180, 255, 0.35);
+        border-radius: 24px;
+        color: #c8e6ff;
+        font: bold 11px "Silkscreen", monospace;
+        cursor: pointer;
+        z-index: 20;
+        transition: all 0.2s ease;
+        max-width: 240px;
+      }
+      #userChip.visible { display: inline-flex; }
+      #userChip:hover {
+        background: rgba(20, 50, 90, 0.92);
+        border-color: rgba(100, 200, 255, 0.7);
+        color: #ffffff;
+      }
+      .user-chip-avatar {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: rgba(100, 180, 255, 0.2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        flex-shrink: 0;
+        font: bold 12px "Silkscreen", monospace;
+        color: #c8e6ff;
+      }
+      .user-chip-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      .user-chip-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 160px;
+      }
+
+      /* Account section inside settings panel */
+      .account-block {
+        background: rgba(10, 35, 60, 0.5);
+        border: 1px solid rgba(100, 180, 255, 0.2);
+        border-radius: 8px;
+        padding: 14px 14px 12px;
+        margin-top: 4px;
+        text-align: center;
+      }
+      .account-title {
+        font: bold 11px "Silkscreen", monospace;
+        color: rgba(200, 230, 255, 0.8);
+        letter-spacing: 1px;
+        margin-bottom: 10px;
+      }
+      .account-status {
+        font: 10px "Silkscreen", monospace;
+        color: rgba(200, 230, 255, 0.7);
+        margin-bottom: 10px;
+        min-height: 14px;
+      }
+      .account-msg {
+        font: 9px "Silkscreen", monospace;
+        color: rgba(200, 230, 255, 0.55);
+        margin-top: 8px;
+        min-height: 12px;
+      }
+      .account-msg.error { color: #ff9090; }
+      .account-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .account-btn {
+        background: rgba(10, 40, 70, 0.7);
+        border: 1.5px solid rgba(100, 180, 255, 0.3);
+        border-radius: 6px;
+        color: #c8e6ff;
+        font: bold 11px "Silkscreen", monospace;
+        padding: 10px 14px;
+        cursor: pointer;
+        transition: all 0.15s ease;
+      }
+      .account-btn:hover {
+        background: rgba(20, 60, 100, 0.85);
+        border-color: rgba(100, 200, 255, 0.6);
+        color: #fff;
+      }
+      .account-btn[disabled] {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+      .account-btn.google { border-color: rgba(234, 67, 53, 0.6); }
+      .account-btn.google:hover { background: rgba(120, 40, 35, 0.6); }
+      .account-btn.apple { border-color: rgba(220, 220, 220, 0.5); }
+      .account-btn.apple:hover { background: rgba(50, 50, 55, 0.6); }
+      .account-btn.danger { border-color: rgba(220, 120, 100, 0.5); }
+      .account-btn.danger:hover { background: rgba(100, 40, 40, 0.6); }
+
+      /* Modal for conflict dialogs */
+      .account-modal-backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.6);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 30;
+      }
+      .account-modal-backdrop.visible { display: flex; }
+      .account-modal-box {
+        background: rgba(6, 21, 32, 0.97);
+        border: 2px solid rgba(100, 180, 255, 0.4);
+        border-radius: 10px;
+        padding: 20px 24px;
+        max-width: 380px;
+        text-align: center;
+      }
+      .account-modal-title {
+        font: bold 14px "Silkscreen", monospace;
+        color: #ffd93d;
+        margin-bottom: 10px;
+        letter-spacing: 1px;
+      }
+      .account-modal-body {
+        font: 10px "Silkscreen", monospace;
+        color: rgba(200, 230, 255, 0.8);
+        line-height: 1.6;
+        margin-bottom: 14px;
+      }
+      .account-modal-actions {
+        display: flex;
+        gap: 8px;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+      .account-modal-actions .account-btn { min-width: 110px; }
     </style>
   </head>
   <body>
@@ -1131,6 +1288,12 @@
       <div class="stun-btn" id="stunBtn" data-i18n="touch.stun">STUN</div>
       <div class="speed-btn" id="speedBtn" data-i18n="touch.speed">SPEED</div>
     </div>
+
+    <!-- Main Menu user chip (visible only when on main menu) -->
+    <button id="userChip" data-i18n-title="account.open" title="Account">
+      <span class="user-chip-avatar" id="userChipAvatar">?</span>
+      <span class="user-chip-name" id="userChipName" data-i18n="account.guest">Guest</span>
+    </button>
 
     <!-- Main Menu Overlay -->
     <div id="menuOverlay">
@@ -1191,7 +1354,38 @@
             <option value="hu">Magyar</option>
           </select>
         </div>
+        <!-- Account section (#23) -->
+        <div class="account-block" id="accountBlock">
+          <div class="account-title" data-i18n="account.title">Account</div>
+          <div class="account-status" id="accountStatus" data-i18n="account.statusAnonymous">
+            Signed in as Guest
+          </div>
+          <div class="account-actions" id="accountActions">
+            <button class="account-btn google" id="accountLinkGoogle" data-i18n="account.linkGoogle">
+              Sign in with Google
+            </button>
+            <button class="account-btn apple" id="accountLinkApple" data-i18n="account.linkApple">
+              Sign in with Apple
+            </button>
+            <button class="account-btn danger hidden" id="accountSignOut" data-i18n="account.signOut">
+              Sign out
+            </button>
+          </div>
+          <div class="account-msg" id="accountMsg"></div>
+        </div>
         <button class="panel-back-btn" id="settingsBack" data-i18n="menu.btn.back">Back</button>
+      </div>
+    </div>
+
+    <!-- Account conflict / confirmation modal -->
+    <div class="account-modal-backdrop" id="accountModal">
+      <div class="account-modal-box">
+        <div class="account-modal-title" id="accountModalTitle">Sign in</div>
+        <div class="account-modal-body" id="accountModalBody"></div>
+        <div class="account-modal-actions">
+          <button class="account-btn" id="accountModalConfirm" data-i18n="account.modalConfirm">Continue</button>
+          <button class="account-btn" id="accountModalCancel" data-i18n="account.modalCancel">Cancel</button>
+        </div>
       </div>
     </div>
 

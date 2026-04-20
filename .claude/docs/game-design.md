@@ -327,7 +327,7 @@ Plus ~25 hidden bottle messages and the Codex encyclopedia.
 | 20 | Local Save/Load + JSON format | localStorage save/load, JSON export/import (= server format) | **Done** |
 | 21 | Level Sharing Backend (Firebase) | Firestore + anonymous Auth; publish/import/my-levels via editor Cloud button. No Cloud Functions yet (Spark-tier). See SETUP.md | **Done** |
 | 22 | Community Level Browser UI | Main-menu browser: list (recent-first) + prefix search + cursor pagination + per-level star rating (after victory) + report/auto-hide. Plays counter + top-rated tab deferred to #22b | **Done** |
-| 23 | Cross-platform Auth | Google/Apple/Steam login with anonymous upgrade | Pending |
+| 23 | Cross-platform Auth | Google + Apple login with anonymous upgrade (UID preserved via linkWithPopup). User chip on main menu + Account block in Settings. Steam deferred to #23b (needs OpenID bridge + Cloud Functions) | **Done** |
 
 ### Workflow
 

@@ -12,6 +12,7 @@ import {
   REPORT_HIDE_THRESHOLD,
 } from './services/backend.js';
 import { isValidLevelCode } from './services/level-code.js';
+import { formatOwnerLabel } from './account-ui.js';
 
 /**
  * Renders the community browser panel. Construction is cheap — call `open()`
@@ -175,6 +176,11 @@ export class CommunityBrowser {
     ratingEl.className = 'community-card-rating';
     ratingEl.textContent = t('community.ratingPending');
     meta.appendChild(ratingEl);
+    const ownerEl = document.createElement('span');
+    ownerEl.className = 'community-card-owner';
+    ownerEl.textContent = t('community.byOwner', { name: formatOwnerLabel(lvl.ownerName) });
+    ownerEl.title = ownerEl.textContent;
+    meta.appendChild(ownerEl);
     const dateEl = document.createElement('span');
     dateEl.textContent = _formatDate(lvl.createdAt);
     meta.appendChild(dateEl);

@@ -26,10 +26,22 @@
 //   getLevelRatingStats(levelId): Promise<{ avg, count }>
 //   getLevelReportCount(levelId): Promise<number>
 //
+// Cross-platform auth (#23):
+//   getCurrentUser(): UserInfo | null    // { uid, displayName, photoURL,
+//                                        //   providerId, isAnonymous }
+//   onAuthStateChange(cb: (user) => void): () => void   // returns unsubscribe
+//   linkGoogle(): Promise<UserInfo>      // upgrade anon → Google
+//   linkApple(): Promise<UserInfo>       // upgrade anon → Apple
+//   signInWithGoogle({ allowMerge? }): Promise<UserInfo>  // post-signout login
+//   signInWithApple({ allowMerge? }): Promise<UserInfo>
+//   signOut(): Promise<void>             // resets to fresh anonymous uid
+//
 // Errors thrown by impls should carry a stable `.code` string so the UI
 // can localize messages: 'not-initialized', 'not-signed-in', 'rate-limit',
 // 'too-large', 'bad-name', 'profanity', 'not-found', 'permission-denied',
-// 'network', 'unknown', 'bad-rating'.
+// 'network', 'unknown', 'bad-rating', 'popup-blocked', 'popup-closed',
+// 'credential-already-in-use', 'already-linked', 'provider-disabled',
+// 'cancelled'.
 
 let _impl = null;
 
@@ -69,6 +81,22 @@ export function rateLevel(levelId, stars) { return _req().rateLevel(levelId, sta
 export function myRatingFor(levelId) { return _req().myRatingFor(levelId); }
 export function getLevelRatingStats(levelId) { return _req().getLevelRatingStats(levelId); }
 export function getLevelReportCount(levelId) { return _req().getLevelReportCount(levelId); }
+
+// ── Cross-platform auth (#23) ──
+export function getCurrentUser() {
+  return _impl && typeof _impl.getCurrentUser === 'function' ? _impl.getCurrentUser() : null;
+}
+export function onAuthStateChange(cb) { return _req().onAuthStateChange(cb); }
+export function linkGoogle() { return _req().linkGoogle(); }
+export function linkApple() { return _req().linkApple(); }
+export function signInWithGoogle(opts) { return _req().signInWithGoogle(opts || {}); }
+export function signInWithApple(opts) { return _req().signInWithApple(opts || {}); }
+export function signOut() { return _req().signOut(); }
+
+/** Provider IDs used by the UI to decide which "logged in with" label to show. */
+export const PROVIDER_GOOGLE = 'google.com';
+export const PROVIDER_APPLE = 'apple.com';
+export const PROVIDER_ANONYMOUS = 'anonymous';
 
 /** Page size for community level listings. */
 export const COMMUNITY_PAGE_SIZE = 20;

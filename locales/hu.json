@@ -30,7 +30,42 @@
     "ratePrompt": "Értékeld ezt a közösségi pályát",
     "rateAlready": "Már értékelted ezt a pályát",
     "rateSubmitting": "Mentés…",
-    "rateThanks": "Köszönjük az értékelést!"
+    "rateThanks": "Köszönjük az értékelést!",
+    "byOwner": "– {name}"
+  },
+  "account": {
+    "title": "Fiók",
+    "open": "Fiók",
+    "guest": "Vendég",
+    "anonOwner": "Névtelen",
+    "statusAnonymous": "Vendégként vagy bejelentkezve – a haladásod csak ezen a böngészőn lesz meg",
+    "statusSignedIn": "Bejelentkezve: {name} ({provider})",
+    "linkGoogle": "Bejelentkezés Google-lel",
+    "linkApple": "Bejelentkezés Apple-lel",
+    "signOut": "Kijelentkezés",
+    "working": "Folyamatban…",
+    "linkedOk": "Kész – a fiókod össze van kapcsolva!",
+    "alreadyLinked": "Ez a fiók már össze van kapcsolva ezzel a szolgáltatóval",
+    "signedOutOk": "Kijelentkeztél – mostantól új vendég vagy",
+    "signOutTitle": "Kijelentkezel?",
+    "signOutBody": "A publikált pályáid a régi fiókban maradnak. Ha újra bejelentkezel, újra elérheted őket.",
+    "conflictTitle": "A fiók már használatban",
+    "conflictBody": "Ez a fiók már egy másik játékoshoz tartozik. Ha folytatod, átváltunk arra a fiókra – a jelenlegi vendég-haladásod nem lesz elérhető.",
+    "conflictConfirm": "Átváltás",
+    "modalConfirm": "Tovább",
+    "modalCancel": "Mégse",
+    "provider": {
+      "google": "Google",
+      "apple": "Apple",
+      "anonymous": "Vendég"
+    },
+    "err": {
+      "cancelled": "A bejelentkezés megszakítva",
+      "popup-blocked": "A bejelentkezési ablak le lett tiltva – engedélyezd a felugró ablakokat",
+      "provider-disabled": "Ez a bejelentkezési mód még nincs engedélyezve",
+      "already-linked": "Már össze van kapcsolva ezzel a szolgáltatóval",
+      "credential-already-in-use": "Ez a fiók már használatban van"
+    }
   },
   "levelSelect": {
     "title": "Pálya kiválasztása",

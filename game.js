@@ -35,6 +35,7 @@ import { initI18n, t, translateDOM, setLocale, getLocale, onLocaleChange } from 
 import { installFirebaseBackend } from './services/firebase-backend.js';
 import { initBackend } from './services/backend.js';
 import { CommunityBrowser, VictoryRatingUI } from './community-browser.js';
+import { AccountUI } from './account-ui.js';
 
 // ── Three.js import ──
 import * as THREE from "three";
@@ -262,6 +263,7 @@ function showMenu() {
   menuScene.setAquariumMode(false);
   if (!menuScene._running) menuScene.start();
   music.play('menu');
+  if (accountUI) accountUI.setChipVisible(true);
 }
 
 function hideMenuUI() {
@@ -270,6 +272,7 @@ function hideMenuUI() {
   aboutPanel.classList.remove('visible');
   codexPanel.classList.remove('visible');
   communityPanel.classList.remove('visible');
+  if (accountUI) accountUI.setChipVisible(false);
 }
 
 // ── Iris Transition System ──
@@ -573,6 +576,7 @@ document.getElementById('btnSettings').addEventListener('click', () => {
   gsm.transition(STATE.SETTINGS);
   menuOverlay.classList.add('hidden');
   settingsPanel.classList.add('visible');
+  if (accountUI) accountUI.setChipVisible(false);
 });
 
 document.getElementById('settingsBack').addEventListener('click', () => {
@@ -732,6 +736,39 @@ const vicRatingUI = new VictoryRatingUI({
   starsEl: document.getElementById('vicRateStars'),
   statusEl: document.getElementById('vicRateStatus'),
 });
+
+// ── Account / Auth UI (#23) ──
+// The user chip in the top-right corner opens the Settings panel which
+// contains the Account section. After any auth state change the chip label
+// and settings status line update automatically via onAuthStateChange.
+const accountUI = new AccountUI({
+  chipEl: document.getElementById('userChip'),
+  chipNameEl: document.getElementById('userChipName'),
+  chipAvatarEl: document.getElementById('userChipAvatar'),
+  statusEl: document.getElementById('accountStatus'),
+  actionsEl: document.getElementById('accountActions'),
+  msgEl: document.getElementById('accountMsg'),
+  linkGoogleBtn: document.getElementById('accountLinkGoogle'),
+  linkAppleBtn: document.getElementById('accountLinkApple'),
+  signOutBtn: document.getElementById('accountSignOut'),
+  modalEl: document.getElementById('accountModal'),
+  modalTitleEl: document.getElementById('accountModalTitle'),
+  modalBodyEl: document.getElementById('accountModalBody'),
+  modalConfirmBtn: document.getElementById('accountModalConfirm'),
+  modalCancelBtn: document.getElementById('accountModalCancel'),
+  onOpenSettings: () => {
+    if (!gsm.is(STATE.MENU)) return;
+    if (!gsm.transition(STATE.SETTINGS)) return;
+    menuOverlay.classList.add('hidden');
+    settingsPanel.classList.add('visible');
+    accountUI.setChipVisible(false);
+  },
+  playClickSfx: () => sfx.buttonClick(),
+});
+// Initial chip visibility — shown on the menu only.
+accountUI.setChipVisible(true);
+// Start listening once the backend is installed (non-blocking).
+accountUI.start();
 
 document.getElementById('btnCommunity').addEventListener('click', () => {
   sfx.buttonClick();

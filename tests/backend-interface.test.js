@@ -7,12 +7,15 @@ import {
   getLevelRatingStats, getLevelReportCount, reportLevel,
   validateLevelForPublish, MAX_LEVEL_BYTES, MAX_NAME_LENGTH,
   COMMUNITY_PAGE_SIZE,
+  getCurrentUser, onAuthStateChange,
+  linkGoogle, linkApple, signInWithGoogle, signOut,
+  PROVIDER_GOOGLE, PROVIDER_APPLE, PROVIDER_ANONYMOUS,
 } from '../services/backend.js';
 
 // In-memory mock backend — mirrors the required interface, backed by a Map.
 // Demonstrates that nothing in the rest of the codebase needs to know about
 // Firebase: swap implementations by implementing this shape.
-function makeMockBackend() {
+function makeMockBackend(opts = {}) {
   const state = {
     uid: null,
     levels: new Map(),   // levelId -> doc
@@ -21,15 +24,31 @@ function makeMockBackend() {
     nextId: 1,
     clock: 1000,         // monotonic so ordering is deterministic in tests
     authListeners: new Set(),
+    authStateListeners: new Set(),
+    user: null,          // { uid, displayName, photoURL, providerId, isAnonymous }
+    nextUid: 1,
+    // Registry of "real" provider accounts — simulates existing Google/Apple
+    // users the current session might collide with.
+    providerAccounts: new Map(opts.providerAccounts || []), // key=`${providerId}:${token}` -> { uid, displayName, photoURL }
+    // Pre-configured "next popup" outcomes — lets tests drive conflict paths.
+    nextPopup: opts.nextPopup || null,
   };
   const tick = () => ++state.clock;
+  const emitAuthState = () => {
+    for (const cb of state.authStateListeners) cb(state.user);
+  };
 
   return {
     _state: state,
 
     async initBackend() {
-      state.uid = 'mock-uid-1';
+      state.uid = 'mock-anon-' + state.nextUid++;
+      state.user = {
+        uid: state.uid, displayName: null, photoURL: null,
+        providerId: 'anonymous', isAnonymous: true,
+      };
       for (const cb of state.authListeners) cb(state.uid);
+      emitAuthState();
     },
     getUid() { return state.uid; },
     onAuthReady(cb) {
@@ -38,14 +57,89 @@ function makeMockBackend() {
       return () => state.authListeners.delete(cb);
     },
 
+    // ── Cross-platform auth (#23) ──
+    getCurrentUser() { return state.user ? { ...state.user } : null; },
+    onAuthStateChange(cb) {
+      Promise.resolve().then(() => cb(state.user ? { ...state.user } : null));
+      state.authStateListeners.add(cb);
+      return () => state.authStateListeners.delete(cb);
+    },
+    async linkGoogle() { return this._linkOrSignIn('google.com'); },
+    async linkApple() { return this._linkOrSignIn('apple.com'); },
+    async signInWithGoogle({ allowMerge } = {}) { return this._linkOrSignIn('google.com', { allowMerge: !!allowMerge }); },
+    async signInWithApple({ allowMerge } = {}) { return this._linkOrSignIn('apple.com', { allowMerge: !!allowMerge }); },
+    async _linkOrSignIn(providerId, { allowMerge = false } = {}) {
+      const outcome = state.nextPopup;
+      state.nextPopup = null;
+      if (outcome && outcome.error) {
+        const e = new Error(outcome.error); e.code = outcome.error; throw e;
+      }
+      const popup = outcome || { providerId, providerUid: 'google-user-A', displayName: 'Alice', photoURL: 'http://a' };
+      const key = `${popup.providerId}:${popup.providerUid}`;
+      const existing = state.providerAccounts.get(key);
+      if (state.user && state.user.isAnonymous) {
+        if (existing && existing.uid !== state.uid) {
+          if (!allowMerge) {
+            const e = new Error('credential already in use'); e.code = 'credential-already-in-use'; throw e;
+          }
+          // Switch to the existing account.
+          state.uid = existing.uid;
+          state.user = {
+            uid: existing.uid, displayName: existing.displayName,
+            photoURL: existing.photoURL, providerId: popup.providerId, isAnonymous: false,
+          };
+        } else {
+          // Link: keep UID, upgrade to non-anonymous.
+          state.providerAccounts.set(key, {
+            uid: state.uid, displayName: popup.displayName, photoURL: popup.photoURL,
+          });
+          state.user = {
+            uid: state.uid, displayName: popup.displayName, photoURL: popup.photoURL,
+            providerId: popup.providerId, isAnonymous: false,
+          };
+        }
+      } else {
+        // Not anonymous → plain sign-in (or account switch).
+        if (existing) {
+          state.uid = existing.uid;
+          state.user = {
+            uid: existing.uid, displayName: existing.displayName,
+            photoURL: existing.photoURL, providerId: popup.providerId, isAnonymous: false,
+          };
+        } else {
+          state.uid = 'mock-' + popup.providerId.replace(/[^a-z]/g, '') + '-' + state.nextUid++;
+          state.providerAccounts.set(key, {
+            uid: state.uid, displayName: popup.displayName, photoURL: popup.photoURL,
+          });
+          state.user = {
+            uid: state.uid, displayName: popup.displayName, photoURL: popup.photoURL,
+            providerId: popup.providerId, isAnonymous: false,
+          };
+        }
+      }
+      emitAuthState();
+      return { ...state.user };
+    },
+    async signOut() {
+      state.uid = 'mock-anon-' + state.nextUid++;
+      state.user = {
+        uid: state.uid, displayName: null, photoURL: null,
+        providerId: 'anonymous', isAnonymous: true,
+      };
+      emitAuthState();
+    },
+    // Test-only helper to arm the next linkGoogle/linkApple call.
+    _setNextPopup(o) { state.nextPopup = o; },
+
     async publishLevel(data, { name }) {
       const v = validateLevelForPublish(data, name);
       if (!v.ok) { const e = new Error(v.message); e.code = v.code; throw e; }
       const levelId = 'lvl_' + (state.nextId++);
       const code = 'LOAF-TST' + String(state.nextId).padStart(3, '0');
       const ts = tick();
+      const ownerName = state.user && !state.user.isAnonymous ? state.user.displayName : null;
       state.levels.set(levelId, {
-        levelId, code, ownerId: state.uid, name, data,
+        levelId, code, ownerId: state.uid, ownerName, name, data,
         createdAt: ts, updatedAt: ts,
         plays: 0, ratingSum: 0, ratingCount: 0, flagged: 0, featured: false,
       });
@@ -155,11 +249,11 @@ describe('backend interface — lifecycle', () => {
     let readyUid = null;
     onAuthReady((uid) => { readyUid = uid; });
     await initBackend();
-    expect(getUid()).toBe('mock-uid-1');
+    expect(getUid()).toMatch(/^mock-anon-/);
     // onAuthReady fires synchronously for late subscribers, but async for
     // subs registered before init — give microtask a chance.
     await Promise.resolve();
-    expect(readyUid).toBe('mock-uid-1');
+    expect(readyUid).toMatch(/^mock-anon-/);
   });
 });
 
@@ -352,5 +446,149 @@ describe('community browser — reports', () => {
     await reportLevel(levelId, 'first');
     await reportLevel(levelId, 'again');
     expect(await getLevelReportCount(levelId)).toBe(1);
+  });
+});
+
+describe('cross-platform auth — getCurrentUser / onAuthStateChange', () => {
+  beforeEach(() => setBackendImpl(null));
+
+  it('getCurrentUser returns null before backend init', () => {
+    expect(getCurrentUser()).toBeNull();
+  });
+
+  it('after init, getCurrentUser returns an anonymous user', async () => {
+    setBackendImpl(makeMockBackend());
+    await initBackend();
+    const u = getCurrentUser();
+    expect(u).not.toBeNull();
+    expect(u.isAnonymous).toBe(true);
+    expect(u.providerId).toBe(PROVIDER_ANONYMOUS);
+    expect(u.uid).toMatch(/^mock-anon-/);
+  });
+
+  it('onAuthStateChange fires immediately with the current user', async () => {
+    setBackendImpl(makeMockBackend());
+    await initBackend();
+    const users = [];
+    const unsub = onAuthStateChange((u) => users.push(u));
+    await Promise.resolve();
+    expect(users).toHaveLength(1);
+    expect(users[0].isAnonymous).toBe(true);
+    unsub();
+  });
+});
+
+describe('cross-platform auth — link (anon → Google)', () => {
+  let mock;
+  beforeEach(async () => {
+    mock = makeMockBackend();
+    setBackendImpl(mock);
+    await initBackend();
+  });
+
+  it('linkGoogle preserves UID and marks user as non-anonymous', async () => {
+    const startUid = getUid();
+    const shaped = await linkGoogle();
+    expect(shaped.uid).toBe(startUid);          // UID preserved — core guarantee
+    expect(shaped.isAnonymous).toBe(false);
+    expect(shaped.providerId).toBe(PROVIDER_GOOGLE);
+    expect(shaped.displayName).toBe('Alice');
+    expect(getCurrentUser().isAnonymous).toBe(false);
+  });
+
+  it('published levels stay tied to the same uid after link', async () => {
+    // Publish before linking
+    const { levelId } = await publishLevel(sampleLevel(), { name: 'PreLink' });
+    await linkGoogle();
+    const mine = await listMyLevels();
+    expect(mine.find(l => l.levelId === levelId)).toBeDefined();
+  });
+
+  it('publishLevel stores ownerName from the linked displayName', async () => {
+    await linkGoogle();
+    const { levelId } = await publishLevel(sampleLevel(), { name: 'PostLink' });
+    const doc = mock._state.levels.get(levelId);
+    expect(doc.ownerName).toBe('Alice');
+  });
+
+  it('credential-already-in-use is thrown when provider account belongs to another user', async () => {
+    // Seed a pre-existing Google account with uid "other-user"
+    const mock2 = makeMockBackend({
+      providerAccounts: [['google.com:google-user-A', {
+        uid: 'other-user', displayName: 'Alice', photoURL: 'http://a',
+      }]],
+    });
+    setBackendImpl(mock2);
+    await initBackend();
+
+    try {
+      await linkGoogle();
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect(err.code).toBe('credential-already-in-use');
+    }
+    // Anon user is still intact
+    expect(getCurrentUser().isAnonymous).toBe(true);
+  });
+
+  it('signInWithGoogle({ allowMerge: true }) switches to the existing account', async () => {
+    const mock2 = makeMockBackend({
+      providerAccounts: [['google.com:google-user-A', {
+        uid: 'other-user', displayName: 'Alice', photoURL: 'http://a',
+      }]],
+    });
+    setBackendImpl(mock2);
+    await initBackend();
+
+    const shaped = await signInWithGoogle({ allowMerge: true });
+    expect(shaped.uid).toBe('other-user');
+    expect(shaped.isAnonymous).toBe(false);
+    expect(getUid()).toBe('other-user');
+  });
+
+  it('linkApple uses OAuth "apple.com" provider id', async () => {
+    mock._setNextPopup({
+      providerId: 'apple.com', providerUid: 'apple-user-B',
+      displayName: 'Bob', photoURL: null,
+    });
+    const shaped = await linkApple();
+    expect(shaped.providerId).toBe(PROVIDER_APPLE);
+    expect(shaped.displayName).toBe('Bob');
+  });
+});
+
+describe('cross-platform auth — signOut', () => {
+  let mock;
+  beforeEach(async () => {
+    mock = makeMockBackend();
+    setBackendImpl(mock);
+    await initBackend();
+  });
+
+  it('signOut creates a fresh anonymous identity (uid changes)', async () => {
+    await linkGoogle();
+    const linkedUid = getUid();
+    await signOut();
+    const newUid = getUid();
+    expect(newUid).not.toBe(linkedUid);
+    expect(getCurrentUser().isAnonymous).toBe(true);
+  });
+
+  it('my levels list is empty for the post-signout anon user', async () => {
+    await linkGoogle();
+    await publishLevel(sampleLevel(), { name: 'Mine' });
+    await signOut();
+    const mine = await listMyLevels();
+    expect(mine).toHaveLength(0);
+  });
+
+  it('auth-state listener fires on every transition', async () => {
+    const states = [];
+    const unsub = onAuthStateChange((u) => { if (u) states.push(u.isAnonymous); });
+    await Promise.resolve();
+    await linkGoogle();
+    await signOut();
+    expect(states).toEqual([true, false, true]);
+    unsub();
   });
 });

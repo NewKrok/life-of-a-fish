@@ -5,6 +5,9 @@
 import { initializeApp } from 'firebase/app';
 import {
   getAuth, signInAnonymously, onAuthStateChanged,
+  GoogleAuthProvider, OAuthProvider,
+  signInWithPopup, signInWithRedirect, getRedirectResult,
+  linkWithPopup, linkWithRedirect,
 } from 'firebase/auth';
 import {
   getFirestore, collection, doc, setDoc, getDoc, getDocs,
@@ -25,8 +28,18 @@ let _app = null;
 let _auth = null;
 let _db = null;
 let _uid = null;
+let _user = null;                      // Full Firebase user (or null before sign-in)
 let _authReadyListeners = new Set();
+let _authStateListeners = new Set();
 let _initPromise = null;
+
+// Choose between popup and redirect based on platform. Mobile browsers handle
+// redirect far more reliably than popups (popups get killed by app-switches).
+function _isMobile() {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  return /Android|iPhone|iPad|iPod/i.test(ua);
+}
 
 function _makeErr(code, message) {
   const e = new Error(message || code);
@@ -41,6 +54,50 @@ function _mapFirestoreErr(err) {
   return _makeErr('unknown', err && err.message ? err.message : String(err));
 }
 
+function _mapAuthErr(err) {
+  const code = err && err.code ? String(err.code) : '';
+  // Firebase prefixes most auth errors with 'auth/'. Strip for a stable short code.
+  const short = code.startsWith('auth/') ? code.slice(5) : code;
+  const known = new Set([
+    'popup-blocked', 'popup-closed-by-user', 'cancelled-popup-request',
+    'credential-already-in-use', 'email-already-in-use',
+    'provider-already-linked', 'operation-not-allowed',
+    'user-cancelled', 'network-request-failed', 'internal-error',
+    'account-exists-with-different-credential',
+  ]);
+  if (!known.has(short)) return _makeErr('unknown', err && err.message ? err.message : String(err));
+  // Collapse to the codes the UI localizes.
+  if (short === 'popup-closed-by-user' || short === 'cancelled-popup-request' || short === 'user-cancelled') {
+    return _makeErr('cancelled', err.message);
+  }
+  if (short === 'popup-blocked') return _makeErr('popup-blocked', err.message);
+  if (short === 'credential-already-in-use' || short === 'email-already-in-use' || short === 'account-exists-with-different-credential') {
+    return _makeErr('credential-already-in-use', err.message);
+  }
+  if (short === 'provider-already-linked') return _makeErr('already-linked', err.message);
+  if (short === 'operation-not-allowed') return _makeErr('provider-disabled', err.message);
+  if (short === 'network-request-failed') return _makeErr('network', err.message);
+  return _makeErr('unknown', err.message);
+}
+
+function _shapeUser(u) {
+  if (!u) return null;
+  // Firebase stores linked providers in u.providerData; u.isAnonymous stays
+  // true on unlinked anon accounts. Pick the first non-anonymous provider
+  // as the "primary" one for display.
+  let providerId = 'anonymous';
+  if (!u.isAnonymous && u.providerData && u.providerData.length > 0) {
+    providerId = u.providerData[0].providerId;
+  }
+  return {
+    uid: u.uid,
+    displayName: u.displayName || null,
+    photoURL: u.photoURL || null,
+    providerId,
+    isAnonymous: !!u.isAnonymous,
+  };
+}
+
 async function initBackend() {
   if (_initPromise) return _initPromise;
   _initPromise = (async () => {
@@ -48,13 +105,35 @@ async function initBackend() {
     _auth = getAuth(_app);
     _db = getFirestore(_app);
     onAuthStateChanged(_auth, (user) => {
+      _user = user;
       _uid = user ? user.uid : null;
+      const shaped = _shapeUser(user);
       if (_uid) {
         for (const cb of _authReadyListeners) {
           try { cb(_uid); } catch (e) { console.error(e); }
         }
       }
+      for (const cb of _authStateListeners) {
+        try { cb(shaped); } catch (e) { console.error(e); }
+      }
     });
+
+    // Handle a pending redirect sign-in (mobile flow). Fires before the
+    // anon-fallback below, so if the user came back from Google we skip anon.
+    try {
+      const result = await getRedirectResult(_auth);
+      if (result && result.user) {
+        // User is now signed in with the linked/provider account.
+        return;
+      }
+    } catch (err) {
+      // Ignore redirect failures here — UI flow will surface any real issues.
+      console.warn('[auth] getRedirectResult:', err && err.message);
+    }
+
+    // If we already have a user (including anon) from persistence, stop.
+    if (_auth.currentUser) return;
+
     try {
       await signInAnonymously(_auth);
     } catch (err) {
@@ -132,6 +211,7 @@ async function publishLevel(levelData, { name }) {
     const levelRef = doc(collection(_db, 'levels'));
     const payload = {
       ownerId: uid,
+      ownerName: _ownerDisplayName(),
       code,
       name: name.trim(),
       data: levelData,
@@ -167,6 +247,7 @@ async function updateMyLevel(levelId, levelData, { name }) {
     await updateDoc(ref, {
       name: name.trim(),
       data: levelData,
+      ownerName: _ownerDisplayName(),
       updatedAt: serverTimestamp(),
     });
   } catch (err) {
@@ -236,6 +317,108 @@ async function reportLevel(levelId, reason) {
     });
   } catch (err) {
     throw _mapFirestoreErr(err);
+  }
+}
+
+// ── Cross-platform auth (#23) ──
+
+function getCurrentUser() {
+  return _shapeUser(_user);
+}
+
+function onAuthStateChange(cb) {
+  // Fire current state immediately (async, matching onAuthReady semantics).
+  Promise.resolve().then(() => cb(_shapeUser(_user)));
+  _authStateListeners.add(cb);
+  return () => _authStateListeners.delete(cb);
+}
+
+function _googleProvider() {
+  const p = new GoogleAuthProvider();
+  p.setCustomParameters({ prompt: 'select_account' });
+  return p;
+}
+
+function _appleProvider() {
+  const p = new OAuthProvider('apple.com');
+  p.addScope('email');
+  p.addScope('name');
+  return p;
+}
+
+async function _linkOrSignIn(provider, { allowMerge = false } = {}) {
+  if (!_auth) throw _makeErr('not-initialized', 'Auth not ready');
+  const mobile = _isMobile();
+  const current = _auth.currentUser;
+
+  try {
+    // If we're currently anonymous, prefer LINK so the UID (and all owned
+    // levels / ratings) are preserved.
+    if (current && current.isAnonymous) {
+      try {
+        if (mobile) {
+          await linkWithRedirect(current, provider);
+          // Redirect happens; this never resolves.
+          return _shapeUser(current);
+        }
+        const result = await linkWithPopup(current, provider);
+        return _shapeUser(result.user);
+      } catch (err) {
+        const short = err && err.code ? String(err.code).replace(/^auth\//, '') : '';
+        if (short === 'credential-already-in-use' || short === 'account-exists-with-different-credential' || short === 'email-already-in-use') {
+          if (!allowMerge) throw _mapAuthErr(err);
+          // Caller explicitly chose to switch — sign in with the existing
+          // account. The anon account's data stays orphaned (documented).
+        } else {
+          throw _mapAuthErr(err);
+        }
+      }
+    }
+
+    // Plain sign-in flow (either already non-anonymous, or allowMerge branch).
+    if (mobile) {
+      await signInWithRedirect(_auth, provider);
+      return _shapeUser(_auth.currentUser);
+    }
+    const result = await signInWithPopup(_auth, provider);
+    return _shapeUser(result.user);
+  } catch (err) {
+    if (err.code && ['cancelled', 'popup-blocked', 'credential-already-in-use', 'already-linked', 'provider-disabled', 'network'].includes(err.code)) {
+      throw err;
+    }
+    throw _mapAuthErr(err);
+  }
+}
+
+async function linkGoogle() {
+  return _linkOrSignIn(_googleProvider());
+}
+
+async function linkApple() {
+  return _linkOrSignIn(_appleProvider());
+}
+
+async function signInWithGoogle({ allowMerge = false } = {}) {
+  return _linkOrSignIn(_googleProvider(), { allowMerge });
+}
+
+async function signInWithApple({ allowMerge = false } = {}) {
+  return _linkOrSignIn(_appleProvider(), { allowMerge });
+}
+
+async function signOut() {
+  if (!_auth) throw _makeErr('not-initialized', 'Auth not ready');
+  try {
+    await _auth.signOut();
+  } catch (err) {
+    throw _mapAuthErr(err);
+  }
+  // Immediately start a fresh anonymous session so the app never sits in a
+  // logged-out state (per the product decision: #23 answer 4a).
+  try {
+    await signInAnonymously(_auth);
+  } catch (err) {
+    throw _makeErr('network', `Anonymous sign-in failed: ${err.message}`);
   }
 }
 
@@ -337,6 +520,7 @@ function _shapeLevelDoc(id, d) {
     levelId: id,
     code: d.code,
     ownerId: d.ownerId,
+    ownerName: d.ownerName || null,
     name: d.name,
     data: d.data,
     createdAt: d.createdAt?.toMillis?.() ?? null,
@@ -349,12 +533,29 @@ function _shapeLevelDoc(id, d) {
   };
 }
 
+/**
+ * Best-effort display name for the current session. Anonymous users return
+ * null (community cards fall back to an "Anon" label client-side).
+ */
+function _ownerDisplayName() {
+  if (!_user || _user.isAnonymous) return null;
+  const n = _user.displayName;
+  if (typeof n !== 'string') return null;
+  const trimmed = n.trim();
+  if (trimmed.length === 0) return null;
+  // Keep it short — the rules cap this at 50 chars to match name size.
+  return trimmed.length > 50 ? trimmed.slice(0, 50) : trimmed;
+}
+
 const firebaseBackend = {
   initBackend, getUid, onAuthReady,
   publishLevel, updateMyLevel, fetchLevelByCode,
   listMyLevels, deleteMyLevel, reportLevel,
   listCommunityLevels, rateLevel, myRatingFor,
   getLevelRatingStats, getLevelReportCount,
+  getCurrentUser, onAuthStateChange,
+  linkGoogle, linkApple,
+  signInWithGoogle, signInWithApple, signOut,
 };
 
 /** Install the Firebase implementation as the active backend. Call once at app start. */

@@ -12,6 +12,7 @@ service cloud.firestore {
       function isOwner()    { return isSignedIn() && resource.data.ownerId == request.auth.uid; }
 
       function validName(n)     { return n is string && n.size() > 0 && n.size() <= 50; }
+      function validOwnerName(n) { return !('ownerName' in request.resource.data) || n == null || (n is string && n.size() <= 50); }
       function validCode(c)     { return c is string && c.matches('LOAF-[A-Z0-9]{6}'); }
       function validLevelData(d) {
         return d is map
@@ -28,6 +29,7 @@ service cloud.firestore {
       allow create: if isSignedIn()
         && request.resource.data.ownerId == request.auth.uid
         && validName(request.resource.data.name)
+        && validOwnerName(request.resource.data.get('ownerName', null))
         && validCode(request.resource.data.code)
         && validLevelData(request.resource.data.data)
         && request.resource.data.plays == 0
@@ -38,9 +40,9 @@ service cloud.firestore {
         && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time;
 
-      // Owner can update name + data + updatedAt. Immutable fields may not change.
-      // Counters (plays/rating/flagged/featured) are server-managed only
-      // for now — owners cannot touch them.
+      // Owner can update name + data + ownerName + updatedAt. Immutable
+      // fields may not change. Counters (plays/rating/flagged/featured) are
+      // server-managed only for now — owners cannot touch them.
       allow update: if isOwner()
         && request.resource.data.ownerId == resource.data.ownerId
         && request.resource.data.code == resource.data.code
@@ -51,6 +53,7 @@ service cloud.firestore {
         && request.resource.data.flagged == resource.data.flagged
         && request.resource.data.featured == resource.data.featured
         && validName(request.resource.data.name)
+        && validOwnerName(request.resource.data.get('ownerName', null))
         && validLevelData(request.resource.data.data)
         && request.resource.data.updatedAt == request.time;
 

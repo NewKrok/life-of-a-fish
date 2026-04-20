@@ -42,6 +42,7 @@ touch-controls.js     — Mobile virtual joystick + dash button (pointer events)
 menu-scene.js         — Main menu background: aquarium scene with AI fish, camera pan
 menu-level-data.js    — Dedicated tile map for menu aquarium (60×25)
 community-browser.js  — Main-menu community level browser + victory-screen rating UI
+account-ui.js         — Top-right user chip + Settings Account section (link/signout, conflict modal)
 example.js            — Nape-js physics reference/demo (not used in game)
 services/             — Backend abstraction layer (community levels)
   backend.js          — Interface + validation helpers — all external calls go through here
@@ -81,20 +82,29 @@ Interface shape (see `backend.js` comment block for full details):
 - `rateLevel(levelId, stars)` / `myRatingFor(levelId)` — 1..5 star rating per user
 - `getLevelRatingStats(levelId)` → `{ avg, count }` (Firestore aggregation)
 - `getLevelReportCount(levelId)` → count (Firestore aggregation)
+- `getCurrentUser()` / `onAuthStateChange(cb)` → `{ uid, displayName, photoURL, providerId, isAnonymous }`
+- `linkGoogle()` / `linkApple()` — upgrade anonymous → real account (UID preserved)
+- `signInWithGoogle({ allowMerge })` / `signInWithApple(...)` — used after signOut
+- `signOut()` — drops current session, starts a fresh anonymous UID
 
 Errors thrown by impls carry a `.code` string (`rate-limit`, `too-large`,
 `bad-name`, `profanity`, `not-found`, `permission-denied`, `network`, etc.)
-that the UI localizes via `editor.communityErr.<code>` i18n keys.
+that the UI localizes via `editor.communityErr.<code>` i18n keys. Auth errors
+(`cancelled`, `popup-blocked`, `credential-already-in-use`, `already-linked`,
+`provider-disabled`) are localized via `account.err.<code>` in the Account UI.
 
 **Firestore schema**:
 
 ```
 levels/{levelId}
-  ownerId, code (unique), name, data (inline JSON),
+  ownerId, ownerName, code (unique), name, data (inline JSON),
   createdAt, updatedAt, plays, ratingSum, ratingCount, flagged, featured
-levels/{levelId}/ratings/{raterUid}    — future (#14)
+levels/{levelId}/ratings/{raterUid}    — per-user 1..5 star rating
 levels/{levelId}/reports/{reporterUid} — one report per user per level
 ```
+
+`ownerName` is a denormalized snapshot of the publisher's `displayName` at
+publish / update time. Anonymous publishers leave it null (UI shows "Anon").
 
 **Security** (see `firestore.rules`): public read on `levels`; create/update/
 delete only by owner; counter fields (plays/rating/flagged/featured) are
@@ -132,6 +142,20 @@ the game expects (`switchGateGroups`, `anchorChainLengths`, `bottleMessages`,
 `hintStones`) so `getLevelEntities()` works unchanged. `getCurrentLevelMeta()`
 exposes an `isCommunity` flag that downstream code (e.g. victory UI) uses to
 decide whether to show community-specific UI like the rating prompt.
+
+**Cross-platform Auth** (`account-ui.js`, #23): Firebase Auth anonymous sign-in
+is still the default; users can upgrade to a real identity via Google or Apple.
+`linkWithPopup` / `linkWithRedirect` preserves the UID so published levels and
+ratings stay attached after linking. The UI surfaces two entry points: a
+top-right **user chip** (visible on the main menu only — opens Settings) and a
+dedicated **Account block** inside the Settings panel with Google / Apple
+sign-in buttons, status line, and a Sign-out button that spins up a fresh
+anonymous session (never locks the game). On `credential-already-in-use` the
+conflict modal offers to switch to the existing account (`allowMerge: true`),
+which orphans the current anon UID — no automatic data migration. Mobile
+browsers use `signInWithRedirect`; `getRedirectResult` is consumed during
+`initBackend()`. Steam login is deferred — OpenID 2.0 bridge requires Cloud
+Functions (Blaze plan) and is listed separately on the roadmap.
 
 ### Menu System (menu-scene.js)
 

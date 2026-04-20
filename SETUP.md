@@ -35,12 +35,26 @@ The CLI uses `firebase.json` to locate the rules file.
 
 In the Firebase console (once per project):
 
-1. **Authentication** → Sign-in method → enable **Anonymous**.
-2. **Firestore Database** → create in production mode, pick a region (eu-central recommended).
-3. **App Check** (optional but strongly recommended before public launch):
+1. **Authentication** → Sign-in method → enable:
+   - **Anonymous** — default sign-in, required for all players.
+   - **Google** (#23) — one-click enable, no extra config for web.
+   - **Apple** (#23) — requires an Apple Developer account ($99/yr). Follow
+     the Firebase guide to create the Services ID + key, then paste the
+     Service ID, Team ID, Key ID, and private key into the provider form.
+     The Firebase console URL with the exact steps is linked in-page.
+2. **Authorized domains** — add every host you'll serve the game from
+   (dev: `localhost`; prod: your domain). Google/Apple popups are blocked
+   on non-authorized domains.
+3. **Firestore Database** → create in production mode, pick a region (eu-central recommended).
+4. **App Check** (optional but strongly recommended before public launch):
    - Register the web app with reCAPTCHA v3.
    - Enable enforcement on Firestore.
    - Client-side App Check init lives in `services/firebase-backend.js` (TODO: wire in before public launch).
+
+**Steam login** is not implemented yet. Firebase Auth doesn't support Steam
+natively — it requires a Cloud Function that validates a Steam OpenID 2.0
+ticket and mints a custom token. That bumps the project to the Blaze plan.
+Tracked as #23b.
 
 ## Free-tier limits (Spark plan)
 
