@@ -3,7 +3,10 @@ import {
   setBackendImpl, hasBackend,
   initBackend, getUid, onAuthReady,
   publishLevel, fetchLevelByCode, listMyLevels, deleteMyLevel,
+  listCommunityLevels, rateLevel, myRatingFor,
+  getLevelRatingStats, getLevelReportCount, reportLevel,
   validateLevelForPublish, MAX_LEVEL_BYTES, MAX_NAME_LENGTH,
+  COMMUNITY_PAGE_SIZE,
 } from '../services/backend.js';
 
 // In-memory mock backend — mirrors the required interface, backed by a Map.
@@ -12,9 +15,11 @@ import {
 function makeMockBackend() {
   const state = {
     uid: null,
-    levels: new Map(),  // levelId -> doc
+    levels: new Map(),   // levelId -> doc
+    ratings: new Map(),  // `${levelId}:${uid}` -> stars
+    reports: new Map(),  // `${levelId}:${uid}` -> reason
     nextId: 1,
-    clock: 1000,        // monotonic so ordering is deterministic in tests
+    clock: 1000,         // monotonic so ordering is deterministic in tests
     authListeners: new Set(),
   };
   const tick = () => ++state.clock;
@@ -72,7 +77,56 @@ function makeMockBackend() {
       state.levels.delete(levelId);
     },
 
-    async reportLevel() { /* no-op in mock */ },
+    async reportLevel(levelId, reason) {
+      const uid = state.uid;
+      state.reports.set(`${levelId}:${uid}`, reason || '');
+    },
+
+    // ── Community browser ──
+    async listCommunityLevels({ cursor = null, pageSize, search } = {}) {
+      const size = pageSize || COMMUNITY_PAGE_SIZE;
+      let all = [...state.levels.values()];
+      if (search && search.trim()) {
+        const s = search.trim();
+        all = all.filter((d) => d.name && d.name.startsWith(s));
+        all.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      } else {
+        all.sort((a, b) => b.createdAt - a.createdAt);
+      }
+      let startIdx = 0;
+      if (cursor) startIdx = all.findIndex((d) => d.levelId === cursor.levelId) + 1;
+      const page = all.slice(startIdx, startIdx + size);
+      const hasMore = startIdx + size < all.length;
+      return {
+        levels: page.map((d) => ({ ...d })),
+        nextCursor: hasMore ? { levelId: page[page.length - 1].levelId } : null,
+      };
+    },
+    async rateLevel(levelId, stars) {
+      const n = Number(stars);
+      if (!Number.isInteger(n) || n < 1 || n > 5) {
+        const e = new Error('bad rating'); e.code = 'bad-rating'; throw e;
+      }
+      state.ratings.set(`${levelId}:${state.uid}`, n);
+    },
+    async myRatingFor(levelId) {
+      const v = state.ratings.get(`${levelId}:${state.uid}`);
+      return typeof v === 'number' ? v : null;
+    },
+    async getLevelRatingStats(levelId) {
+      const prefix = `${levelId}:`;
+      let total = 0, count = 0;
+      for (const [key, stars] of state.ratings) {
+        if (key.startsWith(prefix)) { total += stars; count++; }
+      }
+      return { avg: count > 0 ? total / count : 0, count };
+    },
+    async getLevelReportCount(levelId) {
+      const prefix = `${levelId}:`;
+      let n = 0;
+      for (const key of state.reports.keys()) if (key.startsWith(prefix)) n++;
+      return n;
+    },
   };
 }
 
@@ -186,5 +240,117 @@ describe('validateLevelForPublish', () => {
     expect(v.ok).toBe(false);
     expect(v.code).toBe('too-large');
     expect(JSON.stringify(lvl).length).toBeGreaterThan(MAX_LEVEL_BYTES);
+  });
+});
+
+describe('community browser — pagination & search', () => {
+  beforeEach(async () => {
+    setBackendImpl(makeMockBackend());
+    await initBackend();
+  });
+
+  it('listCommunityLevels paginates with cursor until exhausted', async () => {
+    // Publish more than one page so pagination kicks in
+    const total = COMMUNITY_PAGE_SIZE + 3;
+    for (let i = 0; i < total; i++) {
+      await publishLevel(sampleLevel(), { name: `Level ${String(i).padStart(2, '0')}` });
+    }
+    const page1 = await listCommunityLevels({});
+    expect(page1.levels).toHaveLength(COMMUNITY_PAGE_SIZE);
+    expect(page1.nextCursor).not.toBeNull();
+
+    const page2 = await listCommunityLevels({ cursor: page1.nextCursor });
+    expect(page2.levels.length).toBe(3);
+    expect(page2.nextCursor).toBeNull();
+
+    // No duplicates across pages
+    const all = [...page1.levels, ...page2.levels].map((l) => l.levelId);
+    expect(new Set(all).size).toBe(all.length);
+  });
+
+  it('returns newest first by default (sorted by createdAt desc)', async () => {
+    await publishLevel(sampleLevel(), { name: 'Oldest' });
+    await publishLevel(sampleLevel(), { name: 'Middle' });
+    await publishLevel(sampleLevel(), { name: 'Newest' });
+    const { levels } = await listCommunityLevels({});
+    expect(levels.map(l => l.name)).toEqual(['Newest', 'Middle', 'Oldest']);
+  });
+
+  it('search filters by name prefix', async () => {
+    await publishLevel(sampleLevel(), { name: 'Coral Cave' });
+    await publishLevel(sampleLevel(), { name: 'Coral Reef' });
+    await publishLevel(sampleLevel(), { name: 'Deep Abyss' });
+    const { levels } = await listCommunityLevels({ search: 'Coral' });
+    expect(levels.map(l => l.name).sort()).toEqual(['Coral Cave', 'Coral Reef']);
+  });
+
+  it('search with no match returns empty list', async () => {
+    await publishLevel(sampleLevel(), { name: 'Coral Cave' });
+    const { levels, nextCursor } = await listCommunityLevels({ search: 'Xyzzy' });
+    expect(levels).toHaveLength(0);
+    expect(nextCursor).toBeNull();
+  });
+});
+
+describe('community browser — rating', () => {
+  beforeEach(async () => {
+    setBackendImpl(makeMockBackend());
+    await initBackend();
+  });
+
+  it('rateLevel stores my rating and myRatingFor retrieves it', async () => {
+    const { levelId } = await publishLevel(sampleLevel(), { name: 'Rated' });
+    expect(await myRatingFor(levelId)).toBe(null);
+    await rateLevel(levelId, 4);
+    expect(await myRatingFor(levelId)).toBe(4);
+  });
+
+  it('rateLevel overwrites previous rating (same user can re-rate)', async () => {
+    const { levelId } = await publishLevel(sampleLevel(), { name: 'Re-rated' });
+    await rateLevel(levelId, 2);
+    await rateLevel(levelId, 5);
+    expect(await myRatingFor(levelId)).toBe(5);
+  });
+
+  it('rateLevel rejects invalid star counts', async () => {
+    const { levelId } = await publishLevel(sampleLevel(), { name: 'Bad' });
+    for (const bad of [0, 6, 3.5, -1, NaN, 'four']) {
+      try {
+        await rateLevel(levelId, bad);
+        throw new Error(`expected bad-rating for ${bad}`);
+      } catch (err) {
+        expect(err.code).toBe('bad-rating');
+      }
+    }
+  });
+
+  it('getLevelRatingStats returns zero for unrated levels', async () => {
+    const { levelId } = await publishLevel(sampleLevel(), { name: 'Lonely' });
+    const stats = await getLevelRatingStats(levelId);
+    expect(stats.count).toBe(0);
+    expect(stats.avg).toBe(0);
+  });
+});
+
+describe('community browser — reports', () => {
+  beforeEach(async () => {
+    setBackendImpl(makeMockBackend());
+    await initBackend();
+  });
+
+  it('reportLevel + getLevelReportCount increment', async () => {
+    const { levelId } = await publishLevel(sampleLevel(), { name: 'Reportable' });
+    expect(await getLevelReportCount(levelId)).toBe(0);
+    await reportLevel(levelId, 'inappropriate');
+    expect(await getLevelReportCount(levelId)).toBe(1);
+  });
+
+  it('same user reporting twice does not double-count', async () => {
+    // Mock uses key `levelId:uid` so re-report overwrites, which matches the
+    // Firestore behavior of one-report-per-user-per-level.
+    const { levelId } = await publishLevel(sampleLevel(), { name: 'Reportable' });
+    await reportLevel(levelId, 'first');
+    await reportLevel(levelId, 'again');
+    expect(await getLevelReportCount(levelId)).toBe(1);
   });
 });

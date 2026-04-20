@@ -3,12 +3,34 @@
     "title": "Egy Hal Élete",
     "btn": {
       "startGame": "Játék indítása",
+      "community": "Közösségi pályák",
       "aquarium": "Akvárium",
       "codex": "Kódex",
       "settings": "Beállítások",
       "about": "Névjegy",
       "back": "Vissza"
     }
+  },
+  "community": {
+    "title": "Közösségi Pályák",
+    "searchPlaceholder": "Keresés név szerint…",
+    "refresh": "Frissítés",
+    "loadMore": "Továbbiak betöltése",
+    "loading": "Betöltés…",
+    "empty": "Még nincs közösségi pálya — legyél te az első!",
+    "emptySearch": "A keresésnek nincs találata",
+    "notReady": "Felhő szolgáltatás nem elérhető — ellenőrizd a kapcsolatot",
+    "play": "JÁTÉK",
+    "report": "Jelent",
+    "reportPrompt": "Miért jelented ezt a pályát? (opcionális)",
+    "reported": "Jelentve — köszönjük a visszajelzést",
+    "ratingPending": "…",
+    "ratingNone": "Még nincs értékelés",
+    "ratingFormat": "★ {avg} ({count})",
+    "ratePrompt": "Értékeld ezt a közösségi pályát",
+    "rateAlready": "Már értékelted ezt a pályát",
+    "rateSubmitting": "Mentés…",
+    "rateThanks": "Köszönjük az értékelést!"
   },
   "levelSelect": {
     "title": "Pálya kiválasztása",

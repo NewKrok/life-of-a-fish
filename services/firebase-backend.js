@@ -9,11 +9,14 @@ import {
 import {
   getFirestore, collection, doc, setDoc, getDoc, getDocs,
   query, where, orderBy, limit, serverTimestamp, deleteDoc, updateDoc,
+  startAfter, getAggregateFromServer, getCountFromServer,
+  sum, average, count,
 } from 'firebase/firestore';
 
 import { firebaseConfig } from './firebase-config.js';
 import {
   setBackendImpl, validateLevelForPublish, DAILY_PUBLISH_LIMIT,
+  COMMUNITY_PAGE_SIZE,
 } from './backend.js';
 import { generateLevelCode, normalizeLevelCode, isValidLevelCode } from './level-code.js';
 import { hasProfanity } from './profanity-filter.js';
@@ -236,6 +239,99 @@ async function reportLevel(levelId, reason) {
   }
 }
 
+// ── Community browser (#22) ──
+
+/**
+ * List published community levels, newest first. Paginated via cursor
+ * (last-seen Firestore snapshot). If `search` is set, filters by name
+ * prefix — Firestore requires name-ordered query in that mode so sort
+ * changes to name asc.
+ */
+async function listCommunityLevels({ cursor = null, pageSize, search } = {}) {
+  _requireUid();
+  const size = pageSize || COMMUNITY_PAGE_SIZE;
+  try {
+    const col = collection(_db, 'levels');
+    const clauses = [];
+    if (search && search.trim()) {
+      const s = search.trim();
+      // Name prefix match. Firestore needs orderBy(name) when using range on name.
+      clauses.push(where('name', '>=', s));
+      clauses.push(where('name', '<=', s + '\uf8ff'));
+      clauses.push(orderBy('name', 'asc'));
+    } else {
+      clauses.push(orderBy('createdAt', 'desc'));
+    }
+    if (cursor) clauses.push(startAfter(cursor));
+    clauses.push(limit(size + 1)); // one extra to detect "has more"
+
+    const snap = await getDocs(query(col, ...clauses));
+    const docs = snap.docs;
+    const hasMore = docs.length > size;
+    const pageDocs = hasMore ? docs.slice(0, size) : docs;
+    const nextCursor = hasMore ? pageDocs[pageDocs.length - 1] : null;
+    return {
+      levels: pageDocs.map((d) => _shapeLevelDoc(d.id, d.data())),
+      nextCursor,
+    };
+  } catch (err) {
+    throw _mapFirestoreErr(err);
+  }
+}
+
+async function rateLevel(levelId, stars) {
+  const uid = _requireUid();
+  const n = Number(stars);
+  if (!Number.isInteger(n) || n < 1 || n > 5) {
+    throw _makeErr('bad-rating', 'Stars must be an integer 1..5');
+  }
+  try {
+    const ref = doc(_db, 'levels', levelId, 'ratings', uid);
+    await setDoc(ref, { stars: n, ratedAt: serverTimestamp() });
+  } catch (err) {
+    throw _mapFirestoreErr(err);
+  }
+}
+
+async function myRatingFor(levelId) {
+  const uid = _requireUid();
+  try {
+    const snap = await getDoc(doc(_db, 'levels', levelId, 'ratings', uid));
+    if (!snap.exists()) return null;
+    return snap.data().stars ?? null;
+  } catch (err) {
+    throw _mapFirestoreErr(err);
+  }
+}
+
+async function getLevelRatingStats(levelId) {
+  try {
+    const col = collection(_db, 'levels', levelId, 'ratings');
+    const snap = await getAggregateFromServer(col, {
+      avg: average('stars'),
+      total: sum('stars'),
+      n: count(),
+    });
+    const data = snap.data();
+    return {
+      avg: typeof data.avg === 'number' ? data.avg : 0,
+      count: typeof data.n === 'number' ? data.n : 0,
+    };
+  } catch (err) {
+    throw _mapFirestoreErr(err);
+  }
+}
+
+async function getLevelReportCount(levelId) {
+  try {
+    const col = collection(_db, 'levels', levelId, 'reports');
+    const snap = await getCountFromServer(col);
+    return snap.data().count || 0;
+  } catch (err) {
+    throw _mapFirestoreErr(err);
+  }
+}
+
 function _shapeLevelDoc(id, d) {
   return {
     levelId: id,
@@ -257,6 +353,8 @@ const firebaseBackend = {
   initBackend, getUid, onAuthReady,
   publishLevel, updateMyLevel, fetchLevelByCode,
   listMyLevels, deleteMyLevel, reportLevel,
+  listCommunityLevels, rateLevel, myRatingFor,
+  getLevelRatingStats, getLevelReportCount,
 };
 
 /** Install the Firebase implementation as the active backend. Call once at app start. */

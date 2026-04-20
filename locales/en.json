@@ -3,12 +3,34 @@
     "title": "Life of a Fish",
     "btn": {
       "startGame": "Start Game",
+      "community": "Community Levels",
       "aquarium": "Aquarium",
       "codex": "Codex",
       "settings": "Settings",
       "about": "About",
       "back": "Back"
     }
+  },
+  "community": {
+    "title": "Community Levels",
+    "searchPlaceholder": "Search by name…",
+    "refresh": "Refresh",
+    "loadMore": "Load More",
+    "loading": "Loading…",
+    "empty": "No community levels yet — be the first to publish one!",
+    "emptySearch": "No levels match your search",
+    "notReady": "Cloud service not ready — check your connection",
+    "play": "PLAY",
+    "report": "Report",
+    "reportPrompt": "Why are you reporting this level? (optional)",
+    "reported": "Reported — thanks for the heads-up",
+    "ratingPending": "…",
+    "ratingNone": "No ratings yet",
+    "ratingFormat": "★ {avg} ({count})",
+    "ratePrompt": "Rate this community level",
+    "rateAlready": "You already rated this level",
+    "rateSubmitting": "Saving…",
+    "rateThanks": "Thanks for rating!"
   },
   "levelSelect": {
     "title": "Select Level",

@@ -288,6 +288,11 @@ const LEVELS = [
 
 let _currentLevelIndex = 0;
 
+// Ad-hoc level override (used for community levels imported at runtime).
+// When set, takes precedence over LEVELS[_currentLevelIndex] for dimensions,
+// tiles, and metadata (switchGateGroups etc.). `null` means "play a built-in".
+let _adHocLevel = null;
+
 // These are mutable — updated by setCurrentLevel() and resetTiles()
 export let LEVEL_COLS = LEVELS[0].cols;
 export let LEVEL_ROWS = LEVELS[0].rows;
@@ -296,10 +301,13 @@ export let WORLD_H = LEVEL_ROWS * TILE_SIZE;
 export let WATER_SURFACE_Y = LEVELS[0].waterRow * TILE_SIZE;
 export let NO_CAVE_BG = !!LEVELS[0].noCaveBg;
 
+// Returns the currently-active level object (ad-hoc if one is loaded).
+function _activeLevel() { return _adHocLevel ?? LEVELS[_currentLevelIndex]; }
+
 // Parse the string map into a 2D number array
 export const TILES = [];
 function _parseTiles() {
-  const level = LEVELS[_currentLevelIndex];
+  const level = _activeLevel();
   TILES.length = 0;
   for (let row = 0; row < level.rows; row++) {
     TILES[row] = [];
@@ -307,6 +315,17 @@ function _parseTiles() {
     for (let col = 0; col < level.cols; col++) {
       const ch = str[col] || ".";
       TILES[row][col] = KEY[ch] ?? 0;
+    }
+  }
+  // Ad-hoc levels ship their entities as an array (editor JSON format) rather
+  // than baked into the `strings` grid. Overlay them into TILES so the
+  // existing getLevelEntities() extraction works unchanged.
+  if (_adHocLevel && Array.isArray(_adHocLevel.entities)) {
+    for (const ent of _adHocLevel.entities) {
+      if (ent.row >= 0 && ent.row < level.rows &&
+          ent.col >= 0 && ent.col < level.cols) {
+        TILES[ent.row][ent.col] = ent.tileId;
+      }
     }
   }
 }
@@ -331,7 +350,7 @@ export function getCurrentLevelIndex() {
 
 /** Get metadata for the active level (flags like bossLevel, levelGoal, name, id). */
 export function getCurrentLevelMeta() {
-  const l = LEVELS[_currentLevelIndex];
+  const l = _activeLevel();
   return {
     id: l.id,
     name: l.name,
@@ -339,8 +358,99 @@ export function getCurrentLevelMeta() {
     levelGoal: l.levelGoal || 'pearls', // 'pearls' | 'boss'
     waterRow: l.waterRow ?? 4,
     noCaveBg: !!l.noCaveBg,
+    isCommunity: !!_adHocLevel,
   };
 }
+
+/**
+ * Load an ad-hoc level (editor JSON format) for play. Takes precedence over
+ * the built-in LEVELS until `clearAdHocLevel()` is called. The JSON shape
+ * matches what `LevelEditor.serializeLevel()` produces and what the community
+ * backend stores in `levels/{id}.data`.
+ *
+ * Converts the editor-format `entities` array into the metadata arrays that
+ * getLevelEntities() expects (switchGateGroups, anchorChainLengths,
+ * bottleMessages, hintStones) so the rest of the pipeline is unchanged.
+ */
+export function setAdHocLevel(levelJson) {
+  if (!levelJson || !Array.isArray(levelJson.strings) || !Array.isArray(levelJson.entities)) {
+    throw new Error('Invalid ad-hoc level JSON');
+  }
+
+  // Build derived metadata from the editor-format entities array.
+  const switchGateGroupsMap = new Map();
+  const anchorChainLengths = [];
+  const bottleMessages = [];
+  const hintStones = [];
+
+  for (const ent of levelJson.entities) {
+    // Switches (30-32) and gates (33) — group by their `group` ID
+    if (ent.group !== undefined && ent.tileId >= 30 && ent.tileId <= 33) {
+      if (!switchGateGroupsMap.has(ent.group)) {
+        switchGateGroupsMap.set(ent.group, { id: ent.group, switches: [], gates: [] });
+      }
+      const grp = switchGateGroupsMap.get(ent.group);
+      if (ent.tileId === 33) grp.gates.push({ row: ent.row, col: ent.col });
+      else grp.switches.push({ row: ent.row, col: ent.col });
+    }
+    // Swinging anchors (35) — chainLength
+    if (ent.tileId === 35 && ent.chainLength !== undefined) {
+      anchorChainLengths.push({ row: ent.row, col: ent.col, chainLength: ent.chainLength });
+    }
+    // Bottle messages (36)
+    if (ent.tileId === 36 && typeof ent.text === 'string') {
+      bottleMessages.push({ row: ent.row, col: ent.col, text: ent.text });
+    }
+    // Hint stones (37)
+    if (ent.tileId === 37 && typeof ent.text === 'string') {
+      hintStones.push({ row: ent.row, col: ent.col, text: ent.text });
+    }
+  }
+
+  _adHocLevel = {
+    id: 'community',
+    name: levelJson.name || 'Community Level',
+    cols: levelJson.cols,
+    rows: levelJson.rows,
+    waterRow: levelJson.waterRow ?? 4,
+    bossLevel: !!levelJson.bossLevel,
+    levelGoal: levelJson.levelGoal || 'pearls',
+    noCaveBg: !!levelJson.noCaveBg,
+    strings: levelJson.strings,
+    entities: levelJson.entities,
+    switchGateGroups: Array.from(switchGateGroupsMap.values()),
+    anchorChainLengths,
+    bottleMessages,
+    hintStones,
+  };
+
+  LEVEL_COLS = _adHocLevel.cols;
+  LEVEL_ROWS = _adHocLevel.rows;
+  WORLD_W = LEVEL_COLS * TILE_SIZE;
+  WORLD_H = LEVEL_ROWS * TILE_SIZE;
+  WATER_SURFACE_Y = _adHocLevel.waterRow * TILE_SIZE;
+  NO_CAVE_BG = !!_adHocLevel.noCaveBg;
+
+  _parseTiles();
+}
+
+/** Drop the ad-hoc level and revert to the built-in level at the current index. */
+export function clearAdHocLevel() {
+  if (!_adHocLevel) return;
+  _adHocLevel = null;
+  // Re-apply the current built-in level's dimensions + tiles
+  const level = LEVELS[_currentLevelIndex];
+  LEVEL_COLS = level.cols;
+  LEVEL_ROWS = level.rows;
+  WORLD_W = LEVEL_COLS * TILE_SIZE;
+  WORLD_H = LEVEL_ROWS * TILE_SIZE;
+  WATER_SURFACE_Y = level.waterRow * TILE_SIZE;
+  NO_CAVE_BG = !!level.noCaveBg;
+  _parseTiles();
+}
+
+/** True if the active level is a community (ad-hoc) level rather than a built-in. */
+export function isAdHocLevel() { return _adHocLevel !== null; }
 
 /** Switch to a different level. Updates all exported dimensions and re-parses tiles. */
 export function setCurrentLevel(index) {
@@ -485,7 +595,7 @@ export function getLevelEntities() {
   }
 
   // ── Assign switch-gate group IDs from level metadata ──
-  const level = LEVELS[_currentLevelIndex];
+  const level = _activeLevel();
   if (level.switchGateGroups) {
     for (const grp of level.switchGateGroups) {
       for (const s of grp.switches) {

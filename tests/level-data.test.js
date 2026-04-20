@@ -10,6 +10,9 @@ import {
   KEY_CHEST_COLORS,
   getLevels,
   setCurrentLevel,
+  setAdHocLevel,
+  clearAdHocLevel,
+  isAdHocLevel,
   getCurrentLevelIndex,
   getCurrentLevelMeta,
   resetTiles,
@@ -82,6 +85,119 @@ describe('level management', () => {
     expect(getCurrentLevelIndex()).toBe(0);
     setCurrentLevel(999);
     expect(getCurrentLevelIndex()).toBe(0);
+  });
+});
+
+// ── Ad-hoc (community) level loading ──
+
+describe('setAdHocLevel / clearAdHocLevel', () => {
+  beforeEach(() => {
+    clearAdHocLevel();
+    setCurrentLevel(0);
+  });
+
+  const sampleAdHoc = () => {
+    // 10x5 grid: stone borders, player spawn near bottom-left, one switch/gate pair
+    const strings = [
+      '##########',
+      '#........#',
+      '#........#',
+      '#........#',
+      '##########',
+    ];
+    return {
+      name: 'Test Community',
+      cols: 10,
+      rows: 5,
+      waterRow: 0,
+      strings,
+      entities: [
+        { tileId: 7, row: 3, col: 2 },  // player spawn
+        { tileId: 30, row: 1, col: 5, group: 1 }, // toggle switch
+        { tileId: 33, row: 2, col: 8, group: 1 }, // gate
+        { tileId: 36, row: 1, col: 3, text: 'Hello community!' }, // bottle
+        { tileId: 35, row: 1, col: 7, chainLength: 64 }, // swinging anchor
+      ],
+    };
+  };
+
+  it('loads ad-hoc level and flips dimensions', () => {
+    setAdHocLevel(sampleAdHoc());
+    expect(isAdHocLevel()).toBe(true);
+    expect(LEVEL_COLS).toBe(10);
+    expect(LEVEL_ROWS).toBe(5);
+    expect(WORLD_W).toBe(10 * TILE_SIZE);
+    expect(WORLD_H).toBe(5 * TILE_SIZE);
+  });
+
+  it('parses strings AND overlays entities into TILES', () => {
+    setAdHocLevel(sampleAdHoc());
+    // Border tiles from strings
+    expect(TILES[0][0]).toBe(1); // stone
+    expect(TILES[4][9]).toBe(1); // stone
+    // Entity-overlaid tiles
+    expect(TILES[3][2]).toBe(7);  // player spawn
+    expect(TILES[1][5]).toBe(30); // toggle switch
+    expect(TILES[2][8]).toBe(33); // gate
+  });
+
+  it('getCurrentLevelMeta reports isCommunity when ad-hoc is active', () => {
+    setAdHocLevel(sampleAdHoc());
+    const meta = getCurrentLevelMeta();
+    expect(meta.isCommunity).toBe(true);
+    expect(meta.name).toBe('Test Community');
+  });
+
+  it('getLevelEntities populates player spawn from ad-hoc level', () => {
+    setAdHocLevel(sampleAdHoc());
+    const ent = getLevelEntities();
+    const expectedX = 2 * TILE_SIZE + TILE_SIZE / 2;
+    const expectedY = 3 * TILE_SIZE + TILE_SIZE / 2;
+    expect(ent.playerSpawn.x).toBe(expectedX);
+    expect(ent.playerSpawn.y).toBe(expectedY);
+  });
+
+  it('getLevelEntities propagates switch-gate group IDs from editor entity metadata', () => {
+    setAdHocLevel(sampleAdHoc());
+    const ent = getLevelEntities();
+    expect(ent.toggleSwitches.length).toBe(1);
+    expect(ent.gates.length).toBe(1);
+    expect(ent.toggleSwitches[0].group).toBe(1);
+    expect(ent.gates[0].group).toBe(1);
+  });
+
+  it('getLevelEntities propagates bottle message text and anchor chainLength', () => {
+    setAdHocLevel(sampleAdHoc());
+    const ent = getLevelEntities();
+    expect(ent.bottleMessages.length).toBe(1);
+    expect(ent.bottleMessages[0].text).toBe('Hello community!');
+    expect(ent.swingingAnchors.length).toBe(1);
+    expect(ent.swingingAnchors[0].chainLength).toBe(64);
+  });
+
+  it('resetTiles preserves entity overlay on ad-hoc level', () => {
+    setAdHocLevel(sampleAdHoc());
+    // Sanity: the overlay is present before mutation
+    expect(TILES[3][2]).toBe(7);
+    TILES[3][2] = 0; // simulate game picking up the spawn token
+    resetTiles();
+    expect(TILES[3][2]).toBe(7); // re-applied
+  });
+
+  it('clearAdHocLevel reverts to the built-in level at current index', () => {
+    setAdHocLevel(sampleAdHoc());
+    clearAdHocLevel();
+    expect(isAdHocLevel()).toBe(false);
+    // Back to built-in dimensions
+    setCurrentLevel(0);
+    const builtinCols = LEVEL_COLS;
+    expect(builtinCols).not.toBe(10);
+  });
+
+  it('rejects invalid level JSON', () => {
+    expect(() => setAdHocLevel(null)).toThrow();
+    expect(() => setAdHocLevel({ strings: null })).toThrow();
+    expect(() => setAdHocLevel({ strings: [], entities: null })).toThrow();
   });
 });
 

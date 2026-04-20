@@ -13,6 +13,7 @@ import {
   WATER_SURFACE_Y, TILES,
   getLevelEntities, getMergedSolidBodies, getWaterZones, resetTiles,
   getLevels, setCurrentLevel, getCurrentLevelIndex, getCurrentLevelMeta,
+  setAdHocLevel, clearAdHocLevel, isAdHocLevel,
   KEY_CHEST_COLORS,
 } from './level-data.js';
 
@@ -33,6 +34,7 @@ import { generateCodexPreviews } from './codex-renderer.js';
 import { initI18n, t, translateDOM, setLocale, getLocale, onLocaleChange } from './i18n.js';
 import { installFirebaseBackend } from './services/firebase-backend.js';
 import { initBackend } from './services/backend.js';
+import { CommunityBrowser, VictoryRatingUI } from './community-browser.js';
 
 // ── Three.js import ──
 import * as THREE from "three";
@@ -213,6 +215,7 @@ const aquariumCloseBtn = document.getElementById('aquariumClose');
 const settingsPanel = document.getElementById('settingsPanel');
 const aboutPanel = document.getElementById('aboutPanel');
 const codexPanel = document.getElementById('codexPanel');
+const communityPanel = document.getElementById('communityPanel');
 
 // ── Game Over / Victory UI Elements ──
 const gameOverPanel = document.getElementById('gameOverPanel');
@@ -236,6 +239,11 @@ const touchControls = new TouchControls();
 
 function showMenu() {
   gsm.forceState(STATE.MENU);
+  // Returning to the main menu always drops the ad-hoc community level —
+  // otherwise the next Start Game would reuse it.
+  if (typeof isAdHocLevel === 'function' && isAdHocLevel()) clearAdHocLevel();
+  _playingCommunityLevel = null;
+  _wantReturnToCommunity = false;
   menuOverlay.classList.remove('hidden');
   // Ensure main menu buttons are visible, level select is hidden
   document.getElementById('menuMain').classList.remove('hidden');
@@ -244,6 +252,7 @@ function showMenu() {
   settingsPanel.classList.remove('visible');
   aboutPanel.classList.remove('visible');
   codexPanel.classList.remove('visible');
+  communityPanel.classList.remove('visible');
   pauseBtn.classList.remove('visible');
   touchControls.hide();
   pausePanel.classList.remove('visible');
@@ -260,6 +269,7 @@ function hideMenuUI() {
   settingsPanel.classList.remove('visible');
   aboutPanel.classList.remove('visible');
   codexPanel.classList.remove('visible');
+  communityPanel.classList.remove('visible');
 }
 
 // ── Iris Transition System ──
@@ -698,6 +708,86 @@ document.getElementById('codexBack').addEventListener('click', () => {
   sfx.buttonClick();
   showMenu();
 });
+
+// ── Community Browser ──
+// When this is non-null we're playing a community level — affects the victory
+// rating UI and the exit destination (back to browser vs. main menu).
+let _playingCommunityLevel = null;
+let _wantReturnToCommunity = false;
+
+const communityBrowser = new CommunityBrowser({
+  panelEl: communityPanel,
+  entriesEl: document.getElementById('communityEntries'),
+  statusEl: document.getElementById('communityStatus'),
+  loadMoreBtn: document.getElementById('communityLoadMore'),
+  searchInput: document.getElementById('communitySearchInput'),
+  refreshBtn: document.getElementById('communityRefresh'),
+  backBtn: document.getElementById('communityBack'),
+  onPlayLevel: (doc) => _startCommunityLevel(doc),
+  onBack: () => { sfx.buttonClick(); showMenu(); },
+});
+
+const vicRatingUI = new VictoryRatingUI({
+  blockEl: document.getElementById('vicCommunityRate'),
+  starsEl: document.getElementById('vicRateStars'),
+  statusEl: document.getElementById('vicRateStatus'),
+});
+
+document.getElementById('btnCommunity').addEventListener('click', () => {
+  sfx.buttonClick();
+  if (!gsm.transition(STATE.COMMUNITY)) return;
+  menuOverlay.classList.add('hidden');
+  communityBrowser.open();
+});
+
+function showCommunityBrowser() {
+  gsm.forceState(STATE.COMMUNITY);
+  // Drop any lingering ad-hoc level; user returned from a community play session.
+  clearAdHocLevel();
+  _playingCommunityLevel = null;
+  _wantReturnToCommunity = false;
+  menuOverlay.classList.add('hidden');
+  aquariumCloseBtn.classList.remove('visible');
+  settingsPanel.classList.remove('visible');
+  aboutPanel.classList.remove('visible');
+  codexPanel.classList.remove('visible');
+  pauseBtn.classList.remove('visible');
+  touchControls.hide();
+  pausePanel.classList.remove('visible');
+  gameOverPanel.classList.remove('visible');
+  victoryPanel.classList.remove('visible');
+  hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
+  menuScene.setAquariumMode(false);
+  if (!menuScene._running) menuScene.start();
+  music.play('menu');
+  communityBrowser.open();
+}
+
+function _startCommunityLevel(doc) {
+  if (irisState !== 'none') return;
+  try {
+    setAdHocLevel(doc.data);
+  } catch (err) {
+    console.warn('[community] failed to load level:', err);
+    return;
+  }
+  _playingCommunityLevel = { levelId: doc.levelId, code: doc.code, name: doc.name };
+  sfx.gameStart();
+  if (!gsm.transition(STATE.GAME_PLAYING)) {
+    // Shouldn't happen given our whitelist, but be defensive.
+    clearAdHocLevel();
+    _playingCommunityLevel = null;
+    return;
+  }
+  communityBrowser.close();
+  menuOverlay.classList.add('hidden');
+  aquariumCloseBtn.classList.remove('visible');
+  const cx = hudCanvas.width / 2;
+  const cy = hudCanvas.height / 2;
+  _startGamePending = true;
+  irisCloseOpen(cx, cy, cx, cy, () => { /* standalone loop handles init */ });
+  _irisStartStandalone();
+}
 
 // ── Pause UI Handlers ──
 function _syncPauseSliders() {
@@ -2888,12 +2978,20 @@ function showVictory() {
     highScoreEl.textContent = t('victory.highScore', { score: highScore });
   }
 
+  // Community level: surface the rating UI (gated to after-victory by design)
+  if (_playingCommunityLevel) {
+    vicRatingUI.showFor(_playingCommunityLevel.levelId);
+  } else {
+    vicRatingUI.hide();
+  }
+
   victoryPanel.classList.add('visible');
 }
 
 function hideVictory() {
   victoryActive = false;
   victoryPanel.classList.remove('visible');
+  vicRatingUI.hide();
 }
 
 // ── Death State ──
@@ -3273,6 +3371,9 @@ function exitToMenu() {
     return;
   }
   if (irisState !== 'none' && !_irisHoldBlack) return;
+  // If we were playing a community level, exit should return to the browser
+  // rather than the main menu — decide once here, use in both onBlack branches.
+  const returnToCommunity = !!_playingCommunityLevel;
   const wasGameOver = gameOverActive;
   gamePaused = false;
   // Get button rect BEFORE hiding (hidden elements return 0,0,0,0)
@@ -3295,7 +3396,8 @@ function exitToMenu() {
     irisTimer = 0;
     _exitPending = true;
     gameInitialized = false;
-    showMenu();
+    if (returnToCommunity) showCommunityBrowser();
+    else showMenu();
     return;
   }
 
@@ -3308,7 +3410,8 @@ function exitToMenu() {
   irisCloseOpen(exitCx, exitCy, startCx, startCy, () => {
     // onBlack: switch to menu, game loop will detect _exitPending and self-terminate
     gameInitialized = false;
-    showMenu();
+    if (returnToCommunity) showCommunityBrowser();
+    else showMenu();
   });
 }
 

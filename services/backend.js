@@ -18,10 +18,18 @@
 //   deleteMyLevel(levelId): Promise<void>
 //   reportLevel(levelId, reason): Promise<void>
 //
+// Community browser (#22):
+//   listCommunityLevels({ cursor?, pageSize?, search? })
+//                                    : Promise<{ levels, nextCursor }>
+//   rateLevel(levelId, stars): Promise<void>           // stars in 1..5
+//   myRatingFor(levelId): Promise<number | null>
+//   getLevelRatingStats(levelId): Promise<{ avg, count }>
+//   getLevelReportCount(levelId): Promise<number>
+//
 // Errors thrown by impls should carry a stable `.code` string so the UI
 // can localize messages: 'not-initialized', 'not-signed-in', 'rate-limit',
 // 'too-large', 'bad-name', 'profanity', 'not-found', 'permission-denied',
-// 'network', 'unknown'.
+// 'network', 'unknown', 'bad-rating'.
 
 let _impl = null;
 
@@ -54,6 +62,18 @@ export function fetchLevelByCode(code) { return _req().fetchLevelByCode(code); }
 export function listMyLevels() { return _req().listMyLevels(); }
 export function deleteMyLevel(levelId) { return _req().deleteMyLevel(levelId); }
 export function reportLevel(levelId, reason) { return _req().reportLevel(levelId, reason); }
+
+// ── Community browser ──
+export function listCommunityLevels(opts) { return _req().listCommunityLevels(opts || {}); }
+export function rateLevel(levelId, stars) { return _req().rateLevel(levelId, stars); }
+export function myRatingFor(levelId) { return _req().myRatingFor(levelId); }
+export function getLevelRatingStats(levelId) { return _req().getLevelRatingStats(levelId); }
+export function getLevelReportCount(levelId) { return _req().getLevelReportCount(levelId); }
+
+/** Page size for community level listings. */
+export const COMMUNITY_PAGE_SIZE = 20;
+/** Client-side auto-hide threshold: hide levels with >= this many reports. */
+export const REPORT_HIDE_THRESHOLD = 3;
 
 // ── Validation (shared across impls) ──
 

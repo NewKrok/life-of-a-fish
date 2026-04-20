@@ -41,6 +41,7 @@ level-editor.js       — In-game level editor (F4): tile palette, entity placem
 touch-controls.js     — Mobile virtual joystick + dash button (pointer events)
 menu-scene.js         — Main menu background: aquarium scene with AI fish, camera pan
 menu-level-data.js    — Dedicated tile map for menu aquarium (60×25)
+community-browser.js  — Main-menu community level browser + victory-screen rating UI
 example.js            — Nape-js physics reference/demo (not used in game)
 services/             — Backend abstraction layer (community levels)
   backend.js          — Interface + validation helpers — all external calls go through here
@@ -76,6 +77,10 @@ Interface shape (see `backend.js` comment block for full details):
 - `listMyLevels()` → array of my levels
 - `deleteMyLevel(levelId)`
 - `reportLevel(levelId, reason)` — writes a `reports/{uid}` subdoc (one per user)
+- `listCommunityLevels({ cursor, search })` → `{ levels, nextCursor }` (cursor-based pagination)
+- `rateLevel(levelId, stars)` / `myRatingFor(levelId)` — 1..5 star rating per user
+- `getLevelRatingStats(levelId)` → `{ avg, count }` (Firestore aggregation)
+- `getLevelReportCount(levelId)` → count (Firestore aggregation)
 
 Errors thrown by impls carry a `.code` string (`rate-limit`, `too-large`,
 `bad-name`, `profanity`, `not-found`, `permission-denied`, `network`, etc.)
@@ -107,6 +112,26 @@ overlay with: Publish Current Level, Import by Code, and My Published Levels
 list (Load / Update / Delete). All async ops show a status line inside the
 overlay. Without network the overlay still opens but shows a readiness error
 — the rest of the editor works offline.
+
+**Main-menu browser** (`community-browser.js`, #22): A "Community Levels" button
+on the main menu opens a DOM panel (`#communityPanel`) that lists recent
+community levels newest-first with cursor-based pagination, prefix search by
+name, per-card star rating (avg + count) and a report action. Clicking Play
+loads the level via `setAdHocLevel()` (see level-data.js) and starts the game —
+victory/game-over then return to the browser rather than the main menu. Rating
+is gated to **after** a completed playthrough: the victory panel surfaces a
+5-star rating block via `VictoryRatingUI` that writes to
+`levels/{id}/ratings/{uid}`. Levels that cross the report-auto-hide threshold
+(3 reports) or are reported by the viewer are filtered client-side. Plays
+counter, Top Rated / Most Played tabs, and admin UI are deferred.
+
+**Ad-hoc levels** (`level-data.js` — `setAdHocLevel/clearAdHocLevel`): When a
+community level is loaded for play, its JSON replaces the active level. The
+function converts the editor-format `entities` array into the metadata arrays
+the game expects (`switchGateGroups`, `anchorChainLengths`, `bottleMessages`,
+`hintStones`) so `getLevelEntities()` works unchanged. `getCurrentLevelMeta()`
+exposes an `isCommunity` flag that downstream code (e.g. victory UI) uses to
+decide whether to show community-specific UI like the rating prompt.
 
 ### Menu System (menu-scene.js)
 

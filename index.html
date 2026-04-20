@@ -957,6 +957,162 @@
           font-size: 20px;
         }
       }
+
+      /* ── Community Browser ── */
+      .community-toolbar {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 10px;
+        flex-shrink: 0;
+      }
+      .community-search {
+        flex: 1;
+        background: rgba(10, 30, 60, 0.6);
+        border: 1.5px solid rgba(100, 180, 255, 0.25);
+        border-radius: 6px;
+        color: #e8f4ff;
+        font: 12px "Silkscreen", monospace;
+        padding: 8px 12px;
+        outline: none;
+      }
+      .community-search:focus {
+        border-color: rgba(100, 200, 255, 0.6);
+      }
+      .community-refresh {
+        background: rgba(10, 40, 70, 0.7);
+        border: 1.5px solid rgba(100, 180, 255, 0.3);
+        border-radius: 6px;
+        color: #c8e6ff;
+        font-size: 16px;
+        width: 38px;
+        cursor: pointer;
+      }
+      .community-refresh:hover { color: #fff; border-color: rgba(100, 200, 255, 0.6); }
+      .community-status {
+        font: 10px "Silkscreen", monospace;
+        color: rgba(200, 230, 255, 0.6);
+        margin-bottom: 8px;
+        min-height: 14px;
+        flex-shrink: 0;
+      }
+      .community-status.error { color: #ffb0a0; }
+      .community-entries {
+        overflow-y: auto;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding-right: 4px;
+      }
+      .community-entries::-webkit-scrollbar { width: 6px; }
+      .community-entries::-webkit-scrollbar-track { background: rgba(10,30,60,0.3); border-radius: 3px; }
+      .community-entries::-webkit-scrollbar-thumb { background: rgba(100,180,255,0.25); border-radius: 3px; }
+
+      .community-card {
+        background: rgba(10, 35, 60, 0.6);
+        border: 1.5px solid rgba(100, 180, 255, 0.15);
+        border-radius: 8px;
+        padding: 12px 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .community-card:hover { border-color: rgba(100, 180, 255, 0.35); }
+      .community-card-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+      }
+      .community-card-name {
+        font: bold 13px "Silkscreen", monospace;
+        color: #fff;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .community-card-code {
+        font: 10px "Silkscreen", monospace;
+        color: rgba(200, 230, 255, 0.55);
+      }
+      .community-card-meta {
+        font: 10px "Silkscreen", monospace;
+        color: rgba(200, 230, 255, 0.5);
+        display: flex;
+        gap: 12px;
+      }
+      .community-card-rating { color: #ffd93d; }
+      .community-card-actions { display: flex; gap: 6px; }
+      .community-play-btn, .community-report-btn {
+        background: rgba(40, 120, 80, 0.8);
+        border: 1px solid rgba(100, 255, 140, 0.5);
+        border-radius: 6px;
+        color: #fff;
+        font: bold 10px "Silkscreen", monospace;
+        padding: 6px 14px;
+        cursor: pointer;
+      }
+      .community-play-btn:hover { background: rgba(50, 150, 100, 0.9); }
+      .community-report-btn {
+        background: rgba(80, 40, 40, 0.6);
+        border-color: rgba(220, 120, 100, 0.4);
+        padding: 6px 10px;
+      }
+      .community-report-btn:hover { background: rgba(120, 50, 50, 0.8); }
+      .community-load-more {
+        background: rgba(10, 40, 70, 0.7);
+        border: 1.5px solid rgba(100, 180, 255, 0.3);
+        border-radius: 8px;
+        color: #c8e6ff;
+        font: bold 12px "Silkscreen", monospace;
+        padding: 10px 24px;
+        cursor: pointer;
+        margin-top: 10px;
+        flex-shrink: 0;
+      }
+      .community-load-more:hover { background: rgba(20, 60, 100, 0.85); }
+
+      /* ── Community rating block (inside victory panel) ── */
+      .community-rate-block {
+        background: rgba(10, 35, 60, 0.5);
+        border: 1px solid rgba(100, 180, 255, 0.2);
+        border-radius: 8px;
+        padding: 10px 12px;
+        margin-top: 8px;
+        text-align: center;
+      }
+      .community-rate-prompt {
+        font: 10px "Silkscreen", monospace;
+        color: rgba(200, 230, 255, 0.8);
+        margin-bottom: 6px;
+      }
+      .community-stars {
+        display: flex;
+        justify-content: center;
+        gap: 4px;
+      }
+      .community-star {
+        background: none;
+        border: none;
+        color: rgba(120, 140, 160, 0.5);
+        font-size: 24px;
+        cursor: pointer;
+        padding: 2px 4px;
+        transition: color 0.1s, transform 0.1s;
+      }
+      .community-star:hover,
+      .community-star.hover,
+      .community-star.active {
+        color: #ffd93d;
+        transform: scale(1.15);
+      }
+      .community-rate-status {
+        font: 9px "Silkscreen", monospace;
+        color: rgba(200, 230, 255, 0.6);
+        margin-top: 6px;
+        min-height: 12px;
+      }
     </style>
   </head>
   <body>
@@ -981,6 +1137,7 @@
       <div class="menu-title" data-i18n="menu.title">Life of a Fish</div>
       <div class="menu-items" id="menuMain">
         <button class="menu-btn" id="btnStartGame" data-i18n="menu.btn.startGame">Start Game</button>
+        <button class="menu-btn" id="btnCommunity" data-i18n="menu.btn.community">Community Levels</button>
         <button class="menu-btn" id="btnAquarium" data-i18n="menu.btn.aquarium">Aquarium</button>
         <button class="menu-btn" id="btnCodex" data-i18n="menu.btn.codex">Codex</button>
         <button class="menu-btn" id="btnSettings" data-i18n="menu.btn.settings">Settings</button>
@@ -1122,10 +1279,46 @@
           </div>
         </div>
         <div class="result-highscore" id="vicHighScore"></div>
+        <!-- Community rating UI (only visible after victory on a community level) -->
+        <div class="community-rate-block" id="vicCommunityRate" hidden>
+          <div class="community-rate-prompt" data-i18n="community.ratePrompt">Rate this community level</div>
+          <div class="community-stars" id="vicRateStars">
+            <button class="community-star" data-stars="1">&#9733;</button>
+            <button class="community-star" data-stars="2">&#9733;</button>
+            <button class="community-star" data-stars="3">&#9733;</button>
+            <button class="community-star" data-stars="4">&#9733;</button>
+            <button class="community-star" data-stars="5">&#9733;</button>
+          </div>
+          <div class="community-rate-status" id="vicRateStatus"></div>
+        </div>
         <div class="pause-actions">
           <button class="menu-btn" id="vicRestart" data-i18n="pause.restart">Restart</button>
           <button class="menu-btn" id="vicExit" data-i18n="pause.exit">Exit to Menu</button>
         </div>
+      </div>
+    </div>
+
+    <!-- Community Level Browser Panel -->
+    <div class="codex-panel" id="communityPanel">
+      <div class="codex-box">
+        <div class="codex-header">
+          <div class="codex-title" data-i18n="community.title">Community Levels</div>
+          <button class="codex-back-btn" id="communityBack" data-i18n="menu.btn.back">Back</button>
+        </div>
+        <div class="community-toolbar">
+          <input
+            type="text"
+            id="communitySearchInput"
+            class="community-search"
+            data-i18n-placeholder="community.searchPlaceholder"
+            placeholder="Search by name..."
+            maxlength="50"
+          />
+          <button class="community-refresh" id="communityRefresh" data-i18n-title="community.refresh" title="Refresh">&#x21bb;</button>
+        </div>
+        <div class="community-status" id="communityStatus"></div>
+        <div class="community-entries" id="communityEntries"></div>
+        <button class="community-load-more" id="communityLoadMore" data-i18n="community.loadMore" hidden>Load More</button>
       </div>
     </div>
 
