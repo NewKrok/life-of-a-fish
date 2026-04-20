@@ -8,19 +8,24 @@ The game is almost entirely underwater. The fish swims freely in all directions 
 
 ## Tech Stack
 
-- **Physics**: nape-js v3.26.0 (CDN) — rigid body, fluid simulation, collision
-- **Rendering**: Three.js v0.170.0 (CDN) — WebGL with perspective camera (~22° pitch), InstancedMesh for terrain
+- **Physics**: nape-js v3.26.0 (npm) — rigid body, fluid simulation, collision
+- **Rendering**: Three.js v0.170.0 (npm) — WebGL with perspective camera (~22° pitch), InstancedMesh for terrain
+- **Backend**: Firebase v12 (Auth anonymous + Firestore) for community level sharing — see `services/` and `SETUP.md`
 - **Language**: Vanilla ES6+ modules, no TypeScript
-- **Build**: None — plain ES modules loaded via CDN, no bundler, no npm
+- **Build**: Vite — `npm run dev` for local, `npm run build` for production, `npm run preview` to serve the build
 
 ## Running
 
-Serve the root directory with any static HTTP server and open `index.html`:
+```bash
+npm install
+npm run dev   # Vite dev server on :3000
+```
+
+For production:
 
 ```bash
-python -m http.server 8000
-# or
-npx http-server
+npm run build
+npm run preview
 ```
 
 ## Project Structure
@@ -37,9 +42,71 @@ touch-controls.js     — Mobile virtual joystick + dash button (pointer events)
 menu-scene.js         — Main menu background: aquarium scene with AI fish, camera pan
 menu-level-data.js    — Dedicated tile map for menu aquarium (60×25)
 example.js            — Nape-js physics reference/demo (not used in game)
+services/             — Backend abstraction layer (community levels)
+  backend.js          — Interface + validation helpers — all external calls go through here
+  firebase-backend.js — Firebase impl (Auth anonymous + Firestore CRUD)
+  firebase-config.js  — Firebase project config (public, non-secret)
+  level-code.js       — Short human-readable level codes (LOAF-XXXXXX)
+  profanity-filter.js — Basic client-side wordlist check for user-visible text
+firestore.rules       — Firestore security rules (deployed via `firebase deploy`)
+firebase.json         — Firebase CLI config
+SETUP.md              — Backend setup / deploy instructions
 ```
 
 ## Architecture
+
+### Community Backend (services/)
+
+All external communication goes through `services/backend.js` — an abstract
+interface (function-level, not classes). Concrete implementations plug in via
+`setBackendImpl()`. The production implementation is Firebase
+(`services/firebase-backend.js`), installed at game bootstrap by calling
+`installFirebaseBackend()` from `game.js`. To swap providers later
+(Supabase / PocketBase / custom), implement the same shape and call
+`setBackendImpl(yourImpl)` — nothing else in the game references Firebase
+directly.
+
+Interface shape (see `backend.js` comment block for full details):
+
+- `initBackend()` — signs in anonymously, called once on startup
+- `getUid()` / `onAuthReady(cb)` — current anon UID
+- `publishLevel(data, { name })` → `{ levelId, code }`
+- `updateMyLevel(levelId, data, { name })`
+- `fetchLevelByCode(code)` → level doc
+- `listMyLevels()` → array of my levels
+- `deleteMyLevel(levelId)`
+- `reportLevel(levelId, reason)` — writes a `reports/{uid}` subdoc (one per user)
+
+Errors thrown by impls carry a `.code` string (`rate-limit`, `too-large`,
+`bad-name`, `profanity`, `not-found`, `permission-denied`, `network`, etc.)
+that the UI localizes via `editor.communityErr.<code>` i18n keys.
+
+**Firestore schema**:
+
+```
+levels/{levelId}
+  ownerId, code (unique), name, data (inline JSON),
+  createdAt, updatedAt, plays, ratingSum, ratingCount, flagged, featured
+levels/{levelId}/ratings/{raterUid}    — future (#14)
+levels/{levelId}/reports/{reporterUid} — one report per user per level
+```
+
+**Security** (see `firestore.rules`): public read on `levels`; create/update/
+delete only by owner; counter fields (plays/rating/flagged/featured) are
+server-managed (not writable by owners). Client-side guards: daily publish
+rate-limit (`DAILY_PUBLISH_LIMIT = 10`), 50 KB level size cap
+(`MAX_LEVEL_BYTES`), 50-char name cap (`MAX_NAME_LENGTH`), profanity check
+on names. App Check enforcement is deferred to pre-launch.
+
+**Level codes** (`services/level-code.js`): `LOAF-XXXXXX` with a 31-char
+alphabet (no 0/1/I/L/O). ~887M combinations + retry-on-collision at
+publish time.
+
+**Editor integration**: A "☁ CLOUD" button in the top bar opens the community
+overlay with: Publish Current Level, Import by Code, and My Published Levels
+list (Load / Update / Delete). All async ops show a status line inside the
+overlay. Without network the overlay still opens but shows a readiness error
+— the rest of the editor works offline.
 
 ### Menu System (menu-scene.js)
 

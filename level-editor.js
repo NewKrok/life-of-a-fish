@@ -6,6 +6,11 @@
 
 import { TILE_SIZE } from './level-data.js';
 import { t } from './i18n.js';
+import {
+  hasBackend, getUid,
+  publishLevel, updateMyLevel, fetchLevelByCode, listMyLevels, deleteMyLevel,
+} from './services/backend.js';
+import { normalizeLevelCode, isValidLevelCode } from './services/level-code.js';
 
 // ── Tile palette definition ──
 // Each entry: { id, char, label, color, category, previewKey? }
@@ -196,8 +201,15 @@ export class LevelEditor {
     // Top bar button hit rects (set during render)
     this._saveBtnRect = null;
     this._loadBtnRect = null;
+    this._communityBtnRect = null;
     this._copyBtnRect = null;
     this._playBtnRect = null;
+
+    // Community overlay state (fetched when overlay opens)
+    this._communityLevels = [];
+    this._communityLoading = false;
+    this._communityStatus = '';
+    this._communityHoverIdx = -1;
 
     // Dirty flag for export
     this.dirty = false;
@@ -787,10 +799,11 @@ export class LevelEditor {
     const btnY = 5;
     const btnGap = 6;
 
-    // Buttons from right to left: Play, Copy, Load, Save
+    // Buttons from right to left: Play, Copy, Community, Load, Save
     const playBtnX = W - btnW - 10;
     const copyBtnX = playBtnX - btnW - btnGap;
-    const loadBtnX = copyBtnX - btnW - btnGap;
+    const communityBtnX = copyBtnX - btnW - btnGap;
+    const loadBtnX = communityBtnX - btnW - btnGap;
     const saveBtnX = loadBtnX - btnW - btnGap;
 
     // Save button
@@ -818,6 +831,19 @@ export class LevelEditor {
     ctx.font = "bold 9px 'Silkscreen', monospace";
     ctx.textAlign = 'center';
     ctx.fillText(t('editor.load'), loadBtnX + btnW / 2, btnY + 15);
+
+    // Community (cloud share) button
+    this._communityBtnRect = { x: communityBtnX, y: btnY, w: btnW, h: btnH };
+    const communityActive = this._overlayMode === 'community';
+    ctx.fillStyle = communityActive ? 'rgba(40, 160, 180, 0.9)' : 'rgba(30, 110, 130, 0.8)';
+    ctx.fillRect(communityBtnX, btnY, btnW, btnH);
+    ctx.strokeStyle = 'rgba(100, 220, 255, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(communityBtnX, btnY, btnW, btnH);
+    ctx.fillStyle = '#fff';
+    ctx.font = "bold 9px 'Silkscreen', monospace";
+    ctx.textAlign = 'center';
+    ctx.fillText(`\u2601 ${t('editor.community')}`, communityBtnX + btnW / 2, btnY + 15);
 
     // Copy (JSON clipboard) button
     this._copyBtnRect = { x: copyBtnX, y: btnY, w: btnW, h: btnH };
@@ -877,11 +903,15 @@ export class LevelEditor {
     ctx.strokeRect(panelX, panelY, panelW, panelH);
 
     // Title
-    const isSave = this._overlayMode === 'save';
+    const mode = this._overlayMode;
+    const isSave = mode === 'save';
+    const isCommunity = mode === 'community';
     ctx.fillStyle = '#ffd93d';
     ctx.font = "bold 12px 'Silkscreen', monospace";
     ctx.textAlign = 'center';
-    ctx.fillText(isSave ? t('editor.saveTitle') : t('editor.loadTitle'), panelX + panelW / 2, panelY + 22);
+    const title = isCommunity ? t('editor.communityTitle')
+      : isSave ? t('editor.saveTitle') : t('editor.loadTitle');
+    ctx.fillText(title, panelX + panelW / 2, panelY + 22);
 
     // Close button (top-right corner of panel)
     const closeBtnSize = 20;
@@ -896,6 +926,13 @@ export class LevelEditor {
     this._overlayBtnRects.push({ x: closeX, y: closeY, w: closeBtnSize, h: closeBtnSize, action: 'close' });
 
     let curY = panelY + 36;
+
+    // Community mode: dedicated layout (publish / import-by-code / my levels).
+    if (isCommunity) {
+      this._renderCommunityBody(ctx, panelX, panelY, panelW, panelH, curY);
+      ctx.restore();
+      return;
+    }
 
     // Save mode: name input + "Save New" button
     if (isSave) {
@@ -1109,6 +1146,26 @@ export class LevelEditor {
             this._promptJsonImport();
             return true;
           }
+          case 'communityPublish': {
+            this._handleCommunityPublish();
+            return true;
+          }
+          case 'communityImport': {
+            this._handleCommunityImport();
+            return true;
+          }
+          case 'communityLoad': {
+            this._handleCommunityLoad(btn.levelId);
+            return true;
+          }
+          case 'communityUpdate': {
+            this._handleCommunityUpdate(btn.levelId, btn.name);
+            return true;
+          }
+          case 'communityDelete': {
+            this._handleCommunityDelete(btn.levelId, btn.name);
+            return true;
+          }
           case 'editName': {
             const newName = prompt(t('editor.namePrompt'), this._overlayInputName || this._levelName || 'Untitled');
             if (newName !== null && newName.trim()) {
@@ -1140,12 +1197,282 @@ export class LevelEditor {
     }
   }
 
+  // ── Community overlay rendering & actions ──
+
+  _renderCommunityBody(ctx, panelX, panelY, panelW, panelH, startY) {
+    let curY = startY;
+    const pad = 12;
+    const rowH = 28;
+    const btnGap = 6;
+
+    // Row 1: Publish Current Level — full width
+    ctx.fillStyle = 'rgba(40, 140, 70, 0.9)';
+    ctx.fillRect(panelX + pad, curY, panelW - pad * 2, rowH);
+    ctx.strokeStyle = 'rgba(100, 255, 140, 0.5)';
+    ctx.strokeRect(panelX + pad, curY, panelW - pad * 2, rowH);
+    ctx.fillStyle = '#fff';
+    ctx.font = "bold 10px 'Silkscreen', monospace";
+    ctx.textAlign = 'center';
+    ctx.fillText(t('editor.communityPublish'), panelX + panelW / 2, curY + 18);
+    this._overlayBtnRects.push({ x: panelX + pad, y: curY, w: panelW - pad * 2, h: rowH, action: 'communityPublish' });
+    curY += rowH + btnGap;
+
+    // Row 2: Import by Code — full width
+    ctx.fillStyle = 'rgba(40, 100, 160, 0.9)';
+    ctx.fillRect(panelX + pad, curY, panelW - pad * 2, rowH);
+    ctx.strokeStyle = 'rgba(100, 180, 255, 0.5)';
+    ctx.strokeRect(panelX + pad, curY, panelW - pad * 2, rowH);
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.fillText(t('editor.communityImportByCode'), panelX + panelW / 2, curY + 18);
+    this._overlayBtnRects.push({ x: panelX + pad, y: curY, w: panelW - pad * 2, h: rowH, action: 'communityImport' });
+    curY += rowH + 10;
+
+    // Divider
+    ctx.strokeStyle = 'rgba(100, 200, 255, 0.2)';
+    ctx.beginPath();
+    ctx.moveTo(panelX + pad, curY);
+    ctx.lineTo(panelX + panelW - pad, curY);
+    ctx.stroke();
+    curY += 8;
+
+    // Header
+    ctx.fillStyle = 'rgba(200, 230, 255, 0.6)';
+    ctx.font = "9px 'Silkscreen', monospace";
+    ctx.textAlign = 'left';
+    ctx.fillText(t('editor.communityMyLevels'), panelX + pad, curY + 10);
+    curY += 18;
+
+    // List / loading / empty states
+    const listStartY = curY;
+    const listAreaH = panelY + panelH - curY - 28; // reserve 28 for status line
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(panelX, listStartY, panelW, listAreaH);
+    ctx.clip();
+
+    if (this._communityLoading) {
+      ctx.fillStyle = 'rgba(200, 230, 255, 0.5)';
+      ctx.font = "9px 'Silkscreen', monospace";
+      ctx.textAlign = 'center';
+      ctx.fillText(t('editor.communityLoading'), panelX + panelW / 2, listStartY + 20);
+    } else if (this._communityLevels.length === 0) {
+      ctx.fillStyle = 'rgba(200, 230, 255, 0.3)';
+      ctx.font = "9px 'Silkscreen', monospace";
+      ctx.textAlign = 'center';
+      ctx.fillText(t('editor.communityEmpty'), panelX + panelW / 2, listStartY + 20);
+    } else {
+      const itemH = 36;
+      const itemGap = 4;
+      for (let i = 0; i < this._communityLevels.length; i++) {
+        const lvl = this._communityLevels[i];
+        const sy = listStartY + i * (itemH + itemGap) - this._overlayScroll;
+        if (sy + itemH < listStartY || sy > listStartY + listAreaH) continue;
+
+        const isHover = this._communityHoverIdx === i;
+
+        // Item background
+        ctx.fillStyle = isHover ? 'rgba(40, 80, 120, 0.8)' : 'rgba(20, 40, 60, 0.6)';
+        ctx.fillRect(panelX + 8, sy, panelW - 16, itemH);
+        ctx.strokeStyle = isHover ? 'rgba(100, 200, 255, 0.5)' : 'rgba(100, 200, 255, 0.2)';
+        ctx.strokeRect(panelX + 8, sy, panelW - 16, itemH);
+
+        // Name
+        ctx.fillStyle = '#fff';
+        ctx.font = "bold 10px 'Silkscreen', monospace";
+        ctx.textAlign = 'left';
+        ctx.fillText((lvl.name || '?').substring(0, 22), panelX + 16, sy + 14);
+
+        // Code + updatedAt
+        ctx.fillStyle = 'rgba(200, 230, 255, 0.5)';
+        ctx.font = "8px 'Silkscreen', monospace";
+        ctx.fillText(lvl.code || '', panelX + 16, sy + 28);
+        const dateStr = lvl.updatedAt ? _formatDate(new Date(lvl.updatedAt).toISOString()) : '';
+        ctx.fillText(dateStr, panelX + 120, sy + 28);
+
+        // Action buttons on right side: Load | Update | Delete
+        const actBtnW = 32;
+        const actH = itemH - 8;
+        const delX = panelX + panelW - 16 - actBtnW;
+        const updX = delX - actBtnW - 2;
+        const loadX = updX - actBtnW - 2;
+
+        ctx.fillStyle = 'rgba(40, 120, 80, 0.8)';
+        ctx.fillRect(loadX, sy + 4, actBtnW, actH);
+        ctx.fillStyle = '#fff';
+        ctx.font = "bold 8px 'Silkscreen', monospace";
+        ctx.textAlign = 'center';
+        ctx.fillText(t('editor.loadBtn'), loadX + actBtnW / 2, sy + itemH / 2 + 3);
+        this._overlayBtnRects.push({ x: loadX, y: sy + 4, w: actBtnW, h: actH, action: 'communityLoad', levelId: lvl.levelId });
+
+        ctx.fillStyle = 'rgba(140, 120, 40, 0.8)';
+        ctx.fillRect(updX, sy + 4, actBtnW, actH);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(t('editor.communityUpdateBtn'), updX + actBtnW / 2, sy + itemH / 2 + 3);
+        this._overlayBtnRects.push({ x: updX, y: sy + 4, w: actBtnW, h: actH, action: 'communityUpdate', levelId: lvl.levelId, name: lvl.name });
+
+        ctx.fillStyle = 'rgba(120, 40, 40, 0.7)';
+        ctx.fillRect(delX, sy + 4, actBtnW, actH);
+        ctx.fillStyle = '#fff';
+        ctx.fillText('\u2715', delX + actBtnW / 2, sy + itemH / 2 + 3);
+        this._overlayBtnRects.push({ x: delX, y: sy + 4, w: actBtnW, h: actH, action: 'communityDelete', levelId: lvl.levelId, name: lvl.name });
+      }
+    }
+    ctx.restore();
+
+    // Status line (bottom)
+    if (this._communityStatus) {
+      ctx.fillStyle = 'rgba(255, 230, 180, 0.8)';
+      ctx.font = "9px 'Silkscreen', monospace";
+      ctx.textAlign = 'center';
+      ctx.fillText(this._communityStatus.substring(0, 60), panelX + panelW / 2, panelY + panelH - 10);
+    }
+  }
+
+  async _refreshMyCommunityLevels() {
+    if (!hasBackend() || !getUid()) {
+      this._communityLevels = [];
+      this._communityLoading = false;
+      this._communityStatus = t('editor.communityNotReady');
+      this.dirty = true;
+      return;
+    }
+    this._communityLoading = true;
+    this.dirty = true;
+    try {
+      const levels = await listMyLevels();
+      this._communityLevels = levels;
+      this._communityStatus = '';
+    } catch (err) {
+      this._communityLevels = [];
+      this._communityStatus = this._formatBackendError(err);
+    } finally {
+      this._communityLoading = false;
+      this.dirty = true;
+    }
+  }
+
+  _formatBackendError(err) {
+    const code = err && err.code ? err.code : 'unknown';
+    const key = 'editor.communityErr.' + code;
+    const localized = t(key);
+    // If i18n returned the key itself (no translation), fall back to message
+    if (localized === key) return err.message || code;
+    return localized;
+  }
+
+  async _handleCommunityPublish() {
+    if (!hasBackend() || !getUid()) {
+      this._communityStatus = t('editor.communityNotReady');
+      this.dirty = true;
+      return;
+    }
+    const name = prompt(t('editor.communityPublishNamePrompt'), this._levelName || 'Untitled');
+    if (!name) return;
+    const data = this.serializeLevel();
+    this._communityStatus = t('editor.communityPublishing');
+    this.dirty = true;
+    try {
+      const { code } = await publishLevel(data, { name });
+      this._communityStatus = t('editor.communityPublishedWithCode', { code });
+      this._showToast(t('editor.communityPublishedWithCode', { code }));
+      await this._refreshMyCommunityLevels();
+    } catch (err) {
+      this._communityStatus = this._formatBackendError(err);
+      this.dirty = true;
+    }
+  }
+
+  async _handleCommunityImport() {
+    if (!hasBackend() || !getUid()) {
+      this._communityStatus = t('editor.communityNotReady');
+      this.dirty = true;
+      return;
+    }
+    const raw = prompt(t('editor.communityImportPrompt'));
+    if (!raw) return;
+    const norm = normalizeLevelCode(raw);
+    if (!isValidLevelCode(norm)) {
+      this._communityStatus = t('editor.communityErr.bad-code');
+      this.dirty = true;
+      return;
+    }
+    this._communityStatus = t('editor.communityFetching');
+    this.dirty = true;
+    try {
+      const lvl = await fetchLevelByCode(norm);
+      if (this.deserializeLevel(lvl.data)) {
+        this._levelName = lvl.name || 'Untitled';
+        this._communityStatus = t('editor.communityFetched', { name: lvl.name });
+        this._showToast(t('editor.communityFetched', { name: lvl.name }));
+        this._overlayMode = null;
+      } else {
+        this._communityStatus = t('editor.communityErr.bad-level');
+      }
+    } catch (err) {
+      this._communityStatus = this._formatBackendError(err);
+    } finally {
+      this.dirty = true;
+    }
+  }
+
+  async _handleCommunityLoad(levelId) {
+    const lvl = this._communityLevels.find(l => l.levelId === levelId);
+    if (!lvl) return;
+    if (this.deserializeLevel(lvl.data)) {
+      this._levelName = lvl.name || 'Untitled';
+      this._showToast(t('editor.loadedToast', { name: lvl.name || '?' }));
+      this._overlayMode = null;
+    } else {
+      this._communityStatus = t('editor.communityErr.bad-level');
+      this.dirty = true;
+    }
+  }
+
+  async _handleCommunityUpdate(levelId, currentName) {
+    if (!hasBackend() || !getUid()) {
+      this._communityStatus = t('editor.communityNotReady');
+      this.dirty = true;
+      return;
+    }
+    if (!confirm(t('editor.communityUpdateConfirm', { name: currentName }))) return;
+    const data = this.serializeLevel();
+    this._communityStatus = t('editor.communityPublishing');
+    this.dirty = true;
+    try {
+      await updateMyLevel(levelId, data, { name: currentName });
+      this._communityStatus = t('editor.communityUpdated');
+      await this._refreshMyCommunityLevels();
+    } catch (err) {
+      this._communityStatus = this._formatBackendError(err);
+      this.dirty = true;
+    }
+  }
+
+  async _handleCommunityDelete(levelId, name) {
+    if (!confirm(t('editor.communityDeleteConfirm', { name }))) return;
+    try {
+      await deleteMyLevel(levelId);
+      this._communityStatus = t('editor.communityDeleted');
+      await this._refreshMyCommunityLevels();
+    } catch (err) {
+      this._communityStatus = this._formatBackendError(err);
+      this.dirty = true;
+    }
+  }
+
   _openOverlay(mode) {
     this._overlayMode = mode;
     this._overlaySlots = LevelEditor.getSavedLevels();
     this._overlayScroll = 0;
     this._overlayHoverIdx = -1;
     this._overlayDeleteIdx = -1;
+    this._communityHoverIdx = -1;
+    if (mode === 'community') {
+      this._communityStatus = '';
+      this._refreshMyCommunityLevels();
+    }
     if (mode === 'save') {
       this._overlayInputName = this._levelName || 'Untitled';
     }
@@ -2420,6 +2747,10 @@ export class LevelEditor {
         }
         if (hitBtn(this._loadBtnRect)) {
           this._openOverlay('load');
+          return;
+        }
+        if (hitBtn(this._communityBtnRect)) {
+          this._openOverlay('community');
           return;
         }
         if (hitBtn(this._copyBtnRect)) {

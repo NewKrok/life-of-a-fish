@@ -31,6 +31,8 @@ import { LevelEditor, generateEditorPreviews } from './level-editor.js';
 import { GameStateMachine, STATE } from './game-state.js';
 import { generateCodexPreviews } from './codex-renderer.js';
 import { initI18n, t, translateDOM, setLocale, getLocale, onLocaleChange } from './i18n.js';
+import { installFirebaseBackend } from './services/firebase-backend.js';
+import { initBackend } from './services/backend.js';
 
 // ── Three.js import ──
 import * as THREE from "three";
@@ -38,6 +40,15 @@ import * as THREE from "three";
 // ── i18n init (must resolve before any text rendering) ──
 await initI18n();
 translateDOM();
+
+// ── Backend bootstrap ──
+// Install Firebase impl and kick off anonymous sign-in in the background.
+// We don't await here — the game works offline and features that need the
+// backend (Publish, Import-by-code, My Levels) check for readiness themselves.
+installFirebaseBackend();
+initBackend().catch((err) => {
+  console.warn('[backend] init failed (community features disabled):', err);
+});
 
 // Sync language selector to current locale
 const _langSelect = document.getElementById('langSelect');

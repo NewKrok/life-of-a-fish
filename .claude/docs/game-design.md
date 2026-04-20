@@ -325,7 +325,7 @@ Plus ~25 hidden bottle messages and the Codex encyclopedia.
 | 18 | Editor state machine | Centralized state machine for menu/game/editor/playtest transitions | **Done** |
 | 19 | Undo/Redo | Command pattern undo/redo for all editor operations | **Done** |
 | 20 | Local Save/Load + JSON format | localStorage save/load, JSON export/import (= server format) | **Done** |
-| 21 | Level Sharing Backend (Firebase) | Firestore + Auth + Cloud Functions for community levels | Pending |
+| 21 | Level Sharing Backend (Firebase) | Firestore + anonymous Auth; publish/import/my-levels via editor Cloud button. No Cloud Functions yet (Spark-tier). See SETUP.md | **Done** |
 | 22 | Community Level Browser UI | Browse/search/rate community levels, level codes | Pending |
 | 23 | Cross-platform Auth | Google/Apple/Steam login with anonymous upgrade | Pending |
 

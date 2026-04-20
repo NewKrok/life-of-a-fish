@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@newkrok/nape-js": "^3.26.0",
+    "firebase": "^12.12.0",
     "three": "^0.170.0"
   }
 }
